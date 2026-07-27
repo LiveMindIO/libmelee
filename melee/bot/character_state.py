@@ -147,6 +147,75 @@ _LEDGE_GETUP_ACTIONS: Final = frozenset(
         Action.EDGE_JUMP_2_QUICK,
     }
 )
+# Actions where the character is on the ground after a knockdown. The broad
+# family covers everything classified as :attr:`CharacterStatus.Downed` by
+# :func:`get_state`: lying idle, taking damage while down, missed-tech
+# bounce, and committed passive getup options (stand/spot/attack). The
+# subset :data:`_VULNERABLE_KNOCKDOWN_ACTIONS` excludes the getup options —
+# those are still classified as ``Downed`` (the player is locked into the
+# animation and cannot attack), but :func:`is_downed` excludes them because
+# the character is no longer "lying on the ground vulnerable": they have
+# committed to standing up / attacking, with body-property invulnerability
+# frames during the getup animation.
+#
+# Active roll getup options (``GROUND_ROLL_*_UP`` / ``GROUND_ROLL_*_DOWN`` /
+# ``GROUND_ROLL_SPOT_DOWN``) are intentionally EXCLUDED from the broad family
+# entirely — once the player commits to a roll from knockdown the character
+# has full invulnerability and is effectively dodging, not lying down.
+# Those actions live in :data:`_GETUP_ROLL_ACTIONS` and classify as
+# :attr:`CharacterStatus.Dodging`.
+_KNOCKDOWN_ACTIONS: Final = frozenset(
+    {
+        # Lying idle / being hit while down:
+        Action.LYING_GROUND_UP,
+        Action.LYING_GROUND_UP_HIT,
+        Action.LYING_GROUND_DOWN,
+        Action.DAMAGE_GROUND,
+        # Missed-tech bounce (failed to tech a knockdown):
+        Action.TECH_MISS_UP,
+        Action.TECH_MISS_DOWN,
+        # Committed passive getup options (player chose to stand / spot / attack
+        # without rolling):
+        Action.GROUND_GETUP,
+        Action.NEUTRAL_GETUP,
+        Action.GETUP_ATTACK,
+        Action.GROUND_ATTACK_UP,
+        Action.GROUND_SPOT_UP,
+    }
+)
+# Active dodge getup options: the player committed to a roll or spot-dodge
+# from knockdown. These provide invulnerability and behave like normal rolls
+# / spot dodges (``CharacterStatus.Dodging``), NOT knockdown. 4 of the 5
+# are also in libmelee ``FrameData.is_roll``; ``GROUND_ROLL_SPOT_DOWN``
+# (knockdown spot-dodge) is libmelee-omitted so we maintain our own bucket.
+_GETUP_ROLL_ACTIONS: Final = frozenset(
+    {
+        Action.GROUND_ROLL_FORWARD_UP,
+        Action.GROUND_ROLL_BACKWARD_UP,
+        Action.GROUND_ROLL_FORWARD_DOWN,
+        Action.GROUND_ROLL_BACKWARD_DOWN,
+        Action.GROUND_ROLL_SPOT_DOWN,
+    }
+)
+# In-progress passive getup animations: the player committed to stand up /
+# spot / attack (no roll). Animation plays out with body-property
+# invulnerability and the character will stand at the end. Useful for bots
+# that want to "skip" the wait (release inputs) until standing again. Roll
+# getups are intentionally excluded (see :data:`_GETUP_ROLL_ACTIONS`).
+_GETTING_UP_ACTIONS: Final = frozenset(
+    {
+        Action.GROUND_GETUP,
+        Action.NEUTRAL_GETUP,
+        Action.GETUP_ATTACK,
+        Action.GROUND_ATTACK_UP,
+        Action.GROUND_SPOT_UP,
+    }
+)
+# Truly vulnerable knockdown actions: lying idle / taking damage while down /
+# missed-tech bounce. The character is on the ground without an active
+# getup animation, fully vulnerable. This is what :func:`is_downed` checks —
+# computed as :data:`_KNOCKDOWN_ACTIONS` minus :data:`_GETTING_UP_ACTIONS`.
+_VULNERABLE_KNOCKDOWN_ACTIONS: Final = _KNOCKDOWN_ACTIONS - _GETTING_UP_ACTIONS
 _TAUNT_ACTIONS: Final = frozenset(
     {
         Action.TAUNT_LEFT,
@@ -271,20 +340,109 @@ class CharacterStatus(Enum):
     """
 
     GrabbingLedge = auto()
+    """Hanging from a ledge (``EDGE_HANGING``). The character is attached to a
+    stage edge and can choose a getup option (neutral/roll/attack/jump/let-go).
+    Blocks attack, grab, and shield input until a ledge getup begins."""
+
     Attacking = auto()
+    """An attack with active or upcoming hitboxes, caught via libmelee
+    ``FrameData.is_attack`` or membership in ``_ALL_ATTACK_ACTIONS``. Includes
+    ground normals/tilts/smashes, aerials, specials, and getup attacks.
+    Blocks new attack/grab input until the move ends."""
+
     Taunting = auto()
+    """A taunt animation (``TAUNT_LEFT`` / ``TAUNT_RIGHT``). Blocks all combat
+    input for the duration. Cosmetic only; never deals damage."""
+
     Hitstun = auto()
+    """Real hitstun: ``hitstun_frames_left > 0`` AND the action is not one
+    where Slippi leaves a stale ``hitstun_frames_left=1`` false-positive
+    (lying, locomotion, attack, shield, roll, tech, grab, etc. — see
+    :func:`_stale_hitstun_is_actionable`). The character cannot act.
+    Distinct from :attr:`HitLag` (frozen on hit connect) and from
+    :attr:`Downed` (lying on the ground after knockdown but able to choose a
+    getup). When ``hitstun_frames_left > 1`` on a knockdown action, the state
+    is reported as :attr:`Hitstun` (real knockdown hitstun) rather than
+    :attr:`Downed`."""
+
     HitLag = auto()
+    """Hitlag: ``hitlag_left > 0``. Both attacker and defender freeze briefly
+    when a hit connects. The character is locked out of all input until hitlag
+    clears; treated as a subset of hitstun by :func:`in_hitstun`."""
+
     Shielding = auto()
+    """Holding shield (``SHIELD`` / ``SHIELD_START`` / ``SHIELD_REFLECT`` /
+    ``SHIELD_STUN`` / ``SHIELD_RELEASE``). Blocks attack/grab input but allows
+    grab out of shield (``can_grab`` permits this as a special case)."""
+
     ShieldBroken = auto()
+    """Shield-break animation suite (``SHIELD_BREAK_FLY`` through
+    ``SHIELD_BREAK_STAND_D`` and ``SHIELD_BREAK_TEETER``). The character is
+    stun-locked for an extended duration; blocks all input."""
+
     Dodging = auto()
+    """A roll, spot-dodge, or air-dodge (caught via libmelee
+    ``FrameData.is_roll``: ``SPOTDODGE``, ``ROLL_FORWARD``,
+    ``ROLL_BACKWARD``, successful techs ``NEUTRAL_TECH`` / ``FORWARD_TECH``
+    / ``BACKWARD_TECH``, ledge rolls/getups if not caught earlier, etc.). The
+    character is intangible or has body-property invulnerability for part of
+    the animation. Also includes the 5 active roll-getup options from
+    knockdown (``GROUND_ROLL_*_UP`` / ``GROUND_ROLL_*_DOWN`` /
+    ``GROUND_ROLL_SPOT_DOWN`` — see :data:`_GETUP_ROLL_ACTIONS`): once the
+    player commits to a roll from knockdown they are dodging, not lying
+    down."""
+
     GrabbedByEnemy = auto()
+    """Held in an opponent's grab (``GRABBED`` / ``GRABBED_WAIT_HIGH`` /
+    ``GRAB_PULL`` / ``GRAB_PUMMELED`` / ``PUMMELED_HIGH`` / ``GRAB_ESCAPE`` /
+    ``GRAB_NECK`` / ``GRAB_FOOT``). Blocks all input except mash-out."""
+
     GrabbingEnemy = auto()
+    """Grabbing or throwing an opponent (``GRAB`` / ``GRAB_PULLING`` /
+    ``GRAB_RUNNING`` / ``GRAB_RUNNING_PULLING`` / ``GRAB_WAIT`` /
+    ``GRAB_PUMMEL`` / ``GRAB_BREAK`` / ``GRAB_PULLING_HIGH`` /
+    ``THROW_FORWARD`` / ``THROW_BACK`` / ``THROW_UP`` / ``THROW_DOWN``).
+    Blocks new grab input; allows pummel/throw direction."""
+
     CarryingEnemy = auto()
+    """Cargo-carrying a grabbed opponent (``GRAB_JUMP``, used by DK's
+    forward-throw cargo carry). A specialized grab state."""
+
+    Downed = auto()
+    """On the ground after a knockdown, in a vulnerable or recovering state:
+    lying idle (``LYING_GROUND_UP`` / ``LYING_GROUND_UP_HIT`` /
+    ``LYING_GROUND_DOWN``), taking damage while down (``DAMAGE_GROUND``),
+    missed-tech bounce (``TECH_MISS_UP`` / ``TECH_MISS_DOWN``), or a committed
+    passive getup animation (``GROUND_GETUP`` / ``NEUTRAL_GETUP`` /
+    ``GETUP_ATTACK`` / ``GROUND_ATTACK_UP`` / ``GROUND_SPOT_UP``). When
+    ``hitstun_frames_left > 1`` on one of these, :meth:`get_state` reports
+    :attr:`Hitstun` instead (real knockdown hitstun); when stale (=1) the
+    character is actionable and reported as :attr:`Downed`. Blocks attack and
+    grab input so naive bots release inputs; bots with explicit getup
+    dispatch should check :meth:`is_downed` / :meth:`is_getting_up` first.
+    Distinct from :attr:`Dodging` (successful techs classify as Dodging, not
+    Downed). Active roll getup options (``GROUND_ROLL_*_UP`` /
+    ``GROUND_ROLL_*_DOWN`` / ``GROUND_ROLL_SPOT_DOWN``) are also excluded;
+    once the player commits to a roll from knockdown they are dodging, not
+    lying down."""
+
     Standing = auto()
+    """Grounded, on-stage, neither walking nor running (``STANDING``,
+    ``CROUCH_*``, ``TURNING`` without run, ``KNEE_BEND`` jump startup,
+    landings that don't transition elsewhere). Default actionable ground
+    state."""
+
     InAir = auto()
+    """Airborne without an active attack, grab, or tumble (``FALLING*``,
+    ``JUMPING_*``). Actionable for aerials and air dodge."""
+
     Walking = auto()
+    """Walking (``WALK_SLOW`` / ``WALK_MIDDLE`` / ``WALK_FAST`` / ``TURNING``
+    from walk). Actionable."""
+
     Running = auto()
+    """Running (``DASHING`` / ``RUNNING`` / ``RUN_DIRECT`` / ``RUN_BRAKE`` /
+    ``TURNING_RUN``). Actionable; ``DASH_ATTACK`` requires being here."""
 
 
 # CharacterStatus values where standard attack/shield input cannot begin.
@@ -298,6 +456,7 @@ _BLOCKS_ATTACK_INPUT: Final = frozenset(
         CharacterStatus.Shielding,
         CharacterStatus.Dodging,
         CharacterStatus.Taunting,
+        CharacterStatus.Downed,
     }
 )
 
@@ -305,6 +464,7 @@ _BLOCKS_ATTACK_INPUT: Final = frozenset(
 # States where grab input cannot begin. Unlike ``_BLOCKS_ATTACK_INPUT``, shield
 # is NOT blocked (grab out of shield is allowed), but Attacking, GrabbingEnemy,
 # and CarryingEnemy ARE blocked (can't start a new grab mid-attack or mid-grab).
+# Downed is also blocked (knockdown lying/getup states can't start a grab).
 _BLOCKS_GRAB_INPUT: Final = frozenset(
     {
         CharacterStatus.HitLag,
@@ -317,6 +477,7 @@ _BLOCKS_GRAB_INPUT: Final = frozenset(
         CharacterStatus.Attacking,
         CharacterStatus.GrabbingEnemy,
         CharacterStatus.CarryingEnemy,
+        CharacterStatus.Downed,
     }
 )
 
@@ -503,131 +664,236 @@ class CharacterState:
         return self._port
 
     @property
+    def position_x(self) -> float:
+        """Horizontal stage position of the bound port (negative = left).
+
+        Returns 0.0 when the port is absent from the snapshot.
+        """
+        player = self._game_state.players.get(self._port)
+        if player is None:
+            return 0.0
+        return float(player.position.x)
+
+    @property
+    def position_y(self) -> float:
+        """Vertical position of the bound port (positive = above stage).
+
+        Returns 0.0 when the port is absent from the snapshot.
+        """
+        player = self._game_state.players.get(self._port)
+        if player is None:
+            return 0.0
+        return float(player.position.y)
+
+    @property
+    def speed_air_x_self(self) -> float:
+        """Self-induced horizontal air speed (see libmelee :class:`PlayerState`).
+
+        Returns 0.0 when the port is absent from the snapshot.
+        """
+        player = self._game_state.players.get(self._port)
+        if player is None:
+            return 0.0
+        return float(player.speed_air_x_self)
+
+    @property
+    def speed_ground_x_self(self) -> float:
+        """Self-induced horizontal ground speed (see libmelee :class:`PlayerState`).
+
+        Returns 0.0 when the port is absent from the snapshot.
+        """
+        player = self._game_state.players.get(self._port)
+        if player is None:
+            return 0.0
+        return float(player.speed_ground_x_self)
+
+    @property
+    def speed_y_self(self) -> float:
+        """Self-induced vertical speed (see libmelee :class:`PlayerState`).
+
+        Negative values are downward. Returns 0.0 when the port is absent.
+        """
+        player = self._game_state.players.get(self._port)
+        if player is None:
+            return 0.0
+        return float(player.speed_y_self)
+
+    @property
+    def speed_x_attack(self) -> float:
+        """Knockback / attack-induced horizontal speed (libmelee ``PlayerState``).
+
+        Returns 0.0 when the port is absent from the snapshot.
+        """
+        player = self._game_state.players.get(self._port)
+        if player is None:
+            return 0.0
+        return float(player.speed_x_attack)
+
+    @property
+    def speed_y_attack(self) -> float:
+        """Knockback / attack-induced vertical speed (libmelee ``PlayerState``).
+
+        Returns 0.0 when the port is absent from the snapshot.
+        """
+        player = self._game_state.players.get(self._port)
+        if player is None:
+            return 0.0
+        return float(player.speed_y_attack)
+
+    @property
     def frame_data(self) -> FrameData:
         """Shared libmelee :class:`FrameData` helper used by classification."""
         return self._frame_data
 
-    def player(self, player: LibPlayerState | None = None) -> LibPlayerState | None:
-        """Return the ``PlayerState`` that state checks operate on.
+    def player(self) -> LibPlayerState | None:
+        """Return the raw libmelee :class:`PlayerState` for the bound port.
 
-        When ``player`` is provided, return it unchanged; otherwise resolve the
-        port bound at construction. Returns ``None`` when the port is absent.
+        Returns ``None`` when the port is absent from the current snapshot.
+        Bots that need per-frame fields (``position``, ``facing``, ``percent``,
+        ``action``, ...) should go through this rather than reconstructing a
+        ``PlayerState`` lookup.
         """
-        if player is not None:
-            return player
         return self._game_state.players.get(self._port)
 
-    def get_state(self, player: LibPlayerState | None = None) -> CharacterStatus:
+    def get_state(self) -> CharacterStatus:
         """Return the high-level :class:`CharacterStatus` of the bound port.
 
         Applies the Slippi false-hitstun guard: stale ``hitstun_frames_left``
         while the character is already actionable is reported as locomotion or
         combat state, not :attr:`CharacterStatus.Hitstun`.
         """
-        target = self.player(player)
+        target = self.player()
         if target is None:
             return CharacterStatus.Standing
         return get_state(target, self._frame_data)
 
-    def in_hitstun(self, player: LibPlayerState | None = None) -> bool:
+    def in_hitstun(self) -> bool:
         """Return whether the port is in hitlag or real hitstun."""
-        target = self.player(player)
+        target = self.player()
         if target is None:
             return False
         return in_hitstun(target, self._frame_data)
 
-    def is_grabbed(self, player: LibPlayerState | None = None) -> bool:
+    def is_grabbed(self) -> bool:
         """Return whether the port is being held by an opponent's grab."""
-        target = self.player(player)
+        target = self.player()
         if target is None:
             return False
         return is_grabbed(target, self._frame_data)
 
-    def is_grabbing(self, player: LibPlayerState | None = None) -> bool:
+    def is_grabbing(self) -> bool:
         """Return whether the port is grabbing or cargo-carrying an opponent."""
-        target = self.player(player)
+        target = self.player()
         if target is None:
             return False
         return is_grabbing(target, self._frame_data)
 
-    def is_carrying_enemy(self, player: LibPlayerState | None = None) -> bool:
+    def is_carrying_enemy(self) -> bool:
         """Return whether the port is cargo-carrying a grabbed opponent."""
-        target = self.player(player)
+        target = self.player()
         if target is None:
             return False
         return is_carrying_enemy(target, self._frame_data)
 
-    def is_shielding(self, player: LibPlayerState | None = None) -> bool:
+    def is_shielding(self) -> bool:
         """Return whether the port is holding or stunned in shield (not broken)."""
-        target = self.player(player)
+        target = self.player()
         if target is None:
             return False
         return is_shielding(target, self._frame_data)
 
-    def is_shield_broken(self, player: LibPlayerState | None = None) -> bool:
+    def is_shield_broken(self) -> bool:
         """Return whether the port is in a shield-break animation."""
-        target = self.player(player)
+        target = self.player()
         if target is None:
             return False
         return is_shield_broken(target, self._frame_data)
 
-    def is_dodging(self, player: LibPlayerState | None = None) -> bool:
+    def is_dodging(self) -> bool:
         """Return whether the port is in a roll or spot-dodge animation."""
-        target = self.player(player)
+        target = self.player()
         if target is None:
             return False
         return is_dodging(target, self._frame_data)
 
-    def is_grabbing_ledge(self, player: LibPlayerState | None = None) -> bool:
+    def is_downed(self) -> bool:
+        """Return whether the port is lying vulnerable on the ground in a
+        knockdown state.
+
+        See :func:`is_downed` for semantics. Bots with explicit getup dispatch
+        should call this before :meth:`can_attack` so they reach their getup
+        logic instead of being blocked by the ``Downed`` ->
+        ``_BLOCKS_ATTACK_INPUT`` rule.
+        """
+        target = self.player()
+        if target is None:
+            return False
+        return is_downed(target, self._frame_data)
+
+    def is_getting_up(self) -> bool:
+        """Return whether the port is in a committed passive getup animation
+        (stand / spot / attack from a knockdown).
+
+        See :func:`is_getting_up` for semantics. Disjoint from
+        :meth:`is_downed` — when ``is_getting_up()`` is ``True``, the
+        character is no longer lying vulnerable (they have committed to
+        a getup animation with invulnerability frames).
+        """
+        target = self.player()
+        if target is None:
+            return False
+        return is_getting_up(target, self._frame_data)
+
+    def is_grabbing_ledge(self) -> bool:
         """Return whether the port is hanging from a ledge."""
-        target = self.player(player)
+        target = self.player()
         if target is None:
             return False
         return is_grabbing_ledge(target, self._frame_data)
 
-    def can_attack(self, player: LibPlayerState | None = None) -> bool:
+    def can_attack(self) -> bool:
         """Return whether standard attack input is not blocked by combat state."""
-        target = self.player(player)
+        target = self.player()
         if target is None:
             return False
         return can_attack(target, self._frame_data)
 
-    def can_shield(self, player: LibPlayerState | None = None) -> bool:
+    def can_shield(self) -> bool:
         """Return whether shield input is not blocked by combat state."""
-        target = self.player(player)
+        target = self.player()
         if target is None:
             return False
         return can_shield(target, self._frame_data)
 
-    def can_grab(self, player: LibPlayerState | None = None) -> bool:
+    def can_grab(self) -> bool:
         """Return whether a grounded grab could start (including out of shield)."""
-        target = self.player(player)
+        target = self.player()
         if target is None:
             return False
         return can_grab(target, self._frame_data)
 
-    def can_z_air(self, player: LibPlayerState | None = None) -> bool:
+    def can_z_air(self) -> bool:
         """Return whether a tether Z Air could start in the current air state."""
-        target = self.player(player)
+        target = self.player()
         if target is None:
             return False
         return can_z_air(target, self._frame_data)
 
-    def can_air_attack(self, player: LibPlayerState | None = None) -> bool:
+    def can_air_attack(self) -> bool:
         """Return whether an aerial could start from the current action state."""
-        target = self.player(player)
+        target = self.player()
         if target is None:
             return False
         return can_air_attack(target, self._frame_data)
 
-    def is_taunting(self, player: LibPlayerState | None = None) -> bool:
+    def is_taunting(self) -> bool:
         """Return whether the controlled port is in a taunt animation."""
-        target = self.player(player)
+        target = self.player()
         if target is None:
             return False
         return is_taunting(target, self._frame_data)
 
-    def can_taunt(self, player: LibPlayerState | None = None) -> bool:
+    def can_taunt(self) -> bool:
         """Return whether taunt input could start from the current state.
 
         Does not consider an active taunt animation — use :meth:`is_taunting`
@@ -635,7 +901,7 @@ class CharacterState:
         than :meth:`can_attack` because taunt also fails during grab animations
         and while airborne.
         """
-        target = self.player(player)
+        target = self.player()
         if target is None:
             return False
         return can_taunt(target, self._frame_data)
@@ -688,6 +954,10 @@ def get_state(player: LibPlayerState, frame_data: FrameData) -> CharacterStatus:
         return CharacterStatus.ShieldBroken
     if _in_real_hitstun(player, frame_data):
         return CharacterStatus.Hitstun
+    if isinstance(player.action, Action) and player.action in _GETUP_ROLL_ACTIONS:
+        return CharacterStatus.Dodging
+    if isinstance(player.action, Action) and player.action in _KNOCKDOWN_ACTIONS:
+        return CharacterStatus.Downed
     if isinstance(player.action, Action) and frame_data.is_shield(player.action):
         return CharacterStatus.Shielding
     if isinstance(player.action, Action) and player.action in _TAUNT_ACTIONS:
@@ -754,6 +1024,64 @@ def is_grabbing_ledge(player: LibPlayerState, frame_data: FrameData) -> bool:
 def is_dodging(player: LibPlayerState, frame_data: FrameData) -> bool:
     """Return whether ``player`` is in a roll or spot-dodge animation."""
     return get_state(player, frame_data) is CharacterStatus.Dodging
+
+
+def is_downed(player: LibPlayerState, frame_data: FrameData) -> bool:
+    """Return whether ``player`` is currently lying vulnerable on the ground
+    in a knockdown state.
+
+    Covers only the truly vulnerable knockdown actions: lying idle
+    (``LYING_GROUND_*``), taking damage while down (``DAMAGE_GROUND``), and
+    missed-tech bounce (``TECH_MISS_*``). The character is fully vulnerable —
+    no invulnerability frames, no committed getup animation in-progress.
+
+    Excluded by design:
+
+    * **Committed passive getups** (``GROUND_GETUP`` / ``NEUTRAL_GETUP`` /
+      ``GETUP_ATTACK`` / ``GROUND_ATTACK_UP`` / ``GROUND_SPOT_UP``) — these
+      have body-property invulnerability frames during the getup animation.
+      Use :func:`is_getting_up` to detect them.
+    * **Active roll getups** (``GROUND_ROLL_*``) — these are full dodges
+      (have invulnerability), classify as :attr:`CharacterStatus.Dodging`,
+      and never counted as ``Downed``.
+
+    Distinct from :func:`get_state` returning :attr:`CharacterStatus.Downed`:
+    that classification is broader because it catches both vulnerable
+    knockdown and committed passive getups for the purpose of blocking
+    attack/grab input. When real hitstun (>1 frame) is active on a knocked-
+    down action, :func:`get_state` reports :attr:`CharacterStatus.Hitstun`
+    instead, but this function still returns ``True`` — the underlying
+    action is still a vulnerable knockdown action regardless of hitstun.
+
+    Bots with explicit getup dispatch should call this before :func:`can_attack`
+    so they reach their getup logic instead of being blocked by the
+    ``Downed`` -> ``_BLOCKS_ATTACK_INPUT`` rule.
+    """
+    del frame_data
+    if not isinstance(player.action, Action):
+        return False
+    return player.action in _VULNERABLE_KNOCKDOWN_ACTIONS
+
+
+def is_getting_up(player: LibPlayerState, frame_data: FrameData) -> bool:
+    """Return whether ``player`` is in a committed passive getup animation.
+
+    The player has committed to a stand / spot / attack getup option from a
+    knockdown (no roll selected). The animation is in-progress and cannot be
+    canceled; the character has body-property invulnerability frames for part
+    of it. Useful for bots that want to skip releasing inputs once a getup
+    is already committed, vs. waiting on the lying-down decision window.
+
+    Disjoint from :func:`is_downed` — when ``is_getting_up()`` is ``True``,
+    ``is_downed()`` is ``False`` (the character is no longer vulnerable /
+    lying idle). Both still classify as :attr:`CharacterStatus.Downed` under
+    :func:`get_state`. Active roll getups are excluded here too (see
+    :data:`_GETUP_ROLL_ACTIONS`).
+    """
+    del frame_data
+    if not isinstance(player.action, Action):
+        return False
+    return player.action in _GETTING_UP_ACTIONS
 
 
 def can_attack(player: LibPlayerState, frame_data: FrameData) -> bool:
@@ -824,8 +1152,18 @@ def _stale_hitstun_is_actionable(player: LibPlayerState, frame_data: FrameData) 
         return True
     if frame_data.is_roll(player.character, action):
         return True
+    # Active roll getup options (libmelee ``is_roll`` omits
+    # ``GROUND_ROLL_SPOT_DOWN``; check our own bucket too so stale hitstun
+    # does not lock these into ``CharacterStatus.Hitstun``).
+    if action in _GETUP_ROLL_ACTIONS:
+        return True
     if action in _GRABBER_ACTIONS:
         return True
+    # Knockdown / getup family: Slippi leaves a stale
+    # ``hitstun_frames_left=1`` here, but the character is actionable (can
+    # pick a getup option). Real knockdown hitstun (>1) still counts.
+    if action in _KNOCKDOWN_ACTIONS:
+        return player.hitstun_frames_left <= 1
     return False
 
 
@@ -902,6 +1240,8 @@ __all__ = [
     "in_hitstun",
     "is_carrying_enemy",
     "is_dodging",
+    "is_downed",
+    "is_getting_up",
     "is_grabbed",
     "is_grabbing",
     "is_grabbing_ledge",

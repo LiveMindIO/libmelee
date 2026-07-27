@@ -382,418 +382,957 @@ class Action(Enum):
 
     Note:
         Numeric values (mostly) represent their in-game values"""
+    # --- Death / KO states ---
     DEAD_DOWN = 0x0
+    """These are end-of-stock animations; the character is off-screen or being
+removed from play. Bots never need to dispatch on these directly since
+death is better detected via ``PlayerState.stock`` changes."""
     DEAD_LEFT = 0x1
+    """Fell off the bottom blast zone."""
     DEAD_RIGHT = 0x2
+    """Fell off the left blast zone."""
     DEAD_UP = 0x3
+    """Fell off the right blast zone."""
     DEAD_FLY_STAR = 0x4
-    DEAD_FLY_STAR_ICE = 0x5 #Star KO while encased in ice
-    DEAD_FLY = 0x6 #When you have been hit upwards and are dead
-    DEAD_FLY_SPLATTER = 0x7 #Hit upwards and have splattered on the camera
-    DEAD_FLY_SPLATTER_FLAT = 0x8 #Hit upwards and have splattered on the camera
+    """Hit upwards off the top blast zone (star KO)."""
+    DEAD_FLY_STAR_ICE = 0x5
+    """Star KO while encased in ice (Icies' freeze effect persists into death)."""
+    DEAD_FLY = 0x6
+    """Star KO fly-up animation (character is still on-screen moving upward but
+past the blast zone; will fade out)."""
+    DEAD_FLY_SPLATTER = 0x7
+    """Hit into the screen-camera "splatter" KO (upwards, splat on camera)."""
+    DEAD_FLY_SPLATTER_FLAT = 0x8
+    """Splatter KO, flat variant (different camera angle pose)."""
     DEAD_FLY_SPLATTER_ICE = 0x9
+    """Splatter KO while encased in ice."""
     DEAD_FLY_SPLATTER_FLAT_ICE = 0xa
-    NOTHING_STATE = 0xb #state for shiek/zelda when counterpart is the one playing. Or state of Nana when Sopo is alive
+    """Flat splatter KO while encased in ice."""
+    NOTHING_STATE = 0xb
+    """Inactive character: Sheik/Zelda off-screen counterpart, or Nana when Sopo
+is the active climber. The character is present in memory but not rendered
+and cannot be acted upon."""
+    # --- Match entry (halo descent) ---
     ON_HALO_DESCENT = 0xc
+    """Character descending onto the stage at match start; cannot act."""
     ON_HALO_WAIT = 0x0d
+    """Character waiting on the halo platform before dropping to the stage."""
+    # --- Grounded locomotion ---
     STANDING = 0x0e
+    """Actionable grounded neutral state.for idle/neutral states;
+the walking state / the running state for those families; all considered actionable
+ground states (the actionable-ground set) suitable for starting ground
+attacks / smashes / grabs."""
     WALK_SLOW = 0x0f
+    """Idle neutral stance. Default grounded actionable state.
+Slow walk speed tier (stick barely tilted)."""
     WALK_MIDDLE = 0x10
+    """Medium walk speed tier."""
     WALK_FAST = 0x11
+    """Fast walk speed tier (stick near full tilt but not dashing)."""
     TURNING = 0x12
+    """Turning around on the ground (from walk/stand). Walking state."""
     TURNING_RUN = 0x13
+    """Pivot during a run (the "run-brake -> turn" transition). Running state."""
     DASHING = 0x14
+    """Initial dash startup (the foxtrot/dash-dance window). Running state.Required for the dash-attack input type."""
     RUNNING = 0x15
+    """Sustained run after the dash transition completes. Running state."""
     RUN_DIRECT = 0x16
+    """Mid-run continuation frame. Running state."""
     RUN_BRAKE = 0x17
-    KNEE_BEND = 0x18 #pre-jump animation.
+    """Skid to stop after a run. Running state."""
+    KNEE_BEND = 0x18
+    """Pre-jump knee bend animation. Actionable grounded state.(actionable; can be
+interrupted for smash attacks / grab).
+pre-jump animation."""
+    # --- Aerial locomotion ---
     JUMPING_FORWARD = 0x19
+    """First jump, moving forward. Airborne state."""
     JUMPING_BACKWARD = 0x1A
+    """First jump, moving backward."""
     JUMPING_ARIAL_FORWARD = 0x1b
+    """Aerial (second) jump, moving forward."""
     JUMPING_ARIAL_BACKWARD = 0x1c
-    FALLING = 0x1D    #The "wait" state of the air.
-    FALLING_FORWARD = 0x1e #falling with forward DI
-    FALLING_BACKWARD = 0x1f #falling with backward DI
-    FALLING_AERIAL = 0x20  #After double-jump
-    FALLING_AERIAL_FORWARD = 0x21 #After double-jump forward DI
-    FALLING_AERIAL_BACKWARD = 0x22 #After double-jump backward DI
-    DEAD_FALL = 0x23 #Falling after up-b
+    """Aerial (second) jump, moving backward."""
+    FALLING = 0x1D
+    """Neutral air fall - the "wait" state of the air."""
+    FALLING_FORWARD = 0x1e
+    """Falling with forward DI.
+falling with forward DI"""
+    FALLING_BACKWARD = 0x1f
+    """Falling with backward DI.
+falling with backward DI"""
+    FALLING_AERIAL = 0x20
+    """Falling after double-jump (aerial fall)."""
+    FALLING_AERIAL_FORWARD = 0x21
+    """After double-jump, forward DI.
+After double-jump forward DI"""
+    FALLING_AERIAL_BACKWARD = 0x22
+    """After double-jump, backward DI.
+After double-jump backward DI"""
+    DEAD_FALL = 0x23
+    """Falling after anUp-B - the helpless "dead fall" state post-recovery.
+Falling after up-b"""
     SPECIAL_FALL_FORWARD = 0x24
+    """Special-fall forward (post-Up-B with forward momentum, e.g. Firefox)."""
     SPECIAL_FALL_BACK = 0x25
+    """Special-fall backward."""
     TUMBLING = 0x26
-    CROUCH_START = 0x27 #Going from stand to crouch
+    """Tumbling hitstun (spinning knockback). Slippi may keep stale
+``hitstun_frames_left`` here; the real-hitstun check filters it. The tumble
+animation itself continues after hitstun ends until the character
+touches ground or cancels via jump/attack."""
+    # --- Crouch ---
+    CROUCH_START = 0x27
+    """Transitioning stand -> crouch. Actionable grounded state.Going from stand to crouch"""
     CROUCHING = 0x28
-    CROUCH_END = 0x29 #Standing up from crouch
-    LANDING = 0x2a #Can be canceled. Not stunned
-    LANDING_SPECIAL = 0x2b #Landing special like from wavedash. Stunned.
+    """Full crouch. Actionable grounded state."""
+    CROUCH_END = 0x29
+    """Standing up from crouch. Actionable grounded state.Standing up from crouch"""
+    # --- Landings ---
+    LANDING = 0x2a
+    """Normal landing from a fall/jump. Can be cancelled; not stunned. Actionable grounded state.Can be canceled. Not stunned"""
+    LANDING_SPECIAL = 0x2b
+    """Special landing from wavedash / airdodge. Stunned for a few frames. Actionable grounded state.Landing special like from wavedash. Stunned."""
+    # --- Ground attacks (all Classifies as the attacking state) ---
     NEUTRAL_ATTACK_1 = 0x2c
+    """Jab 1 (first hit of the neutral combo)."""
     NEUTRAL_ATTACK_2 = 0x2d
+    """Jab 2 (second hit)."""
     NEUTRAL_ATTACK_3 = 0x2e
+    """Jab 3 (third hit / finisher)."""
     LOOPING_ATTACK_START = 0x2f
+    """Rapid-jab startup (the "100" series - infinitely looping jab)."""
     LOOPING_ATTACK_MIDDLE = 0x30
+    """Rapid-jab loop (held A)."""
     LOOPING_ATTACK_END = 0x31
+    """Rapid-jab ending (release of A)."""
     DASH_ATTACK = 0x32
+    """Dash attack (requires ``DASHING`` state)."""
     FTILT_HIGH = 0x33
+    """Forward tilt, high angle."""
     FTILT_HIGH_MID = 0x34
+    """Forward tilt, high-mid angle."""
     FTILT_MID = 0x35
+    """Forward tilt, mid angle."""
     FTILT_LOW_MID = 0x36
+    """Forward tilt, low-mid angle."""
     FTILT_LOW = 0x37
+    """Forward tilt, low angle."""
     UPTILT = 0x38
+    """Up tilt."""
     DOWNTILT = 0x39
+    """Down tilt."""
     FSMASH_HIGH = 0x3a
+    """Forward smash, high angle (smashes are holdable for charge)."""
     FSMASH_MID_HIGH = 0x3b
+    """Forward smash, mid-high angle."""
     FSMASH_MID = 0x3c
+    """Forward smash, mid angle."""
     FSMASH_MID_LOW = 0x3d
+    """Forward smash, mid-low angle."""
     FSMASH_LOW = 0x3e
+    """Forward smash, low angle."""
     UPSMASH = 0x3f
+    """Up smash."""
     DOWNSMASH = 0x40
+    """Down smash."""
     NAIR = 0x41
+    """--- Aerials (Classifies as the attacking state; landing variants Actionable grounded state.per the false-hitstun-neutral set) ---
+Neutral aerial."""
     FAIR = 0x42
+    """Forward aerial."""
     BAIR = 0x43
+    """Back aerial."""
     UAIR = 0x44
+    """Up aerial."""
     DAIR = 0x45
+    """Down aerial."""
     NAIR_LANDING = 0x46
+    """NAIR landing lag (post-aerial IASA-locked frames)."""
     FAIR_LANDING = 0x47
+    """FAIR landing lag."""
     BAIR_LANDING = 0x48
+    """BAIR landing lag."""
     UAIR_LANDING = 0x49
+    """UAIR landing lag."""
     DAIR_LANDING = 0x4a
+    """DAIR landing lag."""
+    # --- Damage animations (knockback states) ---
     DAMAGE_HIGH_1 = 0x4b
+    """These are non-launching damage reactions while grounded or airborne.
+the stale-hitstun filter treats them as actionable since some
+combos allow interrupting them. the high-level status classifier classifies them as
+hitstun only when ``hitstun_frames_left > 0`` is genuine.
+Hit upward while grounded (high knockback slot 1)."""
     DAMAGE_HIGH_2 = 0x4c
+    """Hit upward while grounded (slot 2)."""
     DAMAGE_HIGH_3 = 0x4d
+    """Hit upward while grounded (slot 3)."""
     DAMAGE_NEUTRAL_1 = 0x4e
+    """Hit neutrally (mid knockback), slot 1."""
     DAMAGE_NEUTRAL_2 = 0x4f
+    """Hit neutrally, slot 2."""
     DAMAGE_NEUTRAL_3 = 0x50
+    """Hit neutrally, slot 3."""
     DAMAGE_LOW_1 = 0x51
+    """Hit low, slot 1."""
     DAMAGE_LOW_2 = 0x52
+    """Hit low, slot 2."""
     DAMAGE_LOW_3 = 0x53
+    """Hit low, slot 3."""
     DAMAGE_AIR_1 = 0x54
+    """Hit while airborne, slot 1."""
     DAMAGE_AIR_2 = 0x55
+    """Hit while airborne, slot 2."""
     DAMAGE_AIR_3 = 0x56
+    """Hit while airborne, slot 3."""
     DAMAGE_FLY_HIGH = 0x57
+    """Launched upward (high knockback fly). Distinct from DAMAGE_*: the
+character is being carried by knockback (e.g. up smash kill). Bots use
+this for juggle/launch detection (see mewthree.py / westballz.py)."""
     DAMAGE_FLY_NEUTRAL = 0x58
+    """Launched neutrally (up/fly)."""
     DAMAGE_FLY_LOW = 0x59
+    """Launched low (scooping knockback)."""
     DAMAGE_FLY_TOP = 0x5a
+    """Launched straight up (e.g. rest death, Luigi up-B kill)."""
     DAMAGE_FLY_ROLL = 0x5b
+    """Rolling knockback spin (rare ceiling/floor hit)."""
+    # --- Item pickup/throw/swing (most Classifies as Attacking when swinging) ---
     ITEM_PICKUP_LIGHT = 0x5C
+    """Light item pickup (A press while lightly tilting toward item)."""
     ITEM_PICKUP_HEAVY = 0x5D
+    """Heavy item pickup (e.g. barrel/crate)."""
     ITEM_THROW_LIGHT_FORWARD = 0x5E
+    """Throw light item forward."""
     ITEM_THROW_LIGHT_BACK = 0x5F
+    """Throw light item back."""
     ITEM_THROW_LIGHT_HIGH = 0x60
+    """Throw light item up."""
     ITEM_THROW_LIGHT_LOW = 0x61
+    """Throw light item down."""
     ITEM_THROW_LIGHT_DASH = 0x62
+    """Dash-throw light item (forward momentum throw)."""
     ITEM_THROW_LIGHT_DROP = 0x63
+    """Drop light item (Z-drop, no momentum)."""
     ITEM_THROW_LIGHT_AIR_FORWARD = 0x64
+    """Aerial drop light item forward."""
     ITEM_THROW_LIGHT_AIR_BACK = 0x65
+    """Aerial drop light item back."""
     ITEM_THROW_LIGHT_AIR_HIGH = 0x66
+    """Aerial drop light item up."""
     ITEM_THROW_LIGHT_AIR_LOW = 0x67
+    """Aerial drop light item down."""
     ITEM_THROW_HEAVY_FORWARD = 0x68
+    """Throw heavy item forward."""
     ITEM_THROW_HEAVY_BACK = 0x69
+    """Throw heavy item back."""
     ITEM_THROW_HEAVY_HIGH = 0x6A
+    """Throw heavy item up."""
     ITEM_THROW_HEAVY_LOW = 0x6B
+    """Throw heavy item down."""
     ITEM_THROW_LIGHT_SMASH_FORWARD = 0x6C
+    """Smash-throw light item forward (C-stick/smash input adds momentum)."""
     ITEM_THROW_LIGHT_SMASH_BACK = 0x6D
+    """Smash-throw light item back."""
     ITEM_THROW_LIGHT_SMASH_UP = 0x6e
+    """Smash-throw light item up."""
     ITEM_THROW_LIGHT_SMASH_DOWN = 0x6F
+    """Smash-throw light item down."""
     ITEM_THROW_LIGHT_AIR_SMASH_FORWARD = 0x70
+    """Aerial smash-throw light item forward."""
     ITEM_THROW_LIGHT_AIR_SMASH_BACK = 0x71
+    """Aerial smash-throw light item back."""
     ITEM_THROW_LIGHT_AIR_SMASH_HIGH = 0x72
+    """Aerial smash-throw light item up."""
     ITEM_THROW_LIGHT_AIR_SMASH_LOW = 0x73
+    """Aerial smash-throw light item down."""
     ITEM_THROW_HEAVY_AIR_SMASH_FORWARD = 0x74
+    """Aerial smash-throw heavy item forward."""
     ITEM_THROW_HEAVY_AIR_SMASH_BACK = 0x75
+    """Aerial smash-throw heavy item back."""
     ITEM_THROW_HEAVY_AIR_SMASH_HIGH = 0x76
+    """Aerial smash-throw heavy item up."""
     ITEM_THROW_HEAVY_AIR_SMASH_LOW = 0x77
+    """Aerial smash-throw heavy item down."""
+    # --- Item swing animations (4-frame swing sequence for each weapon) ---
     BEAM_SWORD_SWING_1 = 0x78
+    """Beam Sword swing sequence (1 of 4)."""
     BEAM_SWORD_SWING_2 = 0x79
+    """Beam Sword swing (2 of 4)."""
     BEAM_SWORD_SWING_3 = 0x7A
+    """Beam Sword swing (3 of 4)."""
     BEAM_SWORD_SWING_4 = 0x7B
+    """Beam Sword swing (4 of 4)."""
     BAT_SWING_1 = 0x7C
+    """Home-Run Bat swing (1 of 4)."""
     BAT_SWING_2 = 0x7D
+    """Bat swing (2 of 4)."""
     BAT_SWING_3 = 0x7E
+    """Bat swing (3 of 4)."""
     BAT_SWING_4 = 0x7F
+    """Bat swing (4 of 4)."""
     PARASOL_SWING_1 = 0x80
+    """Parasol swing (1 of 4)."""
     PARASOL_SWING_2 = 0x81
+    """Parasol swing (2 of 4)."""
     PARASOL_SWING_3 = 0x82
+    """Parasol swing (3 of 4)."""
     PARASOL_SWING_4 = 0x83
+    """Parasol swing (4 of 4)."""
     FAN_SWING_1 = 0x84
+    """Fan swing (1 of 4)."""
     FAN_SWING_2 = 0x85
+    """Fan swing (2 of 4)."""
     FAN_SWING_3 = 0x86
+    """Fan swing (3 of 4)."""
     FAN_SWING_4 = 0x87
+    """Fan swing (4 of 4)."""
     STAR_ROD_SWING_1 = 0x88
+    """Star Rod swing (1 of 4). Star Rod also fires a projectile on smash input."""
     STAR_ROD_SWING_2 = 0x89
+    """Star Rod swing (2 of 4)."""
     STAR_ROD_SWING_3 = 0x8a
+    """Star Rod swing (3 of 4)."""
     STAR_ROD_SWING_4 = 0x8b
+    """Star Rod swing (4 of 4)."""
     LIP_STICK_SWING_1 = 0x8c
+    """Lip's Stick (Pansy) swing (1 of 4). Plants a damage-over-time flower."""
     LIP_STICK_SWING_2 = 0x8d
+    """Lip's Stick swing (2 of 4)."""
     LIP_STICK_SWING_3 = 0x8e
+    """Lip's Stick swing (3 of 4)."""
     LIP_STICK_SWING_4 = 0x8f
+    """Lip's Stick swing (4 of 4)."""
+    # --- Parasol item states ---
     ITEM_PARASOL_OPEN = 0x90
+    """Open parasol (after grabbing it)."""
     ITEM_PARASOL_FALL = 0x91
+    """Float down with parasol open."""
     ITEM_PARASOL_FALL_SPECIAL = 0x92
+    """Special parasol fall (e.g. after special move landing)."""
     ITEM_PARASOL_DAMAGE_FALL = 0x93
+    """Parasol close during damage fall."""
+    # --- Ray gun / Fire flower / Scope (item shooting) ---
     GUN_SHOOT = 0x94
+    """Ray gun shoot (grounded, with ammo)."""
     GUN_SHOOT_AIR = 0x95
+    """Ray gun shoot (airborne)."""
     GUN_SHOOT_EMPTY = 0x96
+    """Ray gun shoot (grounded, empty - click animation)."""
     GUN_SHOOT_AIR_EMPTY = 0x97
+    """Ray gun shoot (airborne, empty)."""
     FIRE_FLOWER_SHOOT = 0x98
+    """Fire Flower shoot (grounded)."""
     FIRE_FLOWER_SHOOT_AIR = 0x99
+    """Fire Flower shoot (airborne)."""
     ITEM_SCREW = 0x9a
+    """Screw Attack item usage (grounded). Launches the user upward."""
     ITEM_SCREW_AIR = 0x9b
+    """Screw Attack item usage (airborne)."""
     DAMAGE_SCREW = 0x9c
+    """Damage while in Screw Attack animation (grounded)."""
     DAMAGE_SCREW_AIR = 0x9d
+    """Damage while in Screw Attack animation (airborne)."""
     ITEM_SCOPE_START = 0x9e
+    """Super Scope (item) - start firing (grounded)."""
     ITEM_SCOPE_RAPID = 0x9f
+    """Super Scope - rapid fire mode (grounded)."""
     ITEM_SCOPE_FIRE = 0xa0
+    """Super Scope - single shot (grounded)."""
     ITEM_SCOPE_END = 0xa1
+    """Super Scope - end firing (grounded)."""
     ITEM_SCOPE_AIR_START = 0xa2
+    """Super Scope - start firing (airborne)."""
     ITEM_SCOPE_AIR_RAPID = 0xa3
+    """Super Scope - rapid fire (airborne)."""
     ITEM_SCOPE_AIR_FIRE = 0xa4
+    """Super Scope - single shot (airborne)."""
     ITEM_SCOPE_AIR_END = 0xa5
+    """Super Scope - end firing (airborne)."""
     ITEM_SCOPE_START_EMPTY = 0xa6
+    """Super Scope (empty) - start (grounded)."""
     ITEM_SCOPE_RAPID_EMPTY = 0xa7
+    """Super Scope (empty) - rapid (grounded)."""
     ITEM_SCOPE_FIRE_EMPTY = 0xa8
+    """Super Scope (empty) - shot (grounded)."""
     ITEM_SCOPE_END_EMPTY = 0xa9
+    """Super Scope (empty) - end (grounded)."""
     ITEM_SCOPE_AIR_START_EMPTY = 0xaa
+    """Super Scope (empty) - start (airborne)."""
     ITEM_SCOPE_AIR_RAPID_EMPTY = 0xab
+    """Super Scope (empty) - rapid (airborne)."""
     ITEM_SCOPE_AIR_FIRE_EMPTY = 0xac
+    """Super Scope (empty) - shot (airborne)."""
     ITEM_SCOPE_AIR_END_EMPTY = 0xad
+    """Super Scope (empty) - end (airborne)."""
+    # --- Lifting (heavy items) ---
     LIFT_WAIT = 0xae
+    """Idle while holding a heavy item (crate/barrel)."""
     LIFT_WALK_1 = 0xaf
+    """Walking slowly with heavy item (tier 1)."""
     LIFT_WALK_2 = 0xb0
+    """Walking with heavy item (tier 2)."""
     LIFT_TURN = 0xb1
+    """Turning while holding a heavy item."""
+    # --- Shield states (Classifies as the shielding state) ---
     SHIELD_START = 0xb2
+    """Shield-startup press (L/R trigger)."""
     SHIELD = 0xb3
+    """Sustained shield hold."""
     SHIELD_RELEASE = 0xb4
+    """Shield release (let go of trigger)."""
     SHIELD_STUN = 0xb5
+    """Shield stun (after blocking a hit; locked out of all but small shield
+actions)."""
     SHIELD_REFLECT = 0xb6
-    TECH_MISS_UP = 0xb7 # "facing" up. Not important to us
+    """Powershield reflect (frame-perfect shield that reflects projectiles)."""
+    # --- Knockdown / getup family ---
+    TECH_MISS_UP = 0xb7
+    """These animations cover the "missed tech -> lying -> getup choice" flow
+that the knockdown state covers. Slippi often leaves a stale
+``hitstun_frames_left=1`` through these; the
+the stale-hitstun filter filter treats ``hitstun_frames_left <= 1``
+as actionable here (so Not in hitstun.) but real hitstun
+(>1) still Classifies as hitstun.
+Missed-tech bounce, lying face-up. The character failed to tech a
+knockdown and is bouncing on the ground. Classifies as the knockdown state."""
     LYING_GROUND_UP = 0xb8
+    """Lying on the ground, face-up, idle (waiting for getup input).
+Classifies as the knockdown state."""
     LYING_GROUND_UP_HIT = 0xb9
+    """Lying on the ground, face-up, being hit (additional damage while down).
+Classifies as the knockdown state."""
     GROUND_GETUP = 0xba
+    """Standing-up getup from the face-up lying state.
+Committed getup animation (invulnerable). (committed getup animation)."""
     GROUND_ATTACK_UP = 0xbb
+    """Getup attack from face-up (A press while lying down; has a hitbox).
+Committed getup animation (invulnerable)."""
     GROUND_ROLL_FORWARD_UP = 0xbc
+    """Getup roll forward from face-up. Committed getup animation (invulnerable)."""
     GROUND_ROLL_BACKWARD_UP = 0xbd
+    """Getup roll backward from face-up. Committed getup animation (invulnerable)."""
     GROUND_SPOT_UP = 0xbe
+    """Spot getup (in-place) from face-up. Committed getup animation (invulnerable)."""
     TECH_MISS_DOWN = 0xbf
+    """Missed-tech bounce, lying face-down. Classifies as the knockdown state."""
     LYING_GROUND_DOWN = 0xc0
+    """Lying on the ground, face-down, idle. Classifies as the knockdown state."""
     DAMAGE_GROUND = 0xc1
+    """Taking damage while lying face-down. Classifies as the knockdown state."""
     NEUTRAL_GETUP = 0xc2
+    """Standing-up getup from face-down. Committed getup animation (invulnerable)."""
     GETUP_ATTACK = 0xc3
+    """Getup attack from face-down (A press while lying). Committed getup animation (invulnerable). Has a hitbox."""
     GROUND_ROLL_FORWARD_DOWN = 0xc4
+    """Getup roll forward from face-down. Committed getup animation (invulnerable)."""
     GROUND_ROLL_BACKWARD_DOWN = 0xc5
+    """Getup roll backward from face-down. Committed getup animation (invulnerable)."""
     GROUND_ROLL_SPOT_DOWN = 0xc6
+    """Spot getup (in-place) from face-down. Committed getup animation (invulnerable)."""
+    # --- Successful techs (Classifies as the dodging state) ---
     NEUTRAL_TECH = 0xc7
+    """In-place neutral tech (L/R press within 20 frames of knockdown).
+libmelee ``FrameData.is_roll`` includes this; the dodging state."""
     FORWARD_TECH = 0xc8
+    """Tech-roll forward. Classifies as the dodging state."""
     BACKWARD_TECH = 0xc9
+    """Tech-roll backward. Classifies as the dodging state."""
     WALL_TECH = 0xca
+    """Wall tech (L/R press against a wall while in knockback)."""
     WALL_TECH_JUMP = 0xcb
+    """Wall tech jump (tech-jump off a wall; can be canceled into aerial)."""
     CEILING_TECH = 0xcc
+    """Ceiling tech (tech against the underside of a platform)."""
+    # --- Shield break (Classifies as shield-break stun) ---
     SHIELD_BREAK_FLY = 0xcd
+    """Initial upward launch when shield breaks (the dazed stun-locked fly)."""
     SHIELD_BREAK_FALL = 0xce
+    """Falling after shield-break fly."""
     SHIELD_BREAK_DOWN_U = 0xcf
+    """Lying face-up after shield break."""
     SHIELD_BREAK_DOWN_D = 0xd0
+    """Lying face-down after shield break."""
     SHIELD_BREAK_STAND_U = 0xd1
+    """Standing up from shield break (face-up)."""
     SHIELD_BREAK_STAND_D = 0xd2
+    """Standing up from shield break (face-down)."""
     SHIELD_BREAK_TEETER = 0xd3
+    """Teetering on the edge while dazed from shield break."""
+    # --- Grab (attacker side; Classifies as actively holding a grab) ---
     GRAB = 0xd4
+    """Initial grab reach (Z or L+A). Has a brief grab hitbox. Classifies as
+actively holding a grab and also as Attacking by the action-set check."""
     GRAB_PULLING = 0xd5
+    """Pulling the grabbed opponent inward (post-grab success)."""
     GRAB_RUNNING = 0xd6
+    """Running grab (dash-grab, Z while dashing). Extended reach; longer
+recovery if whiffed."""
     GRAB_RUNNING_PULLING = 0xd7
+    """Pulling an opponent in from a running grab."""
     GRAB_WAIT = 0xd8
+    """Grab hold (sustained grab on a victim). Pummels / throw-choices begin
+here; throw inputs (FTHROW/BTHROW/UTHROW/DTHROW) are gated on this
+state by the throw-input action set."""
     GRAB_PUMMEL = 0xd9
+    """Pummel (A press while holding a grab). Throw inputs still valid."""
     GRAB_BREAK = 0xda
+    """Grab break (victim's mash-out succeeded; both characters released)."""
     THROW_FORWARD = 0xdb
+    """Forward throw animation (attacker side)."""
     THROW_BACK = 0xdc
-    THROW_UP = 0xdd    #yuck
+    """Back throw animation (attacker side)."""
+    THROW_UP = 0xdd
+    """Up throw animation (attacker side)."""
     THROW_DOWN = 0xde
+    """Down throw animation (attacker side)."""
     GRAB_PULLING_HIGH = 0xdf
-    GRABBED_WAIT_HIGH = 0xe0 #XXX Not sure about this
-    PUMMELED_HIGH = 0xe1 #XXX Not sure about this
-    GRAB_PULL = 0xe2   #Being pulled inwards from the grab
-    GRABBED = 0xe3   #Grabbed
-    GRAB_PUMMELED = 0xe4   #Being pummeled
+    """High-variant grab pulling (different animation, same semantics)."""
+    GRABBED_WAIT_HIGH = 0xe0
+    """Grabbed victim waiting (high variant, e.g. heavy characters).
+Classifies as being held in a grab."""
+    PUMMELED_HIGH = 0xe1
+    """Pummeled (high variant) - victim being pummeled by attacker."""
+    GRAB_PULL = 0xe2
+    """Being pulled inward from a grab (victim side)."""
+    GRABBED = 0xe3
+    """Grabbed (victim side, base state). Classifies as being held in a grab."""
+    GRAB_PUMMELED = 0xe4
+    """Being pummeled (victim side)."""
     GRAB_ESCAPE = 0xe5
-    GRAB_JUMP = 0xe6 #XXX Not sure about this
-    GRAB_NECK = 0xe7 #XXX Not sure about this
-    GRAB_FOOT = 0xe8 #XXX Not sure about this
+    """Mash-out; victim escaping the grab."""
+    GRAB_JUMP = 0xe6
+    """GRAB_JUMP (DK cargo-carry jump; attacker side). Classifies as
+cargo-carrying the opponent (cargo carry state) per
+the cargo-carry action set."""
+    GRAB_NECK = 0xe7
+    """GRAB_NECK (grabbed victim variant - back-grab). Classifies as
+being held in a grab."""
+    GRAB_FOOT = 0xe8
+    """GRAB_FOOT (grabbed victim variant - low grab). Classifies as
+being held in a grab."""
+    # --- Dodges (Classifies as the dodging state) ---
     ROLL_FORWARD = 0xe9
+    """Forward roll (grounded dodge with directional momentum). libmelee
+``FrameData.is_roll`` includes this."""
     ROLL_BACKWARD = 0xea
+    """Backward roll (grounded)."""
     SPOTDODGE = 0xEB
+    """Spot dodge (grounded, in-place dodge)."""
     AIRDODGE = 0xEC
-    REBOUND_STOP = 0xED #XXX Not sure about this
-    REBOUND = 0xEE #XXX Not sure about this
+    """Air dodge (L/R in air, then free-fall)."""
+    REBOUND_STOP = 0xED
+    """Hit-rebound stop (freeze frame after landing a hit with knockback).
+Attacker-side pause."""
+    REBOUND = 0xEE
+    """Hit-rebound continuation (a few frames of attacker momentum shudder)."""
+    # --- Thrown by enemy (victim side; Classifies as being held in a grab) ---
     THROWN_FORWARD = 0xEF
+    """Being thrown forward (in the throw animation, attacker-controlled)."""
     THROWN_BACK = 0xF0
+    """Being thrown back."""
     THROWN_UP = 0xF1
+    """Being thrown up."""
     THROWN_DOWN = 0xF2
+    """Being thrown down (slam)."""
     THROWN_DOWN_2 = 0xf3
+    """Alternate down-throw variant (some characters)."""
+    # --- Platform / edge ---
     PLATFORM_DROP = 0xf4
-    EDGE_TEETERING_START = 0xF5 #Starting of edge teetering
+    """Dropping through a platform (down-input on a pass-through platform)."""
+    EDGE_TEETERING_START = 0xF5
+    """Starting the edge-teeter animation (about to fall off the stage edge)."""
     EDGE_TEETERING = 0xF6
+    """Sustained edge teeter (balancing at the stage edge)."""
     BOUNCE_WALL = 0xf7
+    """Wall bounce (hit into a wall and rebounding)."""
     BOUNCE_CEILING = 0xf8
+    """Ceiling bounce."""
     BUMP_WALL = 0xf9
+    """Wall bump (hit into a wall without bounce)."""
     BUMP_CIELING = 0xfa
-    SLIDING_OFF_EDGE = 0xfb #When you get hit and slide off an edge
-    EDGE_CATCHING = 0xFC #Initial grabbing of edge stuck in stun here
+    """Ceiling bump."""
+    SLIDING_OFF_EDGE = 0xfb
+    """Sliding off an edge after being hit (knockback carries off-stage)."""
+    EDGE_CATCHING = 0xFC
+    """Initial ledge catch (the frame the character grabs the edge; brief
+intangibility). Classifies as hanging from a ledge."""
     EDGE_HANGING = 0xFD
-    EDGE_GETUP_SLOW = 0xFE  # >= 100% damage
-    EDGE_GETUP_QUICK = 0xFF # < 100% damage
-    EDGE_ATTACK_SLOW = 0x100 # < 100% damage
-    EDGE_ATTACK_QUICK = 0x101 # >= 100% damage
-    EDGE_ROLL_SLOW = 0x102 # >= 100% damage
-    EDGE_ROLL_QUICK = 0x103 # < 100% damage
+    """Sustained ledge hang. Classifies as hanging from a ledge."""
+    EDGE_GETUP_SLOW = 0xFE
+    """Ledge getup (neutral climb on), slow variant (>= 100% damage).
+libmelee's FrameData.is_roll -> the dodging state."""
+    EDGE_GETUP_QUICK = 0xFF
+    """Ledge getup (neutral), quick variant (< 100% damage)."""
+    EDGE_ATTACK_SLOW = 0x100
+    """Ledge attack (A press on ledge), slow variant (>= 100%). Classifies as
+the attacking state (has hitbox)."""
+    EDGE_ATTACK_QUICK = 0x101
+    """Ledge attack, quick (< 100%)."""
+    EDGE_ROLL_SLOW = 0x102
+    """Ledge roll getup (roll onto stage), slow (>= 100%). Classifies as
+the dodging state (intangible during roll)."""
+    EDGE_ROLL_QUICK = 0x103
+    """Ledge roll, quick (< 100%)."""
     EDGE_JUMP_1_SLOW = 0x104
+    """Ledge jump variant 1, slow."""
     EDGE_JUMP_2_SLOW = 0x105
+    """Ledge jump variant 2, slow."""
     EDGE_JUMP_1_QUICK = 0x106
+    """Ledge jump variant 1, quick."""
     EDGE_JUMP_2_QUICK = 0x107
+    """Ledge jump variant 2, quick."""
+    # --- Taunts (Classifies as the taunting state) ---
     TAUNT_RIGHT = 0x108
+    """Right taunt (D-pad right)."""
     TAUNT_LEFT = 0x109
+    """Left taunt (D-pad left)."""
+    # --- Captures (DK cargo, Yoshi, Kirby, etc.) ---
     SHOULDERED_WAIT = 0x10A
+    """Being shouldered (DK cargo-walk carry, victim). Victim side."""
     SHOULDERED_WALK_SLOW = 0x10B
+    """DK cargo walk slow with victim."""
     SHOULDERED_WALK_MIDDLE = 0x10C
+    """DK cargo walk medium."""
     SHOULDERED_WALK_FAST = 0x10D
+    """DK cargo walk fast."""
     SHOULDERED_TURN = 0x10E
+    """DK cargo turn."""
     THROWN_FF = 0x10F
+    """Thrown forward by DK cargo (victim side)."""
     THROWN_FB = 0x110
+    """Thrown back by DK cargo."""
     THROWN_F_HIGH = 0x111
+    """Thrown by DK cargo, high trajectory."""
     THROWN_F_LOW = 0x112
+    """Thrown by DK cargo, low trajectory."""
     CAPTURE_CAPTAIN = 0x113
+    """Caught by Captain Falcon's grab animation (Up-B / specific grab)."""
     CAPTURE_YOSHI = 0x114
+    """Caught by Yoshi (tongue swallow)."""
     YOSHI_EGG = 0x115
+    """Inside a Yoshi egg (after Yoshi swallow)."""
     CAPTURE_KOOPA = 0x116
+    """Caught by Bowser (Koopa) grab."""
     CAPTURE_DAMAGE_KOOPA = 0x117
+    """Taking damage while in Bowser's grab."""
     CAPTURE_WAIT_KOOPA = 0x118
+    """Waiting in Bowser's grab hold."""
     THROWN_KOOPA_F = 0x119
+    """Thrown forward by Bowser."""
     THROWN_KOOPA_B = 0x11A
+    """Thrown back by Bowser."""
     CAPTURE_KOOPA_AIR = 0x11B
+    """Caught by Bowser in the air (aerial Koopa grab)."""
     CAPTURE_DAMAGE_KOOPA_AIR = 0x11C
+    """Taking damage while in Bowser's aerial grab."""
     CAPTURE_WAIT_KOOPA_AIR = 0x11D
+    """Waiting in Bowser's aerial grab hold."""
     THROWN_KOOPA_AIR_F = 0x11E
+    """Thrown forward by Bowser aerial grab."""
     THROWN_KOOPA_AIR_B = 0x11F
+    """Thrown back by Bowser aerial grab."""
     CAPTURE_KIRBY = 0x120
+    """Caught by Kirby (inhale)."""
     CAPTURE_WAIT_KIRBY = 0x121
+    """Waiting in Kirby's mouth."""
     THROWN_KIRBY_STAR = 0x122
+    """Star-throw by Kirby (spit out as a star projectile)."""
     THROWN_COPY_STAR = 0x123
+    """Copy-ability star (Kirby steals the opponent's neutral-B)."""
     THROWN_KIRBY = 0x124
+    """Plain throw from Kirby (without swallow)."""
     BARREL_WAIT = 0x125
+    """Inside a barrel (barrel cannon, item)."""
+    # --- Special capture / status effects ---
     BURY = 0x126
+    """Buried (e.g. DK's headbutt down-B). Victim is stuck in the ground."""
     BURY_WAIT = 0x127
+    """Waiting while buried."""
     BURY_JUMP = 0x128
+    """Jump-out from being buried."""
     DAMAGE_SONG = 0x129
+    """Damage from Jigglypuff's Sing (sleep). Victim put to sleep."""
     DAMAGE_SONG_WAIT = 0x12A
+    """Sleeping animation (after Sing)."""
     DAMAGE_SONG_RV = 0x12B
+    """Waking up from sleep (the "RV" recover animation)."""
     DAMAGE_BIND = 0x12C
+    """Bound (Mewtwo's Disable - victim stunned briefly)."""
     CAPTURE_MEWTWO = 0x12D
+    """Caught by Mewtwo (Disable / grab)."""
     CAPTURE_MEWTWO_AIR = 0x12E
+    """Caught by Mewtwo in air."""
     THROWN_MEWTWO = 0x12F
+    """Thrown by Mewtwo."""
     THROWN_MEWTWO_AIR = 0x130
+    """Thrown by Mewtwo (airborne variant)."""
+    # --- Items / stage hazards (cinematic states) ---
     WARP_STAR_JUMP = 0x131
+    """Warping in via Warp Star item."""
     WARP_STAP_FALL = 0x132
+    """Falling from Warp Star apex."""
+    # --- Hammer item ---
     HAMMER_WAIT = 0x133
+    """Idle while holding the Hammer item."""
     HAMMER_WALK = 0x134
+    """Walking with Hammer."""
     HAMMER_TURN = 0x135
+    """Turning with Hammer."""
     HAMMER_KNEE_BEND = 0x136
+    """Jump startup with Hammer."""
     HAMMER_FALL = 0x137
+    """Falling with Hammer."""
     HAMMER_JUMP = 0x138
+    """Jumping with Hammer."""
     HAMMER_LANDING = 0x139
-    KINOKO_GIANT_START = 0x13A #Super mushroom states
+    """Landing with Hammer."""
+    # --- Mushroom (Super/Poison) size change states ---
+    KINOKO_GIANT_START = 0x13A
+    """Super mushroom grow start (grounded)."""
     KINOKO_GIANT_START_AIR = 0x13B
+    """Super mushroom grow start (airborne)."""
     KINOKO_GIANT_END = 0x13C
+    """Super mushroom shrink back to normal size."""
     KINOKO_GIANT_END_AIR = 0x13D
-    KINOKO_SMALL_START = 0x13E #Poison mushroom states
+    """Super mushroom shrink (airborne)."""
+    KINOKO_SMALL_START = 0x13E
+    """Poison mushroom shrink start (grounded)."""
     KINOKO_SMALL_START_AIR = 0x13F
+    """Poison mushroom shrink start (airborne)."""
     KINOKO_SMALL_END = 0x140
+    """Poison mushroom grow back to normal."""
     KINOKO_SMALL_END_AIR = 0x141
-    ENTRY = 0x142    #Start of match. Can't move
-    ENTRY_START = 0x143    #Start of match. Can't move
-    ENTRY_END = 0x144    #Start of match. Can't move
+    """Poison mushroom grow back (airborne)."""
+    # --- Match start entry ---
+    ENTRY = 0x142
+    """Character spawn entry (can't act)."""
+    ENTRY_START = 0x143
+    """Entry start animation."""
+    ENTRY_END = 0x144
+    """Entry end (drops into STANDING)."""
+    # --- Ice / freeze ---
     DAMAGE_ICE = 0x145
+    """Frozen (encased in ice). Victim can't act until thaw."""
     DAMAGE_ICE_JUMP = 0x146
+    """Jumping out of ice (rare; character thaws while airborne)."""
+    # --- Master Hand / Crazy Hand captures (single-player mode) ---
     CAPTURE_MASTERHAND = 0x147
+    """Caught by Master Hand."""
     CAPTURE_DAMAGE_MASTERHAND = 0x148
+    """Taking damage while in Master Hand's grab."""
     CAPTURE_WAIT_MASTERHAND = 0x149
+    """Waiting in Master Hand grab."""
     THROWN_MASTERHAND = 0x14A
+    """Thrown by Master Hand."""
     CAPTURE_KIRBY_YOSHI = 0x14B
+    """Caught by Kirby or Yoshi (joint variant)."""
     KIRBY_YOSHI_EGG = 0x14C
-    CAPTURE_LEA_DEAD = 0x14D #No idea what this is
-    CAPTURE_LIKE_LIKE = 0x14E #No idea what this is either
+    """Inside a Kirby-Yoshi egg."""
+    CAPTURE_LEA_DEAD = 0x14D
+    """Capture variant "LEA_DEAD" - undocumented in the SSBM action state table;
+appears in capture sequences during single-player."""
+    CAPTURE_LIKE_LIKE = 0x14E
+    """Capture variant "LIKE_LIKE" - associated with stage-hazard captures
+(Like Like enemy in Zelda-themed stages). Semantics unclear."""
     DOWN_REFLECT = 0x14F
+    """Reflect while lying down (e.g. powershield from a knockdown state)."""
     CAPTURE_CRAZYHAND = 0x150
+    """Crazy Hand captures (mirror of Master Hand set)."""
     CAPTURE_DAMAGE_CRAZYHAND = 0x151
     CAPTURE_WAIT_CRAZYHAND = 0x152
     THROWN_CRAZY_HAND = 0x153
     BARREL_CANNON_WAIT = 0x154
+    """Inside a Barrel Cannon (stage hazard)."""
+    # --- Neutral-B (chargeable characters via the chargeable-neutral-B character set) ---
     LASER_GUN_PULL = 0x155
+    """Fox/Falco laser gun pull-out (the visible "draw the blaster" frames)."""
     NEUTRAL_B_CHARGING = 0x156
+    """Neutral-B charging (held). For chargeable chars (Samus, Mewtwo, etc.)
+this is the sustained charge; non-chargeable chars transition straight to
+``NEUTRAL_B_ATTACKING``."""
     NEUTRAL_B_ATTACKING = 0x157
+    """Neutral-B attacking (grounded, fire frames)."""
     NEUTRAL_B_FULL_CHARGE = 0x158
-    WAIT_ITEM = 0x159 #No idea what this is
+    """Fully-charged neutral-B hold (chargeable chars max out)."""
+    WAIT_ITEM = 0x159
+    """WAIT_ITEM (some neutral-B variants use an intermediate "wait for item"
+state; largely undocumented in the SSBM action state table)."""
     NEUTRAL_B_CHARGING_AIR = 0x15A
+    """Air variants of the neutral-B set above."""
     NEUTRAL_B_ATTACKING_AIR = 0x15B
     NEUTRAL_B_FULL_CHARGE_AIR = 0x15C
     DOWN_B_GROUND_START = 0x168
+    """--- Down-B (Fox/Falco shine; Classifies as the attacking state; on the
+the bot package action-set the attack-type mapping) ---
+Down-B startup on the ground (Fox/Falco shine deploy). Alias of
+``SWORD_DANCE_2_MID_AIR`` (Python Enum dereferences value 0x168 to the
+first-defined member - ``DOWN_B_GROUND_START`` here)."""
     DOWN_B_GROUND = 0x169
+    """Down-B active on the ground (charge loop / sustained). Alias of
+``SWORD_DANCE_3_HIGH_AIR``."""
     SHINE_TURN = 0x16c
-    DOWN_B_STUN = 0x16d #Fox is stunned in these frames
+    """Shine turn (Fox/Falco shine while turning - the body reorients). Alias
+of ``SWORD_DANCE_4_HIGH_AIR``."""
+    DOWN_B_STUN = 0x16d
+    """Down-B stun (Fox/Falco shine-specific endlag frames). Alias of
+``SWORD_DANCE_4_MID_AIR``.
+Fox is stunned in these frames"""
     DOWN_B_AIR = 0x16e
+    """Down-B active in the air. Alias of ``SWORD_DANCE_4_LOW_AIR``."""
+    # --- Up-B (recovery special) ---
     UP_B_GROUND = 0x16f
+    """Up-B on the ground (grounded startup of Up-B; e.g. Marth dolphin slash).
+Not to be confused with ``UP_B_AIR`` (alias of SHINE_RELEASE_AIR above)."""
     SHINE_RELEASE_AIR = 0x170
+    """Shine release in the air (Fox/Falco air-shine out frames). Canonical for
+value 0x170 (UP_B_AIR is an alias of this member)."""
     SWORD_DANCE_1 = 0x15d
+    """--- Side-B (Marth/Roy dancing blade; shared with Zelda/Sheik side-B
+and the character-specific side-B variants listed below) ---
+Marth/Roy sword-dance first hit (Side-B startup). Several characters
+reuse these raw IDs (see the side-B action set)."""
     SWORD_DANCE_2_HIGH = 0x15e
+    """Sword dance second hit, high. Canonical for 0x15e;
+``FOX_ILLUSION_START`` is an alias."""
     SWORD_DANCE_2_MID = 0x15f
+    """Sword dance second hit, mid. Canonical for 0x15f;
+``FOX_ILLUSION`` is an alias."""
     SWORD_DANCE_3_HIGH = 0x160
+    """Sword dance third hit, high. Canonical for 0x160;
+``FOX_ILLUSION_SHORTENED`` is an alias."""
     SWORD_DANCE_3_MID = 0x161
+    """Sword dance third hit, mid. Canonical for 0x161;
+``FIREFOX_WAIT_GROUND`` is an alias."""
     SWORD_DANCE_3_LOW = 0x162
+    """Sword dance third hit, low. Canonical for 0x162;
+``FIREFOX_WAIT_AIR`` is an alias."""
     SWORD_DANCE_4_HIGH = 0x163
+    """Sword dance fourth hit, high. Canonical for 0x163;
+``FIREFOX_GROUND`` is an alias."""
     SWORD_DANCE_4_MID = 0x164
+    """Sword dance fourth hit, mid. Canonical for 0x164;
+``FIREFOX_AIR`` is an alias."""
     SWORD_DANCE_4_LOW = 0x165
+    """Sword dance fourth hit, low."""
+    # --- Side-B aerial variants (some collide with DOWN_B_* values above) ---
     SWORD_DANCE_1_AIR = 0x166
+    """Side-B airborne startup."""
     SWORD_DANCE_2_HIGH_AIR = 0x167
+    """Side-B airborne second hit, high. Canonical for 0x167 (no alias)."""
     SWORD_DANCE_2_MID_AIR = 0x168
+    """Alias of ``DOWN_B_GROUND_START`` (0x168). See that member for use."""
     SWORD_DANCE_3_HIGH_AIR = 0x169
+    """Alias of ``DOWN_B_GROUND`` (0x169). See that member for use."""
     SWORD_DANCE_3_MID_AIR = 0x16a
+    """Side-B airborne third hit, mid. Canonical for 0x16a (no alias)."""
     SWORD_DANCE_3_LOW_AIR = 0x16b
+    """Side-B airborne third hit, low. Canonical for 0x16b (no alias)."""
     SWORD_DANCE_4_HIGH_AIR = 0x16c
+    """Alias of ``SHINE_TURN`` (0x16c). See that member for use."""
     SWORD_DANCE_4_MID_AIR = 0x16d
+    """Alias of ``DOWN_B_STUN`` (0x16d). See that member for use."""
     SWORD_DANCE_4_LOW_AIR = 0x16e
+    """Alias of ``DOWN_B_AIR`` (0x16e). See that member for use."""
+    # --- Fox/Falco-specific side-B / up-B variants (aliases of SWORD_DANCE) ---
     FOX_ILLUSION_START = 0x15e
+    """Alias of ``SWORD_DANCE_2_HIGH`` (0x15e). Fox Illusion startup (the
+dash-charge before the dash). Fox/Falco side-B."""
     FOX_ILLUSION = 0x15f
+    """Alias of ``SWORD_DANCE_2_MID`` (0x15f). Fox Illusion active dash."""
     FOX_ILLUSION_SHORTENED = 0x160
-    FIREFOX_WAIT_GROUND = 0x161 #Firefox wait on the ground
-    FIREFOX_WAIT_AIR = 0x162 #Firefox wait in the air
-    FIREFOX_GROUND = 0x163 #Firefox on the ground
-    FIREFOX_AIR = 0x164 #Firefox in the air
-    UP_B_AIR = 0x170    #The upswing of the UP-B. (At least for marth)
+    """Alias of ``SWORD_DANCE_3_HIGH`` (0x160). Fox Illusion shortened
+(length-cancelled / "shorten" variant)."""
+    FIREFOX_WAIT_GROUND = 0x161
+    """Alias of ``SWORD_DANCE_3_MID`` (0x161). Firefox (Fox/Falco Up-B) wait
+on the ground (the "charging" pause before the boost)."""
+    FIREFOX_WAIT_AIR = 0x162
+    """Alias of ``SWORD_DANCE_3_LOW`` (0x162). Firefox wait in the air."""
+    FIREFOX_GROUND = 0x163
+    """Alias of ``SWORD_DANCE_4_HIGH`` (0x163). Firefox boost on the ground."""
+    FIREFOX_AIR = 0x164
+    """Alias of ``SWORD_DANCE_4_MID`` (0x164). Firefox boost in the air."""
+    UP_B_AIR = 0x170
+    """Alias of ``SHINE_RELEASE_AIR`` (0x170). The upswing of the UP-B
+(Marth's dolphin slash and the like). Despite the name, libmelee
+resolves 0x170 to ``SHINE_RELEASE_AIR`` since the latter is defined
+first. Treat as Marth-specific Up-B aerial upswing.
+The upswing of the UP-B. (At least for marth)"""
+    # --- Marth counter (Classifies as the attacking state via the attack action set) ---
     MARTH_COUNTER = 0x171
+    """Marth's Down-B counter (the counter window + retaliation). Also used by
+Roy."""
     PARASOL_FALLING = 0x172
+    """Peach's parasol (Up-B) - falling with the parasol open post-jump.
+Different from the item parasol (``ITEM_PARASOL_*``)."""
     MARTH_COUNTER_FALLING = 0x173
+    """Marth's counter-falling variant - counter triggers while airborne."""
+    # --- Ness shield (PSI Magnet / Yo-yo defense variants) ---
     NESS_SHEILD_START = 0x174
+    """Ness shield-startup (his shield is his bat/yoyo animation). Canonical for
+0x174 (``NESS_SHEILD`` is an alias of this member). Note the typo
+("SHEILD") in libmelee / SSBM naming - preserved for compatibility."""
     NESS_SHEILD = 0x174
+    """Alias of ``NESS_SHEILD_START``. The sustained Ness-shield hold."""
     NESS_SHEILD_AIR = 0x175
-    ZITABATA = 0x176 #No clue what this is
+    """Ness shield-air (his midair "shield" - PSI Magnet active)."""
+    ZITABATA = 0x176
+    """ZITABATA (translates roughly to "shield-bounce" - Ness's down-B
+PSI Magnet yoyo strike). Classifies as the attacking state via frame data."""
     NESS_SHEILD_AIR_END = 0x177
+    """Ness shield-air end (PSI Magnet release)."""
+    # --- Bowser / Koopa throw variants (continuations) ---
     THROWN_KOOPA_END_F = 0x178
+    """Thrown by Bowser - end of forward throw (the release frame)."""
     THROWN_KOOPA_END_B = 0x179
+    """Thrown by Bowser - end of back throw."""
     CAPTURE_KOOPA_AIR_HIT = 0x17A
+    """Hit while in Bowser's aerial grab."""
     THROWN_KOOPA_AIR_END_F = 0x17B
+    """Thrown by Bowser aerial grab - end forward."""
     THROWN_KOOPA_AIR_END_B = 0x17C
+    """Thrown by Bowser aerial grab - end back."""
     THROWN_KIRBY_DRINK_S_SHOT = 0x17D
+    """Kirby's drink-shot star projectile (swallowed enemy spit as star)."""
     THROWN_KIRBY_SPIT_S_SHOT = 0x17E
+    """Kirby's regular spit star projectile (without swallow)."""
+    # --- Donkey Kong side-B (Hand Slap; Classifies as the attacking state) ---
     DK_GROUND_POUND_START = 0x17F
+    """DK's Ground Pound (Hand Slap) - startup (the leap before the slam)."""
     DK_GROUND_POUND = 0x180
+    """DK's Ground Pound - active slam (the shockwave hitbox)."""
     DK_GROUND_POUND_END = 0x181
+    """DK's Ground Pound - end (recovery to standing)."""
+    # --- Kirby Blade (Kirby copy of Marth/Roy sword dance) ---
     KIRBY_BLADE_GROUND = 0x184
+    """Kirby blade grounded (from Marth/Roy copy ability)."""
     KIRBY_BLADE_UP = 0x185
+    """Kirby blade upswing."""
     KIRBY_BLADE_APEX = 0x186
+    """Kirby blade apex (mid-swing)."""
     KIRBY_BLADE_DOWN = 0x187
+    """Kirby blade downswing."""
+    # --- Kirby Stone (down-B) ---
     KIRBY_STONE_FORMING_GROUND = 0x189
+    """Stone forming (grounded). Brief startup before invulnerable stone form."""
     KIRBY_STONE_RESTING = 0x18A
+    """Stone resting (invulnerable stationary stone on ground)."""
     KIRBY_STONE_RELEASE = 0x18B
+    """Stone release (returning to normal Kirby)."""
     KIRBY_STONE_FORMING_AIR = 0x18C
+    """Stone forming in the air (preparing to drop)."""
     KIRBY_STONE_FALLING = 0x18D
+    """Stone falling (the plunging drop). Canonical for 0x18d;
+``KIRBY_STONE_UNFORMING`` is an alias."""
     KIRBY_STONE_UNFORMING = 0x18D
+    """Alias of ``KIRBY_STONE_FALLING`` (0x18d). The un-forming animation
+returning to normal - shares the same raw action ID as the falling
+state in SSBM (the falling frame IS the un-forming frame internally)."""
 
-# Complete list at: https://docs.google.com/spreadsheets/d/1JX2w-r2fuvWuNgGb6D3Cs4wHQKLFegZe2jhbBuIhCG8/edit?gid=20#gid=20
+    # Complete list at: https://docs.google.com/spreadsheets/d/1JX2w-r2fuvWuNgGb6D3Cs4wHQKLFegZe2jhbBuIhCG8/edit?gid=20#gid=20
 class ProjectileType(Enum):
     """Primary type of prejectile or item """
     BOB_OMB = 0x06 # Bob-omb (BombHei)

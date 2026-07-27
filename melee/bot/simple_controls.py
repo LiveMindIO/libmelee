@@ -9,7 +9,7 @@ into attacks, ledge get-ups, and taunts.
 
 Bots normally receive a :class:`SimpleControls` instance from the runtime on each
 ``game_tick`` call. For state-only reads prefer ``simple_controls.character_state``
-(e.g. ``simple_controls.character_state.can_attack(player)``) over the deprecated
+(e.g. ``simple_controls.character_state.can_attack()``) over the deprecated
 thin delegates on :class:`SimpleControls` itself — those wrappers remain only for
 backward compatibility and will be removed.
 
@@ -426,10 +426,10 @@ class SimpleControls:
         player = self._player()
         if player is None:
             return False
-        if self._character_state.is_taunting(player):
+        if self._character_state.is_taunting():
             self._controller.release_all()
             return True
-        if not self._character_state.can_taunt(player):
+        if not self._character_state.can_taunt():
             return False
         self._controller.release_all()
         self._controller.press_button(Button.BUTTON_D_UP)
@@ -521,85 +521,95 @@ class SimpleControls:
     # They will be removed once callers have migrated.
     # ------------------------------------------------------------------
 
-    def get_state(self, player: LibPlayerState | None = None) -> CharacterStatus:
+    def get_state(self) -> CharacterStatus:
         """Deprecated: use :attr:`character_state` :meth:`.get_state`."""
         _warn_state_deprecated("get_state")
-        return self._character_state.get_state(player)
+        return self._character_state.get_state()
 
-    def in_hitstun(self, player: LibPlayerState | None = None) -> bool:
+    def in_hitstun(self) -> bool:
         """Deprecated: use :attr:`character_state` :meth:`.in_hitstun`."""
         _warn_state_deprecated("in_hitstun")
-        return self._character_state.in_hitstun(player)
+        return self._character_state.in_hitstun()
 
-    def is_grabbed(self, player: LibPlayerState | None = None) -> bool:
+    def is_grabbed(self) -> bool:
         """Deprecated: use :attr:`character_state` :meth:`.is_grabbed`."""
         _warn_state_deprecated("is_grabbed")
-        return self._character_state.is_grabbed(player)
+        return self._character_state.is_grabbed()
 
-    def is_grabbing(self, player: LibPlayerState | None = None) -> bool:
+    def is_grabbing(self) -> bool:
         """Deprecated: use :attr:`character_state` :meth:`.is_grabbing`."""
         _warn_state_deprecated("is_grabbing")
-        return self._character_state.is_grabbing(player)
+        return self._character_state.is_grabbing()
 
-    def is_carrying_enemy(self, player: LibPlayerState | None = None) -> bool:
+    def is_carrying_enemy(self) -> bool:
         """Deprecated: use :attr:`character_state` :meth:`.is_carrying_enemy`."""
         _warn_state_deprecated("is_carrying_enemy")
-        return self._character_state.is_carrying_enemy(player)
+        return self._character_state.is_carrying_enemy()
 
-    def is_shielding(self, player: LibPlayerState | None = None) -> bool:
+    def is_shielding(self) -> bool:
         """Deprecated: use :attr:`character_state` :meth:`.is_shielding`."""
         _warn_state_deprecated("is_shielding")
-        return self._character_state.is_shielding(player)
+        return self._character_state.is_shielding()
 
-    def is_shield_broken(self, player: LibPlayerState | None = None) -> bool:
+    def is_shield_broken(self) -> bool:
         """Deprecated: use :attr:`character_state` :meth:`.is_shield_broken`."""
         _warn_state_deprecated("is_shield_broken")
-        return self._character_state.is_shield_broken(player)
+        return self._character_state.is_shield_broken()
 
-    def is_dodging(self, player: LibPlayerState | None = None) -> bool:
+    def is_dodging(self) -> bool:
         """Deprecated: use :attr:`character_state` :meth:`.is_dodging`."""
         _warn_state_deprecated("is_dodging")
-        return self._character_state.is_dodging(player)
+        return self._character_state.is_dodging()
 
-    def is_grabbing_ledge(self, player: LibPlayerState | None = None) -> bool:
+    def is_downed(self) -> bool:
+        """Deprecated: use :attr:`character_state` :meth:`.is_downed`."""
+        _warn_state_deprecated("is_downed")
+        return self._character_state.is_downed()
+
+    def is_getting_up(self) -> bool:
+        """Deprecated: use :attr:`character_state` :meth:`.is_getting_up`."""
+        _warn_state_deprecated("is_getting_up")
+        return self._character_state.is_getting_up()
+
+    def is_grabbing_ledge(self) -> bool:
         """Deprecated: use :attr:`character_state` :meth:`.is_grabbing_ledge`."""
         _warn_state_deprecated("is_grabbing_ledge")
-        return self._character_state.is_grabbing_ledge(player)
+        return self._character_state.is_grabbing_ledge()
 
-    def can_attack(self, player: LibPlayerState | None = None) -> bool:
+    def can_attack(self) -> bool:
         """Deprecated: use :attr:`character_state` :meth:`.can_attack`."""
         _warn_state_deprecated("can_attack")
-        return self._character_state.can_attack(player)
+        return self._character_state.can_attack()
 
-    def can_shield(self, player: LibPlayerState | None = None) -> bool:
+    def can_shield(self) -> bool:
         """Deprecated: use :attr:`character_state` :meth:`.can_shield`."""
         _warn_state_deprecated("can_shield")
-        return self._character_state.can_shield(player)
+        return self._character_state.can_shield()
 
-    def can_grab(self, player: LibPlayerState | None = None) -> bool:
+    def can_grab(self) -> bool:
         """Deprecated: use :attr:`character_state` :meth:`.can_grab`."""
         _warn_state_deprecated("can_grab")
-        return self._character_state.can_grab(player)
+        return self._character_state.can_grab()
 
-    def can_z_air(self, player: LibPlayerState | None = None) -> bool:
+    def can_z_air(self) -> bool:
         """Deprecated: use :attr:`character_state` :meth:`.can_z_air`."""
         _warn_state_deprecated("can_z_air")
-        return self._character_state.can_z_air(player)
+        return self._character_state.can_z_air()
 
-    def can_air_attack(self, player: LibPlayerState | None = None) -> bool:
+    def can_air_attack(self) -> bool:
         """Deprecated: use :attr:`character_state` :meth:`.can_air_attack`."""
         _warn_state_deprecated("can_air_attack")
-        return self._character_state.can_air_attack(player)
+        return self._character_state.can_air_attack()
 
-    def is_taunting(self, player: LibPlayerState | None = None) -> bool:
+    def is_taunting(self) -> bool:
         """Deprecated: use :attr:`character_state` :meth:`.is_taunting`."""
         _warn_state_deprecated("is_taunting")
-        return self._character_state.is_taunting(player)
+        return self._character_state.is_taunting()
 
-    def can_taunt(self, player: LibPlayerState | None = None) -> bool:
+    def can_taunt(self) -> bool:
         """Deprecated: use :attr:`character_state` :meth:`.can_taunt`."""
         _warn_state_deprecated("can_taunt")
-        return self._character_state.can_taunt(player)
+        return self._character_state.can_taunt()
 
     # ------------------------------------------------------------------
     # Private helpers.
@@ -790,12 +800,12 @@ class SimpleControls:
         during smash charge).
         """
         if hold.attack_type is AttackType.Z_AIR:
-            if not self._character_state.can_z_air(player):
+            if not self._character_state.can_z_air():
                 return True
         elif hold.attack_type is AttackType.GRAB:
-            if not self._character_state.can_grab(player):
+            if not self._character_state.can_grab():
                 return True
-        elif not self._character_state.can_attack(player):
+        elif not self._character_state.can_attack():
             return True
         if hold.attack_type in _GRAB_THROW_ATTACKS:
             if not isinstance(player.action, Action):
@@ -826,10 +836,10 @@ class SimpleControls:
         and ground/air compatibility for the requested move.
         """
         if attack_type is AttackType.Z_AIR:
-            return self._character_state.can_z_air(player)
+            return self._character_state.can_z_air()
         if attack_type is AttackType.GRAB:
-            return self._character_state.can_grab(player)
-        if not self._character_state.can_attack(player):
+            return self._character_state.can_grab()
+        if not self._character_state.can_attack():
             return False
         if attack_type in _GRAB_THROW_ATTACKS:
             return isinstance(player.action, Action) and (

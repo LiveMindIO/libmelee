@@ -8,8 +8,9 @@ from typing import Protocol, runtime_checkable
 from melee.controller import Controller
 from melee.enums import Character
 from melee.framedata import FrameData
-from melee.gamestate import GameState, PlayerState
+from melee.gamestate import GameState
 
+from melee.bot.character_state import CharacterState
 from melee.bot.logger import BotLogger
 from melee.bot.match_history import MatchHistory
 from melee.bot.simple_controls import SimpleControls
@@ -44,8 +45,8 @@ class CrowdControl(Protocol):
         controller: Controller,
         simple_controls: SimpleControls,
         frame_data: FrameData,
-        player_state: PlayerState | None,
-        opponent_state: PlayerState | None,
+        player_state: CharacterState,
+        opponent_state: CharacterState,
     ) -> None:
         """Run one frame of in-game AI logic.
 
@@ -58,10 +59,14 @@ class CrowdControl(Protocol):
             frame_data: Shared libmelee ``FrameData`` helper, loaded once and
                 reused across every bot and match. Use it for spacing, punish,
                 and recovery queries instead of constructing your own.
-            player_state: This bot's ``PlayerState`` this frame, or ``None`` when
-                absent (equivalent to ``game_state.players.get(port)``).
-            opponent_state: The nearest opposing ``PlayerState`` in the match this
-                frame, or ``None`` when no opponent is present.
+            player_state: Read-only :class:`CharacterState` for this bot's port.
+                Use ``player_state.get_state()``, ``player_state.can_attack()``,
+                ``player_state.is_grabbing()``, etc. for high-level combat
+                classification. Access the raw :class:`melee.gamestate.PlayerState`
+                via ``player_state.player()`` when you need per-frame fields like
+                ``position`` or ``facing``.
+            opponent_state: Read-only :class:`CharacterState` for the nearest
+                opposing port this frame.
         """
 
     def select_character(
