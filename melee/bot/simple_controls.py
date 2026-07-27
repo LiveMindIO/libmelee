@@ -1,10 +1,17 @@
-"""High-level attack inputs for Crowd Control bots.
+"""Attack input application for Crowd Control bots.
+
+:class:`SimpleControls` layers stick/button input sequences on top of a
+:class:`melee.bot.character_state.CharacterState` instance. All high-level state
+classification ("am I in hitstun?", "can a grab start?", "what motion state am I
+in?") lives on :class:`CharacterState`; :class:`SimpleControls` consults it via
+``self._character_state`` and adds the controller writes that turn those checks
+into attacks, ledge get-ups, and taunts.
 
 Bots normally receive a :class:`SimpleControls` instance from the runtime on each
-``game_tick`` call. It validates whether a move can start from the current
-``PlayerState``, applies the correct stick and button inputs through libmelee's
-``Controller``, and returns structured results so bots do not hand-roll per-move
-input timing or action-state guards.
+``game_tick`` call. For state-only reads prefer ``simple_controls.character_state``
+(e.g. ``simple_controls.character_state.can_attack(player)``) over the deprecated
+thin delegates on :class:`SimpleControls` itself — those wrappers remain only for
+backward compatibility and will be removed.
 
 Typical loop::
 
@@ -31,64 +38,61 @@ See :class:`SimpleControls` for return-value semantics and charge/release behavi
 
 from __future__ import annotations
 
+import warnings
 from dataclasses import dataclass
 from enum import Enum, auto
-from typing import TYPE_CHECKING, Final, cast
+from typing import TYPE_CHECKING, Final
 
 from melee.controller import Controller
 from melee.enums import Action, Button, Character
 from melee.framedata import FrameData
-from melee.gamestate import GameState, PlayerState as LibPlayerState, UnknownAnimation
+from melee.gamestate import GameState, PlayerState as LibPlayerState
+
+from melee.bot.character_state import (
+    AttackType,
+    CharacterState,
+    CharacterStatus,
+    _ACTIONS_FOR_TYPE,
+    _ACTIONABLE_AIR,
+    _ACTIONABLE_GROUND,
+    _AERIAL_ATTACKS,
+    _AIR_ATTACKS,
+    _GRABBER_ACTIONS,
+    _GRAB_THROW_ATTACKS,
+    _GRAB_THROW_INPUT_ACTIONS,
+    _GROUND_ATTACKS,
+    _is_special_action,
+    _LEDGE_GETUP_ACTIONS,
+    _LEDGE_HANG_ACTIONS,
+    _SPECIAL_ATTACKS,
+    attack_is_holdable,
+    can_air_attack,
+    can_attack,
+    can_grab,
+    can_shield,
+    can_taunt,
+    can_z_air,
+    get_state,
+    in_hitstun,
+    is_carrying_enemy,
+    is_dodging,
+    is_grabbed,
+    is_grabbing,
+    is_grabbing_ledge,
+    is_shielding,
+    is_shield_broken,
+    is_taunting,
+    neutral_b_is_chargeable,
+    z_air_is_supported,
+)
 
 if TYPE_CHECKING:
-    from melee.bot.character_specific_controls import CharacterSpecificControls
+    pass
 
 _INPUT_COMMIT_FRAMES: Final = 12
 _SMASH_MAX_CHARGE_FRAMES: Final = 60
 _NEUTRAL_B_MAX_CHARGE_FRAMES: Final = 120
 _AERIAL_COMMIT_FRAMES: Final = 8
-# Ground locomotion states where Slippi may falsely report hitstun_frames_left=1.
-_FALSE_HITSTUN_NEUTRAL_ACTIONS: Final = frozenset(
-    {
-        Action.STANDING,
-        Action.WALK_SLOW,
-        Action.WALK_MIDDLE,
-        Action.WALK_FAST,
-        Action.TURNING,
-        Action.TURNING_RUN,
-        Action.DASHING,
-        Action.RUNNING,
-        Action.RUN_DIRECT,
-        Action.RUN_BRAKE,
-        Action.KNEE_BEND,
-        Action.CROUCH_START,
-        Action.CROUCHING,
-        Action.CROUCH_END,
-        Action.LANDING,
-        Action.LANDING_SPECIAL,
-        Action.NAIR_LANDING,
-        Action.FAIR_LANDING,
-        Action.BAIR_LANDING,
-        Action.UAIR_LANDING,
-        Action.DAIR_LANDING,
-    }
-)
-# States SimpleControls treats as grounded and actionable for starting ground moves.
-_ACTIONABLE_GROUND: Final = _FALSE_HITSTUN_NEUTRAL_ACTIONS
-_ACTIONABLE_AIR: Final = frozenset(
-    {
-        Action.JUMPING_FORWARD,
-        Action.JUMPING_BACKWARD,
-        Action.JUMPING_ARIAL_FORWARD,
-        Action.JUMPING_ARIAL_BACKWARD,
-        Action.FALLING,
-        Action.FALLING_FORWARD,
-        Action.FALLING_BACKWARD,
-        Action.FALLING_AERIAL,
-        Action.FALLING_AERIAL_FORWARD,
-        Action.FALLING_AERIAL_BACKWARD,
-    }
-)
 # Neutral-B charge animations (misnamed _SMASH_CHARGE_ACTIONS historically).
 _SMASH_CHARGE_ACTIONS: Final = frozenset(
     {
@@ -96,213 +100,35 @@ _SMASH_CHARGE_ACTIONS: Final = frozenset(
         Action.NEUTRAL_B_CHARGING_AIR,
     }
 )
-# Characters whose neutral-B enters NEUTRAL_B_CHARGING instead of firing immediately.
-_NEUTRAL_B_CHARGEABLE: Final = frozenset(
-    {
-        Character.BOWSER,
-        Character.DOC,
-        Character.FALCO,
-        Character.FOX,
-        Character.GAMEANDWATCH,
-        Character.KIRBY,
-        Character.LINK,
-        Character.LUIGI,
-        Character.MARIO,
-        Character.MEWTWO,
-        Character.NANA,
-        Character.NESS,
-        Character.PEACH,
-        Character.PICHU,
-        Character.PIKACHU,
-        Character.POPO,
-        Character.ROY,
-        Character.SAMUS,
-        Character.SHEIK,
-        Character.YLINK,
-        Character.YOSHI,
-        Character.ZELDA,
-    }
-)
-_GRABBER_ACTIONS: Final = frozenset(
-    {
-        Action.GRAB,
-        Action.GRAB_PULLING,
-        Action.GRAB_RUNNING,
-        Action.GRAB_RUNNING_PULLING,
-        Action.GRAB_WAIT,
-        Action.GRAB_PUMMEL,
-        Action.GRAB_BREAK,
-        Action.GRAB_PULLING_HIGH,
-        Action.GRAB_JUMP,
-        Action.THROW_FORWARD,
-        Action.THROW_BACK,
-        Action.THROW_UP,
-        Action.THROW_DOWN,
-    }
-)
-_GRABBED_VICTIM_ACTIONS: Final = frozenset(
-    {
-        Action.GRABBED,
-        Action.GRABBED_WAIT_HIGH,
-        Action.GRAB_PULL,
-        Action.GRAB_PUMMELED,
-        Action.PUMMELED_HIGH,
-        Action.GRAB_ESCAPE,
-        Action.GRAB_NECK,
-        Action.GRAB_FOOT,
-    }
-)
-# Grab throws only accept input while holding a victim (not during grab startup).
-_GRAB_THROW_INPUT_ACTIONS: Final = frozenset(
-    {
-        Action.GRAB_WAIT,
-        Action.GRAB_PUMMEL,
-    }
-)
-_LEDGE_HANG_ACTIONS: Final = frozenset(
-    {
-        Action.EDGE_HANGING,
-    }
-)
-_LEDGE_GETUP_ACTIONS: Final = frozenset(
-    {
-        Action.EDGE_GETUP_SLOW,
-        Action.EDGE_GETUP_QUICK,
-        Action.EDGE_ATTACK_SLOW,
-        Action.EDGE_ATTACK_QUICK,
-        Action.EDGE_ROLL_SLOW,
-        Action.EDGE_ROLL_QUICK,
-        Action.EDGE_JUMP_1_SLOW,
-        Action.EDGE_JUMP_2_SLOW,
-        Action.EDGE_JUMP_1_QUICK,
-        Action.EDGE_JUMP_2_QUICK,
-    }
-)
-_TAUNT_ACTIONS: Final = frozenset(
-    {
-        Action.TAUNT_LEFT,
-        Action.TAUNT_RIGHT,
-    }
-)
-_SHIELD_BREAK_ACTIONS: Final = frozenset(
-    {
-        Action.SHIELD_BREAK_FLY,
-        Action.SHIELD_BREAK_FALL,
-        Action.SHIELD_BREAK_DOWN_U,
-        Action.SHIELD_BREAK_DOWN_D,
-        Action.SHIELD_BREAK_STAND_U,
-        Action.SHIELD_BREAK_STAND_D,
-        Action.SHIELD_BREAK_TEETER,
-    }
-)
-_WALK_ACTIONS: Final = frozenset(
-    {
-        Action.WALK_SLOW,
-        Action.WALK_MIDDLE,
-        Action.WALK_FAST,
-        Action.TURNING,
-    }
-)
-_RUN_ACTIONS: Final = frozenset(
-    {
-        Action.DASHING,
-        Action.RUNNING,
-        Action.RUN_DIRECT,
-        Action.RUN_BRAKE,
-        Action.TURNING_RUN,
-    }
-)
-_CARRYING_ENEMY_ACTIONS: Final = frozenset({Action.GRAB_JUMP})
-_EDGE_ACTIONS: Final = _LEDGE_HANG_ACTIONS | _LEDGE_GETUP_ACTIONS | frozenset(
-    {Action.EDGE_CATCHING}
-)
-_GRAB_THROW_ACTIONS: Final = frozenset(
-    {
-        Action.THROW_FORWARD,
-        Action.THROW_BACK,
-        Action.THROW_UP,
-        Action.THROW_DOWN,
-    }
-)
-_GRABBING_ENEMY_ACTIONS: Final = frozenset(
-    {
-        Action.GRAB,
-        Action.GRAB_PULLING,
-        Action.GRAB_RUNNING,
-        Action.GRAB_RUNNING_PULLING,
-        Action.GRAB_WAIT,
-        Action.GRAB_PUMMEL,
-        Action.GRAB_BREAK,
-        Action.GRAB_PULLING_HIGH,
-        Action.THROW_FORWARD,
-        Action.THROW_BACK,
-        Action.THROW_UP,
-        Action.THROW_DOWN,
-    }
-)
-# Characters whose aerial Z input is a tether/ranged grab (Z Air).
-_Z_AIR_CHARACTERS: Final = frozenset(
-    {
-        Character.SAMUS,
-        Character.LINK,
-        Character.YLINK,
-    }
-)
 
 
-class AttackType(Enum):
-    """Logical attack input a bot can request from :class:`SimpleControls`.
-
-    Values map to Melee stick and button combinations (main stick + ``A`` for
-    ground tilts and smashes, C-stick + ``A`` for aerials, main stick + ``B`` for
-    specials, ``Z`` for grab). Directional attacks use the controlled port's
-    ``PlayerState.facing`` to pick left vs right.
-
-    Ground-only: ``JAB``, ``FTILT``, ``UTILT``, ``DTILT``, ``FSMASH``, ``USMASH``,
-    ``DSMASH``, ``GRAB``.
-
-    ``DASH_ATTACK`` requires ``Action.DASHING`` — the bot must enter a dash with
-    raw movement inputs before calling it; SimpleControls does not walk or dash
-    on the bot's behalf.
-
-    Air-only (or grounded jump startup): ``NAIR``, ``FAIR``, ``BAIR``, ``UAIR``,
-    ``DAIR``.
-
-    Specials (ground or air): ``NEUTRAL_B``, ``SIDE_B``, ``UP_B``, ``DOWN_B``.
-
-    Grab throws (requires ``GRAB_WAIT`` / ``GRAB_PUMMEL``): ``FTHROW``, ``BTHROW``,
-    ``UTHROW``, ``DTHROW``. Throws are stick-only; ``A`` pummels during a grab.
-    ``Z_AIR`` is air-only for tether-grab characters (Samus, Link, Young Link).
-
-    Directional throws use ``PlayerState.facing`` for forward/back; up/down are
-    absolute. DK forward-grab behavior is handled by
-    :class:`DonkeyKongCharacterSpecificControls` because forward starts cargo
-    carry instead of a normal throw.
-    """
-
-    JAB = auto()
-    FTILT = auto()
-    UTILT = auto()
-    DTILT = auto()
-    FSMASH = auto()
-    USMASH = auto()
-    DSMASH = auto()
-    DASH_ATTACK = auto()
-    NAIR = auto()
-    FAIR = auto()
-    BAIR = auto()
-    UAIR = auto()
-    DAIR = auto()
-    NEUTRAL_B = auto()
-    SIDE_B = auto()
-    UP_B = auto()
-    DOWN_B = auto()
-    GRAB = auto()
-    Z_AIR = auto()
-    FTHROW = auto()
-    BTHROW = auto()
-    UTHROW = auto()
-    DTHROW = auto()
+# DESNOTE(jbarber, 2026-06-25): Per-type default Action labels for Hold.action only.
+# Do not assume these match every character's move — see _primary_action.
+_PRIMARY_ACTION: Final[dict[AttackType, Action]] = {
+    AttackType.JAB: Action.NEUTRAL_ATTACK_1,
+    AttackType.FTILT: Action.FTILT_MID,
+    AttackType.UTILT: Action.UPTILT,
+    AttackType.DTILT: Action.DOWNTILT,
+    AttackType.FSMASH: Action.FSMASH_MID,
+    AttackType.USMASH: Action.UPSMASH,
+    AttackType.DSMASH: Action.DOWNSMASH,
+    AttackType.DASH_ATTACK: Action.DASH_ATTACK,
+    AttackType.NAIR: Action.NAIR,
+    AttackType.FAIR: Action.FAIR,
+    AttackType.BAIR: Action.BAIR,
+    AttackType.UAIR: Action.UAIR,
+    AttackType.DAIR: Action.DAIR,
+    AttackType.NEUTRAL_B: Action.NEUTRAL_B_ATTACKING,
+    AttackType.SIDE_B: Action.SWORD_DANCE_1,
+    AttackType.UP_B: Action.UP_B_GROUND,
+    AttackType.DOWN_B: Action.DOWN_B_GROUND,
+    AttackType.GRAB: Action.GRAB,
+    AttackType.Z_AIR: Action.GRAB,
+    AttackType.FTHROW: Action.THROW_FORWARD,
+    AttackType.BTHROW: Action.THROW_BACK,
+    AttackType.UTHROW: Action.THROW_UP,
+    AttackType.DTHROW: Action.THROW_DOWN,
+}
 
 
 class LedgeRecoveryOption(Enum):
@@ -322,63 +148,6 @@ class LedgeRecoveryOption(Enum):
     ATTACK_GETUP = auto()
     JUMP_RECOVERY = auto()
     LET_GO = auto()
-
-
-class CharacterStatus(Enum):
-    """High-level motion/combat state for a libmelee port snapshot.
-
-    Distinct from :class:`melee.gamestate.PlayerState` (the per-frame struct).
-    Prefer :func:`get_state` / :meth:`SimpleControls.get_state` over reading raw
-    ``Action`` IDs in bot logic.
-    """
-
-    GrabbingLedge = auto()
-    Attacking = auto()
-    Taunting = auto()
-    Hitstun = auto()
-    HitLag = auto()
-    Shielding = auto()
-    ShieldBroken = auto()
-    Dodging = auto()
-    GrabbedByEnemy = auto()
-    GrabbingEnemy = auto()
-    CarryingEnemy = auto()
-    Standing = auto()
-    InAir = auto()
-    Walking = auto()
-    Running = auto()
-
-
-# CharacterStatus values where standard attack/shield input cannot begin.
-_BLOCKS_ATTACK_INPUT: Final = frozenset(
-    {
-        CharacterStatus.HitLag,
-        CharacterStatus.Hitstun,
-        CharacterStatus.GrabbedByEnemy,
-        CharacterStatus.ShieldBroken,
-        CharacterStatus.GrabbingLedge,
-        CharacterStatus.Shielding,
-        CharacterStatus.Dodging,
-        CharacterStatus.Taunting,
-    }
-)
-
-
-# Like ``_BLOCKS_ATTACK_INPUT`` but allows grab out of shield.
-_BLOCKS_GRAB_INPUT: Final = frozenset(
-    {
-        CharacterStatus.HitLag,
-        CharacterStatus.Hitstun,
-        CharacterStatus.GrabbedByEnemy,
-        CharacterStatus.ShieldBroken,
-        CharacterStatus.GrabbingLedge,
-        CharacterStatus.Dodging,
-        CharacterStatus.Taunting,
-        CharacterStatus.Attacking,
-        CharacterStatus.GrabbingEnemy,
-        CharacterStatus.CarryingEnemy,
-    }
-)
 
 
 @dataclass(frozen=True, slots=True)
@@ -449,11 +218,52 @@ class Hold:
     release_frame: int | None = None
 
 
-class _AutoCharacterSpecific:
-    """Sentinel: resolve :class:`CharacterSpecificControls` from the bound port."""
+def _warn_state_deprecated(name: str) -> None:
+    """Emit a DeprecationWarning for a SimpleControls state-query delegate."""
+    warnings.warn(
+        f"SimpleControls.{name}() is deprecated; use "
+        f"simple_controls.character_state.{name}() instead.",
+        DeprecationWarning,
+        stacklevel=3,
+    )
 
 
-_AUTO_CHARACTER_SPECIFIC = _AutoCharacterSpecific()
+def _toward_stage_stick(player: LibPlayerState) -> float:
+    """Return main-stick X that drifts toward stage while ledge hanging.
+
+    Ledge hang faces away from stage, so toward-stage is opposite ``facing``.
+    When ``facing`` is neutral, fall back to blast-zone side from ``position.x``.
+    """
+    if player.facing is True:
+        return 0.0
+    if player.facing is False:
+        return 1.0
+    return 1.0 if float(player.position.x) < 0 else 0.0
+
+
+def _primary_action(character: Character, attack_type: AttackType) -> Action:
+    """Return a representative ``Action`` for pre-move ``FrameData`` lookups.
+
+    ``character`` is intentionally unused: libmelee's ``Action`` enum labels are
+    Fox/Marth-centric names for raw animation IDs, so there is no single correct
+    enum member per ``AttackType`` across the roster. The returned action is a
+    best-effort default (e.g. ``FSMASH_MID``, ``SWORD_DANCE_1`` for side-B) used
+    only to seed :class:`Hold.action` before the game reports the real animation.
+    Recognition uses :meth:`SimpleControls._current_attack_action` and
+    ``_ACTIONS_FOR_TYPE``.
+    """
+    _ = character
+    return _PRIMARY_ACTION[attack_type]
+
+
+def _commit_frame_limit(hold: Hold) -> int:
+    """Return max frames allowed for a commit hold before timeout.
+
+    Aerials use ``_AERIAL_COMMIT_FRAMES``; others use ``_INPUT_COMMIT_FRAMES``.
+    """
+    if hold.attack_type in _AERIAL_ATTACKS:
+        return _AERIAL_COMMIT_FRAMES
+    return _INPUT_COMMIT_FRAMES
 
 
 class SimpleControls:
@@ -463,6 +273,12 @@ class SimpleControls:
     automatically and passes it into ``CrowdControl.game_tick``). Inputs are
     written to the supplied ``Controller``; the runtime flushes them on the next
     ``console.step()`` — do not call ``controller.flush()`` from bot code.
+
+    State classification (hitstun, grab, ledge hang, actionable locomotion, etc.)
+    is delegated to the bound :class:`CharacterState`, exposed via
+    :attr:`character_state`. New bot code should read state from
+    ``simple_controls.character_state`` rather than the deprecated thin delegates
+    defined below (``can_attack``, ``get_state``, ``in_hitstun``, …).
 
     Return semantics for :meth:`attack`:
 
@@ -487,9 +303,6 @@ class SimpleControls:
         controller: Controller,
         *,
         frame_data: FrameData | None = None,
-        character_specific: CharacterSpecificControls | None | _AutoCharacterSpecific = (
-            _AUTO_CHARACTER_SPECIFIC
-        ),
     ) -> None:
         """Bind a frame snapshot and controller for one bot port.
 
@@ -501,43 +314,21 @@ class SimpleControls:
                 new helper is constructed (loads ``framedata.csv``). The runtime
                 passes its match-scoped instance to avoid reloading CSV data every
                 frame.
-            character_specific: Optional per-character attack overrides. When
-                omitted, :class:`CharacterSpecificControlsFactory` resolves from
-                the bound port's ``PlayerState.character``. Pass ``None`` to
-                disable overrides for that instance.
         """
         self._game_state = game_state
         self._port = port
         self._controller = controller
         self._frame_data = frame_data or FrameData()
-        resolved_specific: CharacterSpecificControls | None
-        if character_specific is _AUTO_CHARACTER_SPECIFIC:
-            from melee.bot.character_specific_controls import (
-                CharacterSpecificControlsFactory,
-            )
+        self._character_state = CharacterState(
+            game_state,
+            port,
+            frame_data=self._frame_data,
+        )
 
-            player = game_state.players.get(port)
-            resolved_specific = (
-                CharacterSpecificControlsFactory.create(
-                    player.character,
-                    game_state=game_state,
-                    port=port,
-                    controller=controller,
-                    frame_data=self._frame_data,
-                )
-                if player is not None
-                else None
-            )
-        else:
-            from melee.bot.character_specific_controls import (
-                CharacterSpecificControls as _CharacterSpecificControls,
-            )
-
-            resolved_specific = cast(
-                _CharacterSpecificControls | None,
-                character_specific,
-            )
-        self._character_specific = resolved_specific
+    @property
+    def character_state(self) -> CharacterState:
+        """Bound :class:`CharacterState` backing all state classification."""
+        return self._character_state
 
     def attack(
         self,
@@ -569,16 +360,6 @@ class SimpleControls:
             :class:`AttackFrameData` once the move is recognized in
             ``PlayerState.action``.
         """
-        if self._character_specific is not None:
-            from melee.bot.character_specific_controls import NO_OVERRIDE
-
-            override = self._character_specific.attack(
-                attack_type,
-                hold=hold,
-            )
-            if override is not NO_OVERRIDE:
-                return cast(None | Hold | AttackFrameData, override)
-
         if hold is not None:
             if not self._hold_matches(hold, attack_type):
                 return None
@@ -608,110 +389,6 @@ class SimpleControls:
             stick_y,
         )
 
-    def get_state(self, player: LibPlayerState | None = None) -> CharacterStatus:
-        """Return the high-level state of the controlled port.
-
-        When ``player`` is omitted, reads the port bound at construction.
-        """
-        target = player if player is not None else self._player()
-        if target is None:
-            return CharacterStatus.Standing
-        if self._character_specific is not None:
-            from melee.bot.character_specific_controls import NO_OVERRIDE
-
-            override = self._character_specific.get_state(target)
-            if override is not NO_OVERRIDE:
-                return cast(CharacterStatus, override)
-        return get_state(target, self._frame_data)
-
-    def in_hitstun(self, player: LibPlayerState | None = None) -> bool:
-        """Return whether the port is in hitlag or real hitstun."""
-        target = player if player is not None else self._player()
-        if target is None:
-            return False
-        return in_hitstun(target, self._frame_data)
-
-    def is_grabbed(self, player: LibPlayerState | None = None) -> bool:
-        """Return whether the port is being held by an opponent's grab."""
-        target = player if player is not None else self._player()
-        if target is None:
-            return False
-        return is_grabbed(target, self._frame_data)
-
-    def is_grabbing(self, player: LibPlayerState | None = None) -> bool:
-        """Return whether the port is grabbing or cargo-carrying an opponent."""
-        target = player if player is not None else self._player()
-        if target is None:
-            return False
-        return is_grabbing(target, self._frame_data)
-
-    def is_carrying_enemy(self, player: LibPlayerState | None = None) -> bool:
-        """Return whether the port is cargo-carrying a grabbed opponent."""
-        target = player if player is not None else self._player()
-        if target is None:
-            return False
-        return is_carrying_enemy(target, self._frame_data)
-
-    def is_shielding(self, player: LibPlayerState | None = None) -> bool:
-        """Return whether the port is holding or stunned in shield (not broken)."""
-        target = player if player is not None else self._player()
-        if target is None:
-            return False
-        return is_shielding(target, self._frame_data)
-
-    def is_shield_broken(self, player: LibPlayerState | None = None) -> bool:
-        """Return whether the port is in a shield-break animation."""
-        target = player if player is not None else self._player()
-        if target is None:
-            return False
-        return is_shield_broken(target, self._frame_data)
-
-    def is_dodging(self, player: LibPlayerState | None = None) -> bool:
-        """Return whether the port is in a roll or spot-dodge animation."""
-        target = player if player is not None else self._player()
-        if target is None:
-            return False
-        return is_dodging(target, self._frame_data)
-
-    def is_grabbing_ledge(self, player: LibPlayerState | None = None) -> bool:
-        """Return whether the port is hanging from a ledge."""
-        target = player if player is not None else self._player()
-        if target is None:
-            return False
-        return is_grabbing_ledge(target, self._frame_data)
-
-    def can_attack(self, player: LibPlayerState | None = None) -> bool:
-        """Return whether standard attack input is not blocked by combat state."""
-        target = player if player is not None else self._player()
-        if target is None:
-            return False
-        return can_attack(target, self._frame_data)
-
-    def can_shield(self, player: LibPlayerState | None = None) -> bool:
-        """Return whether shield input is not blocked by combat state."""
-        return self.can_attack(player)
-
-    def can_grab(self, player: LibPlayerState | None = None) -> bool:
-        """Return whether a grounded grab could start (including out of shield)."""
-        target = player if player is not None else self._player()
-        if target is None:
-            return False
-        return can_grab(target, self._frame_data)
-
-    def can_z_air(self, player: LibPlayerState | None = None) -> bool:
-        """Return whether a tether Z Air could start in the current air state."""
-        target = player if player is not None else self._player()
-        if target is None:
-            return False
-        return can_z_air(target, self._frame_data)
-
-    def can_air_attack(self, player: LibPlayerState | None = None) -> bool:
-        """Return whether an aerial could start from the current action state."""
-        target = player if player is not None else self._player()
-        if target is None:
-            return False
-        return can_air_attack(target, self._frame_data)
-
     def ledge_recovery(self, option: LedgeRecoveryOption) -> bool:
         """Apply one frame of ledge-hang get-up inputs.
 
@@ -734,31 +411,13 @@ class SimpleControls:
         self._apply_ledge_recovery_inputs(player, option)
         return True
 
-    def is_taunting(self, player: LibPlayerState | None = None) -> bool:
-        """Return whether the controlled port is in a taunt animation."""
-        target = player if player is not None else self._player()
-        if target is None:
-            return False
-        return is_taunting(target, self._frame_data)
-
-    def can_taunt(self, player: LibPlayerState | None = None) -> bool:
-        """Return whether taunt input could start from the current state.
-
-        Does not consider an active taunt animation — use :meth:`is_taunting`
-        for that. Applies the same grounded/actionable guards as attack startup.
-        """
-        target = player if player is not None else self._player()
-        if target is None:
-            return False
-        return can_taunt(target, self._frame_data)
-
     def taunt(self) -> bool:
         """Apply one frame of taunt input (D-pad Up).
 
         Melee taunts only accept D-pad Up while grounded. When the port is
         already in ``Action.TAUNT_LEFT`` or ``Action.TAUNT_RIGHT``, sends neutral
         inputs so the animation can play out. Otherwise presses D-pad Up when
-        :meth:`can_taunt` is true.
+        :meth:`CharacterState.can_taunt` is true.
 
         Returns:
             ``True`` if taunt inputs were applied (neutral during animation or
@@ -767,10 +426,10 @@ class SimpleControls:
         player = self._player()
         if player is None:
             return False
-        if is_taunting(player, self._frame_data):
+        if self._character_state.is_taunting(player):
             self._controller.release_all()
             return True
-        if not can_taunt(player, self._frame_data):
+        if not self._character_state.can_taunt(player):
             return False
         self._controller.release_all()
         self._controller.press_button(Button.BUTTON_D_UP)
@@ -797,13 +456,6 @@ class SimpleControls:
         Returns:
             ``True`` if the hold may continue; ``False`` if it was invalidated.
         """
-        if self._character_specific is not None:
-            from melee.bot.character_specific_controls import NO_OVERRIDE
-
-            override = self._character_specific.check_hold(hold)
-            if override is not NO_OVERRIDE:
-                return cast(bool, override)
-
         if hold.released:
             return False
 
@@ -843,13 +495,6 @@ class SimpleControls:
             ``None`` if the hold was not charging, already released, or the player
             can no longer release (hitstun, wrong state, etc.).
         """
-        if self._character_specific is not None:
-            from melee.bot.character_specific_controls import NO_OVERRIDE
-
-            override = self._character_specific.release(hold)
-            if override is not NO_OVERRIDE:
-                return cast(None | AttackFrameData, override)
-
         if hold.released or not hold.charging:
             return None
 
@@ -867,6 +512,98 @@ class SimpleControls:
             action=action,
             frame_data=self._frame_data,
         )
+
+    # ------------------------------------------------------------------
+    # Deprecated state-query delegates.
+    #
+    # These thin wrappers exist only for backward compatibility. New bot code
+    # should call the equivalent method on ``self.character_state`` directly.
+    # They will be removed once callers have migrated.
+    # ------------------------------------------------------------------
+
+    def get_state(self, player: LibPlayerState | None = None) -> CharacterStatus:
+        """Deprecated: use :attr:`character_state` :meth:`.get_state`."""
+        _warn_state_deprecated("get_state")
+        return self._character_state.get_state(player)
+
+    def in_hitstun(self, player: LibPlayerState | None = None) -> bool:
+        """Deprecated: use :attr:`character_state` :meth:`.in_hitstun`."""
+        _warn_state_deprecated("in_hitstun")
+        return self._character_state.in_hitstun(player)
+
+    def is_grabbed(self, player: LibPlayerState | None = None) -> bool:
+        """Deprecated: use :attr:`character_state` :meth:`.is_grabbed`."""
+        _warn_state_deprecated("is_grabbed")
+        return self._character_state.is_grabbed(player)
+
+    def is_grabbing(self, player: LibPlayerState | None = None) -> bool:
+        """Deprecated: use :attr:`character_state` :meth:`.is_grabbing`."""
+        _warn_state_deprecated("is_grabbing")
+        return self._character_state.is_grabbing(player)
+
+    def is_carrying_enemy(self, player: LibPlayerState | None = None) -> bool:
+        """Deprecated: use :attr:`character_state` :meth:`.is_carrying_enemy`."""
+        _warn_state_deprecated("is_carrying_enemy")
+        return self._character_state.is_carrying_enemy(player)
+
+    def is_shielding(self, player: LibPlayerState | None = None) -> bool:
+        """Deprecated: use :attr:`character_state` :meth:`.is_shielding`."""
+        _warn_state_deprecated("is_shielding")
+        return self._character_state.is_shielding(player)
+
+    def is_shield_broken(self, player: LibPlayerState | None = None) -> bool:
+        """Deprecated: use :attr:`character_state` :meth:`.is_shield_broken`."""
+        _warn_state_deprecated("is_shield_broken")
+        return self._character_state.is_shield_broken(player)
+
+    def is_dodging(self, player: LibPlayerState | None = None) -> bool:
+        """Deprecated: use :attr:`character_state` :meth:`.is_dodging`."""
+        _warn_state_deprecated("is_dodging")
+        return self._character_state.is_dodging(player)
+
+    def is_grabbing_ledge(self, player: LibPlayerState | None = None) -> bool:
+        """Deprecated: use :attr:`character_state` :meth:`.is_grabbing_ledge`."""
+        _warn_state_deprecated("is_grabbing_ledge")
+        return self._character_state.is_grabbing_ledge(player)
+
+    def can_attack(self, player: LibPlayerState | None = None) -> bool:
+        """Deprecated: use :attr:`character_state` :meth:`.can_attack`."""
+        _warn_state_deprecated("can_attack")
+        return self._character_state.can_attack(player)
+
+    def can_shield(self, player: LibPlayerState | None = None) -> bool:
+        """Deprecated: use :attr:`character_state` :meth:`.can_shield`."""
+        _warn_state_deprecated("can_shield")
+        return self._character_state.can_shield(player)
+
+    def can_grab(self, player: LibPlayerState | None = None) -> bool:
+        """Deprecated: use :attr:`character_state` :meth:`.can_grab`."""
+        _warn_state_deprecated("can_grab")
+        return self._character_state.can_grab(player)
+
+    def can_z_air(self, player: LibPlayerState | None = None) -> bool:
+        """Deprecated: use :attr:`character_state` :meth:`.can_z_air`."""
+        _warn_state_deprecated("can_z_air")
+        return self._character_state.can_z_air(player)
+
+    def can_air_attack(self, player: LibPlayerState | None = None) -> bool:
+        """Deprecated: use :attr:`character_state` :meth:`.can_air_attack`."""
+        _warn_state_deprecated("can_air_attack")
+        return self._character_state.can_air_attack(player)
+
+    def is_taunting(self, player: LibPlayerState | None = None) -> bool:
+        """Deprecated: use :attr:`character_state` :meth:`.is_taunting`."""
+        _warn_state_deprecated("is_taunting")
+        return self._character_state.is_taunting(player)
+
+    def can_taunt(self, player: LibPlayerState | None = None) -> bool:
+        """Deprecated: use :attr:`character_state` :meth:`.can_taunt`."""
+        _warn_state_deprecated("can_taunt")
+        return self._character_state.can_taunt(player)
+
+    # ------------------------------------------------------------------
+    # Private helpers.
+    # ------------------------------------------------------------------
 
     def _player(self) -> LibPlayerState | None:
         """Return the controlled port's ``PlayerState``, if present."""
@@ -1053,12 +790,12 @@ class SimpleControls:
         during smash charge).
         """
         if hold.attack_type is AttackType.Z_AIR:
-            if not can_z_air(player, self._frame_data):
+            if not self._character_state.can_z_air(player):
                 return True
         elif hold.attack_type is AttackType.GRAB:
-            if not can_grab(player, self._frame_data):
+            if not self._character_state.can_grab(player):
                 return True
-        elif not can_attack(player, self._frame_data):
+        elif not self._character_state.can_attack(player):
             return True
         if hold.attack_type in _GRAB_THROW_ATTACKS:
             if not isinstance(player.action, Action):
@@ -1089,10 +826,10 @@ class SimpleControls:
         and ground/air compatibility for the requested move.
         """
         if attack_type is AttackType.Z_AIR:
-            return can_z_air(player, self._frame_data)
+            return self._character_state.can_z_air(player)
         if attack_type is AttackType.GRAB:
-            return can_grab(player, self._frame_data)
-        if not can_attack(player, self._frame_data):
+            return self._character_state.can_grab(player)
+        if not self._character_state.can_attack(player):
             return False
         if attack_type in _GRAB_THROW_ATTACKS:
             return isinstance(player.action, Action) and (
@@ -1235,451 +972,34 @@ class SimpleControls:
             return False
         return player.action in _ACTIONS_FOR_TYPE[hold.attack_type]
 
-# AttackType groupings used by _can_begin_attack and _apply_attack_inputs.
-_GROUND_ATTACKS: Final = frozenset(
-    {
-        AttackType.JAB,
-        AttackType.FTILT,
-        AttackType.UTILT,
-        AttackType.DTILT,
-        AttackType.FSMASH,
-        AttackType.USMASH,
-        AttackType.DSMASH,
-    }
-)
-_AIR_ATTACKS: Final = frozenset(
-    {
-        AttackType.NAIR,
-        AttackType.FAIR,
-        AttackType.BAIR,
-        AttackType.UAIR,
-        AttackType.DAIR,
-    }
-)
-_SPECIAL_ATTACKS: Final = frozenset(
-    {
-        AttackType.NEUTRAL_B,
-        AttackType.SIDE_B,
-        AttackType.UP_B,
-        AttackType.DOWN_B,
-    }
-)
-_AERIAL_ATTACKS: Final = _AIR_ATTACKS
-_GRAB_THROW_ATTACKS: Final = frozenset(
-    {
-        AttackType.FTHROW,
-        AttackType.BTHROW,
-        AttackType.UTHROW,
-        AttackType.DTHROW,
-    }
-)
 
-
-def _toward_stage_stick(player: LibPlayerState) -> float:
-    """Return main-stick X that drifts toward stage while ledge hanging.
-
-    Ledge hang faces away from stage, so toward-stage is opposite ``facing``.
-    When ``facing`` is neutral, fall back to blast-zone side from ``position.x``.
-    """
-    if player.facing is True:
-        return 0.0
-    if player.facing is False:
-        return 1.0
-    return 1.0 if float(player.position.x) < 0 else 0.0
-
-
-def is_taunting(player: LibPlayerState, frame_data: FrameData | None = None) -> bool:
-    """Return whether ``player`` is performing a taunt animation."""
-    if frame_data is not None:
-        return get_state(player, frame_data) is CharacterStatus.Taunting
-    return isinstance(player.action, Action) and player.action in _TAUNT_ACTIONS
-
-
-def can_taunt(player: LibPlayerState, frame_data: FrameData) -> bool:
-    """Return whether taunt input could start from ``player``'s current state.
-
-    Shared helper for bots and :class:`SimpleControls`. Taunt requires grounded,
-    actionable locomotion on stage — not hitstun, grab, ledge hang, or air.
-    """
-    if is_taunting(player, frame_data):
-        return False
-    if not can_attack(player, frame_data):
-        return False
-    if not player.on_ground or player.off_stage:
-        return False
-    if player.action in _GRABBER_ACTIONS:
-        return False
-    if player.action in _LEDGE_HANG_ACTIONS:
-        return False
-    if not isinstance(player.action, Action):
-        return False
-    return player.action in _ACTIONABLE_GROUND
-
-
-def get_state(player: LibPlayerState, frame_data: FrameData) -> CharacterStatus:
-    """Classify ``player`` into a high-level :class:`CharacterStatus`.
-
-    Applies the Slippi false-hitstun guard: stale ``hitstun_frames_left`` while
-    the character is already actionable is reported as locomotion or combat
-    states, not :attr:`CharacterStatus.Hitstun`.
-    """
-    if player.hitlag_left > 0:
-        return CharacterStatus.HitLag
-    if player.action in _GRABBED_VICTIM_ACTIONS:
-        return CharacterStatus.GrabbedByEnemy
-    if isinstance(player.action, Action) and player.action in _LEDGE_HANG_ACTIONS:
-        return CharacterStatus.GrabbingLedge
-    if isinstance(player.action, Action) and player.action in _CARRYING_ENEMY_ACTIONS:
-        return CharacterStatus.CarryingEnemy
-    if isinstance(player.action, Action) and player.action in _SHIELD_BREAK_ACTIONS:
-        return CharacterStatus.ShieldBroken
-    if _in_real_hitstun(player, frame_data):
-        return CharacterStatus.Hitstun
-    if isinstance(player.action, Action) and frame_data.is_shield(player.action):
-        return CharacterStatus.Shielding
-    if isinstance(player.action, Action) and player.action in _TAUNT_ACTIONS:
-        return CharacterStatus.Taunting
-    if isinstance(player.action, Action) and frame_data.is_roll(
-        player.character,
-        player.action,
-    ):
-        return CharacterStatus.Dodging
-    if isinstance(player.action, Action) and player.action in _GRABBING_ENEMY_ACTIONS:
-        return CharacterStatus.GrabbingEnemy
-    if isinstance(player.action, Action) and (
-        player.action in _ALL_ATTACK_ACTIONS
-        or player.action in _GRAB_THROW_ACTIONS
-        or frame_data.is_attack(player.character, player.action)
-    ):
-        return CharacterStatus.Attacking
-    if player.on_ground and isinstance(player.action, Action):
-        if player.action in _WALK_ACTIONS:
-            return CharacterStatus.Walking
-        if player.action in _RUN_ACTIONS:
-            return CharacterStatus.Running
-        return CharacterStatus.Standing
-    return CharacterStatus.InAir
-
-
-def in_hitstun(player: LibPlayerState, frame_data: FrameData) -> bool:
-    """Return whether ``player`` is in hitlag or real hitstun."""
-    _ = frame_data
-    if player.hitlag_left > 0:
-        return True
-    return _in_real_hitstun(player, frame_data)
-
-
-def is_grabbed(player: LibPlayerState, frame_data: FrameData) -> bool:
-    """Return whether ``player`` is held in an opponent's grab."""
-    _ = frame_data
-    return get_state(player, frame_data) is CharacterStatus.GrabbedByEnemy
-
-
-def is_grabbing(player: LibPlayerState, frame_data: FrameData) -> bool:
-    """Return whether ``player`` is grabbing or cargo-carrying an opponent."""
-    state = get_state(player, frame_data)
-    return state in {CharacterStatus.GrabbingEnemy, CharacterStatus.CarryingEnemy}
-
-
-def is_carrying_enemy(player: LibPlayerState, frame_data: FrameData) -> bool:
-    """Return whether ``player`` is cargo-carrying a grabbed opponent."""
-    return get_state(player, frame_data) is CharacterStatus.CarryingEnemy
-
-
-def is_shielding(player: LibPlayerState, frame_data: FrameData) -> bool:
-    """Return whether ``player`` is holding or stunned in shield (not broken)."""
-    return get_state(player, frame_data) is CharacterStatus.Shielding
-
-
-def is_shield_broken(player: LibPlayerState, frame_data: FrameData) -> bool:
-    """Return whether ``player`` is in a shield-break animation."""
-    return get_state(player, frame_data) is CharacterStatus.ShieldBroken
-
-
-def is_grabbing_ledge(player: LibPlayerState, frame_data: FrameData) -> bool:
-    """Return whether ``player`` is hanging from a ledge."""
-    return get_state(player, frame_data) is CharacterStatus.GrabbingLedge
-
-
-def is_dodging(player: LibPlayerState, frame_data: FrameData) -> bool:
-    """Return whether ``player`` is in a roll or spot-dodge animation."""
-    return get_state(player, frame_data) is CharacterStatus.Dodging
-
-
-def can_attack(player: LibPlayerState, frame_data: FrameData) -> bool:
-    """Return whether standard attack input is not blocked by combat state."""
-    return get_state(player, frame_data) not in _BLOCKS_ATTACK_INPUT
-
-
-def can_shield(player: LibPlayerState, frame_data: FrameData) -> bool:
-    """Return whether shield input is not blocked by combat state."""
-    return can_attack(player, frame_data)
-
-
-def can_grab(player: LibPlayerState, frame_data: FrameData) -> bool:
-    """Return whether a grounded grab could start (including out of shield)."""
-    if get_state(player, frame_data) in _BLOCKS_GRAB_INPUT:
-        return False
-    if not player.on_ground or not isinstance(player.action, Action):
-        return False
-    if is_shielding(player, frame_data):
-        return True
-    return player.action in _ACTIONABLE_GROUND
-
-
-def can_z_air(player: LibPlayerState, frame_data: FrameData) -> bool:
-    """Return whether a tether Z Air could start in the current air state."""
-    if player.character not in _Z_AIR_CHARACTERS:
-        return False
-    if get_state(player, frame_data) in _BLOCKS_GRAB_INPUT:
-        return False
-    if player.on_ground or not isinstance(player.action, Action):
-        return False
-    return player.action in _ACTIONABLE_AIR
-
-
-def can_air_attack(player: LibPlayerState, frame_data: FrameData) -> bool:
-    """Return whether an aerial could start from the current action state."""
-    if not can_attack(player, frame_data):
-        return False
-    if not isinstance(player.action, Action):
-        return False
-    if player.on_ground:
-        return player.action in _ACTIONABLE_GROUND
-    return player.action in _ACTIONABLE_AIR
-
-
-def _in_real_hitstun(player: LibPlayerState, frame_data: FrameData) -> bool:
-    """Return whether positive ``hitstun_frames_left`` is genuine hitstun."""
-    return player.hitstun_frames_left > 0 and not _stale_hitstun_is_actionable(
-        player,
-        frame_data,
-    )
-
-
-def _commit_frame_limit(hold: Hold) -> int:
-    """Return max frames allowed for a commit hold before timeout.
-
-    Aerials use ``_AERIAL_COMMIT_FRAMES``; others use ``_INPUT_COMMIT_FRAMES``.
-    """
-    if hold.attack_type in _AERIAL_ATTACKS:
-        return _AERIAL_COMMIT_FRAMES
-    return _INPUT_COMMIT_FRAMES
-
-
-def _primary_action(character: Character, attack_type: AttackType) -> Action:
-    """Return a representative ``Action`` for pre-move ``FrameData`` lookups.
-
-    ``character`` is intentionally unused: libmelee's ``Action`` enum labels are
-    Fox/Marth-centric names for raw animation IDs, so there is no single correct
-    enum member per ``AttackType`` across the roster. The returned action is a
-    best-effort default (e.g. ``FSMASH_MID``, ``SWORD_DANCE_1`` for side-B) used
-    only to seed :class:`Hold.action` before the game reports the real animation.
-    Recognition uses :func:`_current_attack_action` and ``_ACTIONS_FOR_TYPE``.
-    """
-    _ = character
-    return _PRIMARY_ACTION[attack_type]
-
-
-# DESNOTE(jbarber, 2026-06-25): Per-type default Action labels for Hold.action only.
-# Do not assume these match every character's move — see _primary_action.
-_PRIMARY_ACTION: Final[dict[AttackType, Action]] = {
-    AttackType.JAB: Action.NEUTRAL_ATTACK_1,
-    AttackType.FTILT: Action.FTILT_MID,
-    AttackType.UTILT: Action.UPTILT,
-    AttackType.DTILT: Action.DOWNTILT,
-    AttackType.FSMASH: Action.FSMASH_MID,
-    AttackType.USMASH: Action.UPSMASH,
-    AttackType.DSMASH: Action.DOWNSMASH,
-    AttackType.DASH_ATTACK: Action.DASH_ATTACK,
-    AttackType.NAIR: Action.NAIR,
-    AttackType.FAIR: Action.FAIR,
-    AttackType.BAIR: Action.BAIR,
-    AttackType.UAIR: Action.UAIR,
-    AttackType.DAIR: Action.DAIR,
-    AttackType.NEUTRAL_B: Action.NEUTRAL_B_ATTACKING,
-    AttackType.SIDE_B: Action.SWORD_DANCE_1,
-    AttackType.UP_B: Action.UP_B_GROUND,
-    AttackType.DOWN_B: Action.DOWN_B_GROUND,
-    AttackType.GRAB: Action.GRAB,
-    AttackType.Z_AIR: Action.GRAB,
-    AttackType.FTHROW: Action.THROW_FORWARD,
-    AttackType.BTHROW: Action.THROW_BACK,
-    AttackType.UTHROW: Action.THROW_UP,
-    AttackType.DTHROW: Action.THROW_DOWN,
-}
-
-
-def _action_set(*names: str) -> frozenset[Action]:
-    """Build a frozenset of ``Action`` members from enum attribute names."""
-    return frozenset(getattr(Action, name) for name in names)
-
-
-# Action IDs that count as a given AttackType once the move is active in-game.
-# Side-B lists SWORD_DANCE_* because many characters reuse those raw IDs; see
-# libmelee Action enum / framedata.csv for character-specific mappings.
-_ACTIONS_FOR_TYPE: Final = {
-    AttackType.JAB: _action_set(
-        "NEUTRAL_ATTACK_1",
-        "NEUTRAL_ATTACK_2",
-        "NEUTRAL_ATTACK_3",
-        "LOOPING_ATTACK_START",
-        "LOOPING_ATTACK_MIDDLE",
-        "LOOPING_ATTACK_END",
-    ),
-    AttackType.FTILT: _action_set(
-        "FTILT_HIGH",
-        "FTILT_HIGH_MID",
-        "FTILT_MID",
-        "FTILT_LOW_MID",
-        "FTILT_LOW",
-    ),
-    AttackType.UTILT: _action_set("UPTILT"),
-    AttackType.DTILT: _action_set("DOWNTILT"),
-    AttackType.FSMASH: _action_set(
-        "FSMASH_HIGH",
-        "FSMASH_MID_HIGH",
-        "FSMASH_MID",
-        "FSMASH_MID_LOW",
-        "FSMASH_LOW",
-    ),
-    AttackType.USMASH: _action_set("UPSMASH"),
-    AttackType.DSMASH: _action_set("DOWNSMASH"),
-    AttackType.DASH_ATTACK: _action_set("DASH_ATTACK"),
-    AttackType.NAIR: _action_set("NAIR", "NAIR_LANDING"),
-    AttackType.FAIR: _action_set("FAIR", "FAIR_LANDING"),
-    AttackType.BAIR: _action_set("BAIR", "BAIR_LANDING"),
-    AttackType.UAIR: _action_set("UAIR", "UAIR_LANDING"),
-    AttackType.DAIR: _action_set("DAIR", "DAIR_LANDING"),
-    AttackType.NEUTRAL_B: _action_set(
-        "NEUTRAL_B_ATTACKING",
-        "NEUTRAL_B_ATTACKING_AIR",
-        "NEUTRAL_B_CHARGING",
-        "NEUTRAL_B_CHARGING_AIR",
-        "NEUTRAL_B_FULL_CHARGE",
-        "NEUTRAL_B_FULL_CHARGE_AIR",
-    ),
-    AttackType.SIDE_B: _action_set(
-        "SWORD_DANCE_1",
-        "SWORD_DANCE_1_AIR",
-        "SWORD_DANCE_2_HIGH",
-        "SWORD_DANCE_2_MID",
-        "SWORD_DANCE_3_HIGH",
-        "SWORD_DANCE_3_MID",
-        "SWORD_DANCE_3_LOW",
-        "SWORD_DANCE_4_HIGH",
-        "SWORD_DANCE_4_MID",
-        "SWORD_DANCE_4_LOW",
-        "SWORD_DANCE_2_HIGH_AIR",
-        "SWORD_DANCE_3_MID_AIR",
-        "SWORD_DANCE_3_LOW_AIR",
-    ),
-    AttackType.UP_B: _action_set(
-        "UP_B_GROUND",
-    ),
-    AttackType.DOWN_B: _action_set(
-        "DOWN_B_GROUND",
-        "DOWN_B_GROUND_START",
-        "DOWN_B_STUN",
-        "DOWN_B_AIR",
-    ),
-    AttackType.GRAB: _action_set(
-        "GRAB",
-        "GRAB_RUNNING",
-        "GRAB_PULLING",
-        "GRAB_RUNNING_PULLING",
-    ),
-    AttackType.Z_AIR: _action_set(
-        "GRAB",
-        "GRAB_RUNNING",
-        "GRAB_PULLING",
-        "GRAB_RUNNING_PULLING",
-    ),
-    AttackType.FTHROW: _action_set("THROW_FORWARD"),
-    AttackType.BTHROW: _action_set("THROW_BACK"),
-    AttackType.UTHROW: _action_set("THROW_UP"),
-    AttackType.DTHROW: _action_set("THROW_DOWN"),
-}
-_ALL_ATTACK_ACTIONS: Final = frozenset(
-    action for actions in _ACTIONS_FOR_TYPE.values() for action in actions
-)
-
-
-def _stale_hitstun_is_actionable(player: LibPlayerState, frame_data: FrameData) -> bool:
-    """Return whether positive ``hitstun_frames_left`` should not block inputs."""
-    if isinstance(player.action, UnknownAnimation):
-        return True
-    action = player.action
-    if action in _FALSE_HITSTUN_NEUTRAL_ACTIONS:
-        return True
-    if action in _ACTIONABLE_AIR:
-        return True
-    if action in _ALL_ATTACK_ACTIONS:
-        return True
-    if frame_data.is_attack(player.character, action):
-        return True
-    if frame_data.is_shield(action):
-        return True
-    if frame_data.is_roll(player.character, action):
-        return True
-    if action in _GRABBER_ACTIONS:
-        return True
-    return False
-
-
-def z_air_is_supported(character: Character) -> bool:
-    """Return whether ``character`` has a tether aerial grab (Z Air)."""
-    return character in _Z_AIR_CHARACTERS
-
-
-def neutral_b_is_chargeable(character: Character) -> bool:
-    """Return whether ``character`` has a hold-to-charge neutral special.
-
-    Chargeable characters enter ``NEUTRAL_B_CHARGING`` / ``NEUTRAL_B_CHARGING_AIR``
-    when neutral-B is held. Other characters fire neutral-B immediately.
-
-    Args:
-        character: libmelee ``Character`` to query.
-
-    Returns:
-        ``True`` if :meth:`SimpleControls.attack` with ``AttackType.NEUTRAL_B``
-        should use a charging :class:`Hold`.
-    """
-    return character in _NEUTRAL_B_CHARGEABLE
-
-
-def attack_is_holdable(attack_type: AttackType, character: Character) -> bool:
-    """Return whether ``attack_type`` supports a charging :class:`Hold`.
-
-    Smashes are always holdable. Neutral-B is holdable only when
-    :func:`neutral_b_is_chargeable` is ``True`` for ``character``. All other
-    attack types use short commit holds (``charging=False``).
-
-    Args:
-        attack_type: Move to inspect.
-        character: Character performing the move.
-
-    Returns:
-        ``True`` if :meth:`SimpleControls.attack` begins a charging hold.
-    """
-    if attack_type in {AttackType.FSMASH, AttackType.USMASH, AttackType.DSMASH}:
-        return True
-    if attack_type is AttackType.NEUTRAL_B:
-        return neutral_b_is_chargeable(character)
-    return False
-
-
-def _is_special_action(action: Action) -> bool:
-    """Return whether ``action`` is any B-special animation.
-
-    Uses the same raw action-ID threshold as libmelee ``FrameData.is_bmove`` but
-    skips the ``Action.UNKNOWN_ANIMATION`` guard — that member is missing from the
-    shipped ``melee`` package and causes ``AttributeError`` if ``is_bmove`` is
-    called directly.
-
-    This is intentionally broad: side-B, up-B, and down-B share many
-    character-specific ``Action`` names (often ``SWORD_DANCE_*``), so
-    :meth:`SimpleControls._current_attack_action` pairs this with membership in
-    ``_ACTIONS_FOR_TYPE`` first.
-    """
-    return action.value >= Action.LASER_GUN_PULL.value
+__all__ = [
+    "AttackFrameData",
+    "AttackType",
+    "CharacterState",
+    "CharacterStatus",
+    "Hold",
+    "LedgeRecoveryOption",
+    "SimpleControls",
+    # Re-exported from melee.bot.character_state for backward compatibility with
+    # callers that imported these names from melee.bot.simple_controls.
+    "attack_is_holdable",
+    "can_air_attack",
+    "can_attack",
+    "can_grab",
+    "can_shield",
+    "can_taunt",
+    "can_z_air",
+    "get_state",
+    "in_hitstun",
+    "is_carrying_enemy",
+    "is_dodging",
+    "is_grabbed",
+    "is_grabbing",
+    "is_grabbing_ledge",
+    "is_shielding",
+    "is_shield_broken",
+    "is_taunting",
+    "neutral_b_is_chargeable",
+    "z_air_is_supported",
+]

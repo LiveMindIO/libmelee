@@ -6,28 +6,10 @@ self-contained: a bot file + libmelee is sufficient to develop and type-check
 against.
 """
 
-from melee.bot.character_specific_controls import (
-    NO_OVERRIDE,
-    CharacterSpecificControls,
-    CharacterSpecificControlsFactory,
-    NoOverride,
-)
-from melee.bot.logger import BotLogger, BotLogEntry
-from melee.bot.match_history import (
-    MatchHistory,
-    MatchRoundOutcome,
-    OtherPlayer,
-    OtherPlayerRelation,
-    PlayerMatchRecord,
-)
-from melee.bot.protocol import CharacterSelection, CrowdControl
-from melee.bot.simple_controls import (
-    AttackFrameData,
+from melee.bot.character_state import (
     AttackType,
+    CharacterState,
     CharacterStatus,
-    Hold,
-    LedgeRecoveryOption,
-    SimpleControls,
     attack_is_holdable,
     can_air_attack,
     can_attack,
@@ -48,6 +30,21 @@ from melee.bot.simple_controls import (
     neutral_b_is_chargeable,
     z_air_is_supported,
 )
+from melee.bot.logger import BotLogger, BotLogEntry
+from melee.bot.match_history import (
+    MatchHistory,
+    MatchRoundOutcome,
+    OtherPlayer,
+    OtherPlayerRelation,
+    PlayerMatchRecord,
+)
+from melee.bot.protocol import CharacterSelection, CrowdControl
+from melee.bot.simple_controls import (
+    AttackFrameData,
+    Hold,
+    LedgeRecoveryOption,
+    SimpleControls,
+)
 
 __all__ = [
     "AttackFrameData",
@@ -55,16 +52,13 @@ __all__ = [
     "BotLogEntry",
     "BotLogger",
     "CharacterSelection",
-    "CharacterSpecificControls",
-    "CharacterSpecificControlsFactory",
+    "CharacterState",
     "CharacterStatus",
     "CrowdControl",
     "Hold",
     "LedgeRecoveryOption",
     "MatchHistory",
     "MatchRoundOutcome",
-    "NO_OVERRIDE",
-    "NoOverride",
     "OtherPlayer",
     "OtherPlayerRelation",
     "PlayerMatchRecord",
