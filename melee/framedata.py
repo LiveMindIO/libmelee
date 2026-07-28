@@ -340,7 +340,7 @@ class FrameData:
         #   the game keeps y coordinates based on the bottom of a character, not
         #   their center. So we need to move up by one radius of the character's size
         defender_size = float(self.characterdata[defender.character]["size"])
-        defender_y = defender.y + defender_size
+        defender_y = defender.position.y + defender_size
 
         # Running totals of how far the attacker will travel each frame
         attacker_x = attacker.position.x
