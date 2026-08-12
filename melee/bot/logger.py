@@ -9,6 +9,16 @@ from typing import Any
 from melee.gamestate import GameState
 
 RECENT_LOG_LIMIT = 20
+MATCH_LOG_BYTE_LIMIT = 1024 * 1024
+LOG_MESSAGE_BYTE_LIMIT = 16 * 1024
+_TRUNCATED_MESSAGE = "[bot log truncated at 1048576 UTF-8 bytes]"
+_LEVEL_NAMES = {
+    logging.DEBUG: "DEBUG",
+    logging.INFO: "INFO",
+    logging.WARNING: "WARNING",
+    logging.ERROR: "ERROR",
+    logging.CRITICAL: "CRITICAL",
+}
 
 
 @dataclass(frozen=True)
@@ -31,6 +41,9 @@ class BotLogger:
         self._bot_name = bot_name
         self._logger = logging.getLogger(f"crowd_control.bot.{bot_name}")
         self._recent_logs: list[BotLogEntry] = []
+        self._match_logs: list[BotLogEntry] = []
+        self._match_log_bytes = 0
+        self._match_log_truncated = False
         self._last_heartbeat_frame = -9999
 
     @property
@@ -42,6 +55,15 @@ class BotLogger:
     def recent_logs(self) -> tuple[BotLogEntry, ...]:
         """Up to :data:`RECENT_LOG_LIMIT` unique messages, oldest first."""
         return tuple(self._recent_logs)
+
+    @property
+    def match_logs(self) -> tuple[BotLogEntry, ...]:
+        """All deduplicated messages emitted since the last match reset."""
+        return tuple(self._match_logs)
+
+    def match_log_text(self) -> str:
+        """Render the complete per-match bot log for persistence."""
+        return "".join(_render_entry(entry) for entry in self._match_logs)
 
     @property
     def last_log_message(self) -> str | None:
@@ -71,6 +93,9 @@ class BotLogger:
     def reset(self) -> None:
         """Reset buffered log state and heartbeat throttling (call at match start)."""
         self.clear_last_log()
+        self._match_logs.clear()
+        self._match_log_bytes = 0
+        self._match_log_truncated = False
         self._last_heartbeat_frame = -9999
 
     def maybe_heartbeat(
@@ -155,7 +180,10 @@ class BotLogger:
         *args: object,
         **kwargs: Any,
     ) -> None:
+        if not self._logger.isEnabledFor(level):
+            return
         message = _format_message(msg, args)
+        message = _truncate_utf8(message, LOG_MESSAGE_BYTE_LIMIT)
         if self._recent_logs and self._recent_logs[-1].message == message:
             last = self._recent_logs[-1]
             self._recent_logs[-1] = BotLogEntry(
@@ -163,17 +191,74 @@ class BotLogger:
                 level=last.level,
                 repetition_count=last.repetition_count + 1,
             )
+            if (
+                not self._match_log_truncated
+                and self._match_logs
+                and self._match_logs[-1].message == message
+            ):
+                match_last = self._match_logs[-1]
+                replacement = BotLogEntry(
+                    message=match_last.message,
+                    level=match_last.level,
+                    repetition_count=match_last.repetition_count + 1,
+                )
+                added_bytes = len(_render_entry(replacement).encode("utf-8")) - len(
+                    _render_entry(match_last).encode("utf-8")
+                )
+                marker = BotLogEntry(message=_TRUNCATED_MESSAGE, level=logging.WARNING)
+                marker_bytes = len(_render_entry(marker).encode("utf-8"))
+                if self._match_log_bytes + added_bytes + marker_bytes > MATCH_LOG_BYTE_LIMIT:
+                    self._match_logs.append(marker)
+                    self._match_log_bytes += marker_bytes
+                    self._match_log_truncated = True
+                else:
+                    self._match_logs[-1] = replacement
+                    self._match_log_bytes += added_bytes
             return
 
-        self._recent_logs.append(BotLogEntry(message=message, level=level))
+        entry = BotLogEntry(message=message, level=level)
+        self._recent_logs.append(entry)
+        self._append_match_log(entry)
         if len(self._recent_logs) > RECENT_LOG_LIMIT:
             del self._recent_logs[0]
 
-        if self._logger.isEnabledFor(level):
-            self._logger.log(level, "frame=%s %s", game_state.frame, message, **kwargs)
+        self._logger.log(level, "frame=%s %s", game_state.frame, message, **kwargs)
+
+    def _append_match_log(self, entry: BotLogEntry) -> None:
+        if self._match_log_truncated:
+            return
+        entry_bytes = len(_render_entry(entry).encode("utf-8"))
+        marker = BotLogEntry(message=_TRUNCATED_MESSAGE, level=logging.WARNING)
+        marker_bytes = len(_render_entry(marker).encode("utf-8"))
+        if self._match_log_bytes + entry_bytes + marker_bytes > MATCH_LOG_BYTE_LIMIT:
+            self._match_logs.append(marker)
+            self._match_log_bytes += marker_bytes
+            self._match_log_truncated = True
+            return
+        self._match_logs.append(entry)
+        self._match_log_bytes += entry_bytes
 
 
 def _format_message(msg: object, args: tuple[object, ...]) -> str:
     if args:
         return str(msg) % args
     return str(msg)
+
+
+def _render_entry(entry: BotLogEntry) -> str:
+    repeated = (
+        ""
+        if entry.repetition_count == 0
+        else f" (repeated {entry.repetition_count} additional times)"
+    )
+    level_name = _LEVEL_NAMES.get(entry.level, f"Level {entry.level}")
+    return f"{level_name} | {entry.message}{repeated}\n"
+
+
+def _truncate_utf8(value: str, byte_limit: int) -> str:
+    encoded = value.encode("utf-8")
+    if len(encoded) <= byte_limit:
+        return value
+    suffix = " [truncated]"
+    prefix_limit = byte_limit - len(suffix.encode("utf-8"))
+    return encoded[:prefix_limit].decode("utf-8", errors="ignore") + suffix
