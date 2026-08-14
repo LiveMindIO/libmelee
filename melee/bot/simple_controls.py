@@ -38,6 +38,7 @@ See :class:`SimpleControls` for return-value semantics and charge/release behavi
 
 from __future__ import annotations
 
+import math
 import warnings
 from dataclasses import dataclass
 from enum import Enum, auto
@@ -100,6 +101,60 @@ _SMASH_CHARGE_ACTIONS: Final = frozenset(
         Action.NEUTRAL_B_CHARGING_AIR,
     }
 )
+
+
+class StickReferenceAxis(Enum):
+    """Absolute axis from which a signed stick angle is measured clockwise."""
+
+    UP = 0.0
+    RIGHT = 90.0
+    DOWN = 180.0
+    LEFT = 270.0
+
+
+_CARDINAL_STICK_COORDINATES: Final[dict[float, tuple[float, float]]] = {
+    0.0: (0.5, 1.0),
+    90.0: (1.0, 0.5),
+    180.0: (0.5, 0.0),
+    270.0: (0.0, 0.5),
+}
+
+
+def stick_coordinates(
+    reference_axis: StickReferenceAxis,
+    angle_degrees: float,
+) -> tuple[float, float]:
+    """Convert a signed angle from an absolute axis to raw stick coordinates.
+
+    Positive angles rotate clockwise and negative angles counter-clockwise.
+    Angles may have any finite magnitude and are reduced modulo 360 degrees.
+    The unit circle is mapped from ``[-1, 1]`` into the controller's raw
+    ``[0, 1]`` range, so a 45-degree full tilt is approximately
+    ``(0.8536, 0.8536)`` from :attr:`StickReferenceAxis.UP`, rather than the
+    square-perimeter coordinate ``(1.0, 1.0)``.
+
+    Exact cardinal directions are snapped to ``0.0``, ``0.5``, and ``1.0``;
+    all other results are clamped to ``[0, 1]`` against floating-point leakage.
+
+    Args:
+        reference_axis: Absolute controller/screen axis at zero degrees.
+        angle_degrees: Signed clockwise rotation in degrees.
+
+    Raises:
+        ValueError: If ``angle_degrees`` is NaN or infinite.
+    """
+    if not math.isfinite(angle_degrees):
+        raise ValueError("angle_degrees must be finite")
+
+    absolute_degrees = (reference_axis.value + angle_degrees) % 360.0
+    cardinal = _CARDINAL_STICK_COORDINATES.get(absolute_degrees)
+    if cardinal is not None:
+        return cardinal
+
+    radians = math.radians(absolute_degrees)
+    x = (math.sin(radians) + 1.0) / 2.0
+    y = (math.cos(radians) + 1.0) / 2.0
+    return min(1.0, max(0.0, x)), min(1.0, max(0.0, y))
 
 
 # DESNOTE(jbarber, 2026-06-25): Per-type default Action labels for Hold.action only.
@@ -329,6 +384,35 @@ class SimpleControls:
     def character_state(self) -> CharacterState:
         """Bound :class:`CharacterState` backing all state classification."""
         return self._character_state
+
+    def tilt_stick(
+        self,
+        reference_axis: StickReferenceAxis,
+        angle_degrees: float,
+        *,
+        stick: Button = Button.BUTTON_MAIN,
+    ) -> None:
+        """Tilt the main stick or C-stick by an angle from an absolute axis.
+
+        This mutates only the selected stick's pending controller state. It does
+        not call ``release_all()`` or ``flush()``, so existing button, shoulder,
+        and other-stick inputs remain intact for the runtime's next
+        ``console.step()``.
+
+        Args:
+            reference_axis: Absolute controller/screen axis at zero degrees.
+            angle_degrees: Signed rotation; positive is clockwise and negative
+                is counter-clockwise.
+            stick: :attr:`Button.BUTTON_MAIN` or :attr:`Button.BUTTON_C`.
+
+        Raises:
+            ValueError: If ``stick`` is not the main stick or C-stick, or if
+                ``angle_degrees`` is not finite.
+        """
+        if stick not in {Button.BUTTON_MAIN, Button.BUTTON_C}:
+            raise ValueError(f"Invalid button type {stick} for tilt_stick.")
+        x, y = stick_coordinates(reference_axis, angle_degrees)
+        self._controller.tilt_analog(stick, x, y)
 
     def attack(
         self,
@@ -991,6 +1075,7 @@ __all__ = [
     "Hold",
     "LedgeRecoveryOption",
     "SimpleControls",
+    "StickReferenceAxis",
     # Re-exported from melee.bot.character_state for backward compatibility with
     # callers that imported these names from melee.bot.simple_controls.
     "attack_is_holdable",
@@ -1011,5 +1096,6 @@ __all__ = [
     "is_shield_broken",
     "is_taunting",
     "neutral_b_is_chargeable",
+    "stick_coordinates",
     "z_air_is_supported",
 ]
