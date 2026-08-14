@@ -146,7 +146,7 @@ def stick_coordinates(
     if not math.isfinite(angle_degrees):
         raise ValueError("angle_degrees must be finite")
 
-    absolute_degrees = (reference_axis.value + angle_degrees) % 360.0
+    absolute_degrees = (reference_axis.value + angle_degrees % 360.0) % 360.0
     cardinal = _CARDINAL_STICK_COORDINATES.get(absolute_degrees)
     if cardinal is not None:
         return cardinal
