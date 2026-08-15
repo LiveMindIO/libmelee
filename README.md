@@ -105,6 +105,25 @@ Or tilt one of the analog sticks by:
 
 (X and Y are numbers between 0->1. Where 0 is left/down and 1 is right/up. 0.5 is neutral)
 
+Bots can express an absolute direction and radial strength with
+`melee.bot.stick_coordinates(reference_axis, angle_degrees, magnitude=...)`, or
+apply it with `SimpleControls.tilt_stick`. Angles rotate clockwise from the
+reference axis. `magnitude` is keyword-only, finite, and ranges from `0.0`
+(neutral) through `1.0` (Melee's 80-unit processed-stick maximum); omitting it
+preserves full-tilt behavior. The returned `[0, 1]` pair is a normalized request,
+not a promise of exact hardware output: libmelee correction, Dolphin per-axis
+quantization, and Melee's radial clamp still apply. A full 45-degree request
+rounds to `(57, 57)` before Melee clamps it to `(56, 56)`, while full-radius
+lattice vectors `(48, 64)` and `(64, 48)` are exact. In normalized component
+space those notable vectors are `(0.6, 0.8)` and `(0.8, 0.6)`.
+
+For threshold context, the common 22-unit deadzone is magnitude `0.275`, while
+23 units and magnitude `0.2875` are the next activation step. Exact physical
+octagonal-gate calibration is outside this API's scope. See SuperCombo's
+[System Stick Handling and Dolphin Input
+Notation](https://wiki.supercombo.gg/w/SSBM/Advanced_Controls#System_Stick_Handling)
+for the underlying coordinate pipeline.
+
 ### Note on Controller Input
 Dolphin will accept whatever your last button input was each frame. So if you press A, and then release A on the same frame, only the last action will matter and A will never be seen as pressed to the game.
 

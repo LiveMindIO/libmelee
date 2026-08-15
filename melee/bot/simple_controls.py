@@ -123,15 +123,26 @@ _CARDINAL_STICK_COORDINATES: Final[dict[float, tuple[float, float]]] = {
 def stick_coordinates(
     reference_axis: StickReferenceAxis,
     angle_degrees: float,
+    *,
+    magnitude: float = 1.0,
 ) -> tuple[float, float]:
-    """Convert a signed angle from an absolute axis to raw stick coordinates.
+    """Convert an angular request to normalized libmelee stick coordinates.
 
     Positive angles rotate clockwise and negative angles counter-clockwise.
     Angles may have any finite magnitude and are reduced modulo 360 degrees.
-    The unit circle is mapped from ``[-1, 1]`` into the controller's raw
-    ``[0, 1]`` range, so a 45-degree full tilt is approximately
-    ``(0.8536, 0.8536)`` from :attr:`StickReferenceAxis.UP`, rather than the
-    square-perimeter coordinate ``(1.0, 1.0)``.
+    ``magnitude`` is the requested radial magnitude in Melee's processed stick
+    space, where ``1.0`` is 80 units. For a clockwise angle from up, the
+    processed components are ``magnitude * sin(angle)`` and
+    ``magnitude * cos(angle)``; mapping those from ``[-1, 1]`` into libmelee's
+    normalized ``[0, 1]`` request coordinates gives the returned pair. Thus a
+    45-degree full tilt is approximately ``(0.8536, 0.8536)``, while magnitude
+    zero is neutral ``(0.5, 0.5)``.
+
+    These are request coordinates, before :class:`Controller` applies its input
+    correction, Dolphin quantizes each axis, and Melee clamps vectors whose
+    radial magnitude exceeds 80. Consequently, a full 45-degree request may be
+    quantized to ``(57, 57)`` and then observed as ``(56, 56)``. Exact physical
+    octagonal-gate calibration is outside this conversion's scope.
 
     Exact cardinal directions are snapped to ``0.0``, ``0.5``, and ``1.0``;
     all other results are clamped to ``[0, 1]`` against floating-point leakage.
@@ -139,21 +150,33 @@ def stick_coordinates(
     Args:
         reference_axis: Absolute controller/screen axis at zero degrees.
         angle_degrees: Signed clockwise rotation in degrees.
+        magnitude: Requested radial magnitude from ``0.0`` through ``1.0``.
 
     Raises:
-        ValueError: If ``angle_degrees`` is NaN or infinite.
+        ValueError: If an argument is non-finite or ``magnitude`` is outside
+            the inclusive range ``[0, 1]``.
     """
     if not math.isfinite(angle_degrees):
         raise ValueError("angle_degrees must be finite")
+    if not math.isfinite(magnitude):
+        raise ValueError("magnitude must be finite")
+    if not 0.0 <= magnitude <= 1.0:
+        raise ValueError("magnitude must be between 0 and 1 inclusive")
+
+    if magnitude == 0.0:
+        return 0.5, 0.5
 
     absolute_degrees = (reference_axis.value + angle_degrees % 360.0) % 360.0
     cardinal = _CARDINAL_STICK_COORDINATES.get(absolute_degrees)
     if cardinal is not None:
-        return cardinal
+        return (
+            0.5 + magnitude * (cardinal[0] - 0.5),
+            0.5 + magnitude * (cardinal[1] - 0.5),
+        )
 
     radians = math.radians(absolute_degrees)
-    x = (math.sin(radians) + 1.0) / 2.0
-    y = (math.cos(radians) + 1.0) / 2.0
+    x = 0.5 + magnitude * math.sin(radians) / 2.0
+    y = 0.5 + magnitude * math.cos(radians) / 2.0
     return min(1.0, max(0.0, x)), min(1.0, max(0.0, y))
 
 
@@ -390,6 +413,7 @@ class SimpleControls:
         reference_axis: StickReferenceAxis,
         angle_degrees: float,
         *,
+        magnitude: float = 1.0,
         stick: Button = Button.BUTTON_MAIN,
     ) -> None:
         """Tilt the main stick or C-stick by an angle from an absolute axis.
@@ -403,15 +427,20 @@ class SimpleControls:
             reference_axis: Absolute controller/screen axis at zero degrees.
             angle_degrees: Signed rotation; positive is clockwise and negative
                 is counter-clockwise.
+            magnitude: Requested radial magnitude from ``0.0`` through ``1.0``.
             stick: :attr:`Button.BUTTON_MAIN` or :attr:`Button.BUTTON_C`.
 
         Raises:
-            ValueError: If ``stick`` is not the main stick or C-stick, or if
-                ``angle_degrees`` is not finite.
+            ValueError: If ``stick`` is not the main stick or C-stick, an
+                argument is non-finite, or ``magnitude`` is outside ``[0, 1]``.
         """
         if stick not in {Button.BUTTON_MAIN, Button.BUTTON_C}:
             raise ValueError(f"Invalid button type {stick} for tilt_stick.")
-        x, y = stick_coordinates(reference_axis, angle_degrees)
+        x, y = stick_coordinates(
+            reference_axis,
+            angle_degrees,
+            magnitude=magnitude,
+        )
         self._controller.tilt_analog(stick, x, y)
 
     def attack(
