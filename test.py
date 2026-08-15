@@ -5,7 +5,6 @@ import unittest
 
 import melee
 from melee.bot import SimpleControls, StickReferenceAxis, stick_coordinates
-from melee.controller import fix_analog_stick
 
 class SLPFile(unittest.TestCase):
     """
@@ -284,21 +283,6 @@ class MenuEventCostumeTests(unittest.TestCase):
 
 
 class AngularStickTests(unittest.TestCase):
-    @staticmethod
-    def _emulate_dolphin_units(x: float, y: float) -> tuple[int, int]:
-        return (
-            math.floor((fix_analog_stick(x) - 0.5) * 254),
-            math.floor((fix_analog_stick(y) - 0.5) * 254),
-        )
-
-    @staticmethod
-    def _emulate_processed_units(dolphin_x: int, dolphin_y: int) -> tuple[int, int]:
-        radial_magnitude = math.hypot(dolphin_x, dolphin_y)
-        if radial_magnitude <= 80:
-            return dolphin_x, dolphin_y
-        scale = 80 / radial_magnitude
-        return int(dolphin_x * scale), int(dolphin_y * scale)
-
     def test_every_reference_axis_and_required_angle(self) -> None:
         high = (1.0 + math.sqrt(0.5)) / 2.0
         low = (1.0 - math.sqrt(0.5)) / 2.0
@@ -373,8 +357,20 @@ class AngularStickTests(unittest.TestCase):
                 self.assertAlmostEqual(actual[0], expected[0])
                 self.assertAlmostEqual(actual[1], expected[1])
 
+    def test_notable_centered_components_map_to_public_coordinates(self) -> None:
+        cases = (
+            ((0.8, 0.6), (0.9, 0.8)),
+            ((0.6, 0.8), (0.8, 0.9)),
+        )
+        for (centered_x, centered_y), expected in cases:
+            angle = math.degrees(math.atan2(centered_x, centered_y))
+            with self.subTest(centered=(centered_x, centered_y)):
+                actual = stick_coordinates(StickReferenceAxis.UP, angle)
+                self.assertAlmostEqual(actual[0], expected[0])
+                self.assertAlmostEqual(actual[1], expected[1])
+
     def test_requested_magnitude_is_preserved_for_all_scales(self) -> None:
-        for magnitude in (0.0, 0.1, 0.275, 0.2875, 0.5, 0.8, 1.0):
+        for magnitude in (0.0, 0.1, 0.25, 0.5, 0.8, 1.0):
             for axis in StickReferenceAxis:
                 for angle in range(-720, 721, 11):
                     with self.subTest(axis=axis, angle=angle, magnitude=magnitude):
@@ -385,7 +381,7 @@ class AngularStickTests(unittest.TestCase):
                         )
 
     def test_scaled_requests_remain_periodic(self) -> None:
-        for magnitude in (0.0, 0.275, 0.5, 1.0):
+        for magnitude in (0.0, 0.25, 0.5, 1.0):
             for axis in StickReferenceAxis:
                 for angle in (-721.25, -45.0, 0.0, 33.3, 1080.5):
                     expected = stick_coordinates(axis, angle, magnitude=magnitude)
@@ -403,23 +399,6 @@ class AngularStickTests(unittest.TestCase):
                             )
                             self.assertAlmostEqual(actual[0], expected[0])
                             self.assertAlmostEqual(actual[1], expected[1])
-
-    def test_correction_quantization_and_melee_radial_clamp(self) -> None:
-        diagonal = stick_coordinates(StickReferenceAxis.UP, 45.0)
-        dolphin_diagonal = self._emulate_dolphin_units(*diagonal)
-        self.assertEqual(dolphin_diagonal, (57, 57))
-        self.assertEqual(self._emulate_processed_units(*dolphin_diagonal), (56, 56))
-
-        for processed_x, processed_y in ((48, 64), (64, 48)):
-            angle = math.degrees(math.atan2(processed_x, processed_y))
-            requested = stick_coordinates(StickReferenceAxis.UP, angle)
-            dolphin_units = self._emulate_dolphin_units(*requested)
-            with self.subTest(processed=(processed_x, processed_y)):
-                self.assertEqual(dolphin_units, (processed_x, processed_y))
-                self.assertEqual(
-                    self._emulate_processed_units(*dolphin_units),
-                    (processed_x, processed_y),
-                )
 
     def test_invalid_magnitudes_are_rejected(self) -> None:
         for magnitude in (math.nan, math.inf, -math.inf, -0.0001, 1.0001):

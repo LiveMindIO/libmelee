@@ -126,23 +126,21 @@ def stick_coordinates(
     *,
     magnitude: float = 1.0,
 ) -> tuple[float, float]:
-    """Convert an angular request to normalized libmelee stick coordinates.
+    """Convert an angle and radial magnitude to controller request coordinates.
 
     Positive angles rotate clockwise and negative angles counter-clockwise.
     Angles may have any finite magnitude and are reduced modulo 360 degrees.
-    ``magnitude`` is the requested radial magnitude in Melee's processed stick
-    space, where ``1.0`` is 80 units. For a clockwise angle from up, the
-    processed components are ``magnitude * sin(angle)`` and
-    ``magnitude * cos(angle)``; mapping those from ``[-1, 1]`` into libmelee's
-    normalized ``[0, 1]`` request coordinates gives the returned pair. Thus a
-    45-degree full tilt is approximately ``(0.8536, 0.8536)``, while magnitude
-    zero is neutral ``(0.5, 0.5)``.
+    For a clockwise angle from up, the centered components are ``magnitude *
+    sin(angle)`` and ``magnitude * cos(angle)``. An affine map from ``[-1, 1]``
+    to ``[0, 1]`` produces the independent X and Y request axes accepted by
+    :meth:`Controller.tilt_analog`. Thus a 45-degree unit-magnitude request is
+    approximately ``(0.8536, 0.8536)``, while magnitude zero is neutral
+    ``(0.5, 0.5)``.
 
-    These are request coordinates, before :class:`Controller` applies its input
-    correction, Dolphin quantizes each axis, and Melee clamps vectors whose
-    radial magnitude exceeds 80. Consequently, a full 45-degree request may be
-    quantized to ``(57, 57)`` and then observed as ``(56, 56)``. Exact physical
-    octagonal-gate calibration is outside this conversion's scope.
+    This helper does not model stick gates, emulator processing, game
+    processing, or hardware output. :class:`Controller` applies its existing
+    per-axis input correction afterward when enabled; exact downstream output
+    is outside this helper's contract.
 
     Exact cardinal directions are snapped to ``0.0``, ``0.5``, and ``1.0``;
     all other results are clamped to ``[0, 1]`` against floating-point leakage.
@@ -416,7 +414,7 @@ class SimpleControls:
         magnitude: float = 1.0,
         stick: Button = Button.BUTTON_MAIN,
     ) -> None:
-        """Tilt the main stick or C-stick by an angle from an absolute axis.
+        """Request a main-stick or C-stick tilt from an absolute axis.
 
         This mutates only the selected stick's pending controller state. It does
         not call ``release_all()`` or ``flush()``, so existing button, shoulder,
@@ -427,7 +425,8 @@ class SimpleControls:
             reference_axis: Absolute controller/screen axis at zero degrees.
             angle_degrees: Signed rotation; positive is clockwise and negative
                 is counter-clockwise.
-            magnitude: Requested radial magnitude from ``0.0`` through ``1.0``.
+            magnitude: Request-space radial magnitude from ``0.0`` through
+                ``1.0``.
             stick: :attr:`Button.BUTTON_MAIN` or :attr:`Button.BUTTON_C`.
 
         Raises:

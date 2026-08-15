@@ -265,6 +265,9 @@ class Controller:
     def tilt_analog(self, button: enums.Button, x: float, y: float):
         """ Tilt one of the analog sticks to a given (x,y) value
 
+        X and Y are independent request axes. When analog input correction is
+        enabled, it is applied to each axis before the request is sent.
+
         Args:
             button (enums.Button): Must be main stick or C stick
             x (float): Ranges between 0 (left) and 1 (right)
