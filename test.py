@@ -1,5 +1,4 @@
 #!/usr/bin/python3
-import io
 import math
 import sys
 import unittest
@@ -391,11 +390,13 @@ class AngularStickTests(unittest.TestCase):
         )
         expected = tuple(fix_analog_stick(value) for value in request)
         double_corrected = tuple(fix_analog_stick(value) for value in expected)
-        pipe = io.StringIO()
+        writes: list[str] = []
         controller = melee.Controller(InMemoryConsole(), 1)
-        controller.pipe = pipe
+        controller.pipe = object()
+        controller._write = writes.append
 
         controller.tilt_analog(melee.Button.BUTTON_MAIN, *request)
+        controller.pipe = None
 
         self.assertAlmostEqual(request[0], 0.9)
         self.assertAlmostEqual(request[1], 0.8)
@@ -403,10 +404,9 @@ class AngularStickTests(unittest.TestCase):
         self.assertNotEqual(controller.current.main_stick, request)
         self.assertNotEqual(controller.current.main_stick, double_corrected)
         self.assertEqual(
-            pipe.getvalue(),
-            f"SET MAIN {expected[0]} {expected[1]}\n",
+            writes,
+            [f"SET MAIN {expected[0]} {expected[1]}\n"],
         )
-        controller.disconnect()
 
     def test_requested_magnitude_is_preserved_for_all_scales(self) -> None:
         for magnitude in (0.0, 0.1, 0.25, 0.5, 0.8, 1.0):
