@@ -1,7 +1,10 @@
 #!/usr/bin/python3
+import math
+import sys
 import unittest
 
 import melee
+from melee.bot import SimpleControls, StickReferenceAxis, stick_coordinates
 
 class SLPFile(unittest.TestCase):
     """
@@ -277,6 +280,105 @@ class MenuEventCostumeTests(unittest.TestCase):
         self.assertFalse(gamestate.match_pause.is_paused)
         self.assertIsNone(gamestate.match_pause.pause_port)
         self.assertEqual(gamestate.match_pause.pause_cooldown_frames, 6)
+
+
+class AngularStickTests(unittest.TestCase):
+    def test_every_reference_axis_and_required_angle(self) -> None:
+        high = (1.0 + math.sqrt(0.5)) / 2.0
+        low = (1.0 - math.sqrt(0.5)) / 2.0
+        expected_by_direction = {
+            0.0: (0.5, 1.0),
+            45.0: (high, high),
+            90.0: (1.0, 0.5),
+            135.0: (high, low),
+            180.0: (0.5, 0.0),
+            225.0: (low, low),
+            270.0: (0.0, 0.5),
+            315.0: (low, high),
+        }
+
+        for axis in StickReferenceAxis:
+            for angle in (0.0, 45.0, -45.0, 90.0, -90.0, 180.0, -180.0):
+                with self.subTest(axis=axis, angle=angle):
+                    direction = (axis.value + angle) % 360.0
+                    actual = stick_coordinates(axis, angle)
+                    expected = expected_by_direction[direction]
+                    self.assertAlmostEqual(actual[0], expected[0])
+                    self.assertAlmostEqual(actual[1], expected[1])
+
+    def test_periodicity_bounds_and_unit_magnitude(self) -> None:
+        angles = [float(angle) for angle in range(-1440, 1441, 7)]
+        angles.extend((sys.float_info.max, -sys.float_info.max))
+
+        for axis in StickReferenceAxis:
+            for angle in angles:
+                with self.subTest(axis=axis, angle=angle):
+                    actual = stick_coordinates(axis, angle)
+                    equivalent = stick_coordinates(axis, angle % 360.0)
+                    self.assertAlmostEqual(actual[0], equivalent[0])
+                    self.assertAlmostEqual(actual[1], equivalent[1])
+                    self.assertTrue(all(math.isfinite(value) for value in actual))
+                    self.assertTrue(all(0.0 <= value <= 1.0 for value in actual))
+                    magnitude = math.hypot(
+                        2.0 * actual[0] - 1.0,
+                        2.0 * actual[1] - 1.0,
+                    )
+                    self.assertAlmostEqual(magnitude, 1.0)
+
+    def test_non_finite_angles_are_rejected(self) -> None:
+        for angle in (math.nan, math.inf, -math.inf):
+            with self.subTest(angle=angle):
+                with self.assertRaisesRegex(ValueError, "must be finite"):
+                    stick_coordinates(StickReferenceAxis.UP, angle)
+
+    def test_tilt_stick_selects_stick_without_resetting_other_inputs(self) -> None:
+        class RecordingController:
+            def __init__(self) -> None:
+                self.tilts = []
+                self.release_count = 0
+                self.flush_count = 0
+
+            def tilt_analog(self, button, x, y) -> None:
+                self.tilts.append((button, x, y))
+
+            def release_all(self) -> None:
+                self.release_count += 1
+
+            def flush(self) -> None:
+                self.flush_count += 1
+
+        controller = RecordingController()
+        controls = SimpleControls(
+            melee.GameState(),
+            1,
+            controller,
+            frame_data=melee.FrameData(),
+        )
+
+        controls.tilt_stick(StickReferenceAxis.UP, 90.0)
+        controls.tilt_stick(
+            StickReferenceAxis.LEFT,
+            -90.0,
+            stick=melee.Button.BUTTON_C,
+        )
+
+        self.assertEqual(
+            controller.tilts,
+            [
+                (melee.Button.BUTTON_MAIN, 1.0, 0.5),
+                (melee.Button.BUTTON_C, 0.5, 0.0),
+            ],
+        )
+        self.assertEqual(controller.release_count, 0)
+        self.assertEqual(controller.flush_count, 0)
+
+        with self.assertRaisesRegex(ValueError, "Invalid button type"):
+            controls.tilt_stick(
+                StickReferenceAxis.UP,
+                0.0,
+                stick=melee.Button.BUTTON_A,
+            )
+        self.assertEqual(len(controller.tilts), 2)
 
 if __name__ == '__main__':
     unittest.main()
