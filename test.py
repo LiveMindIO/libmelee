@@ -1,10 +1,12 @@
 #!/usr/bin/python3
+import io
 import math
 import sys
 import unittest
 
 import melee
 from melee.bot import SimpleControls, StickReferenceAxis, stick_coordinates
+from melee.controller import fix_analog_stick
 
 class SLPFile(unittest.TestCase):
     """
@@ -368,6 +370,43 @@ class AngularStickTests(unittest.TestCase):
                 actual = stick_coordinates(StickReferenceAxis.UP, angle)
                 self.assertAlmostEqual(actual[0], expected[0])
                 self.assertAlmostEqual(actual[1], expected[1])
+
+    def test_real_controller_corrects_processed_coordinates_exactly_once(self) -> None:
+        class InMemoryConsole:
+            is_dolphin = True
+            logger = None
+
+            def __init__(self) -> None:
+                self.controllers = []
+
+            def get_dolphin_pipes_path(self, port):
+                return f"unused-{port}"
+
+            def setup_dolphin_controller(self, port, controller_type):
+                pass
+
+        request = stick_coordinates(
+            StickReferenceAxis.UP,
+            math.degrees(math.atan2(0.8, 0.6)),
+        )
+        expected = tuple(fix_analog_stick(value) for value in request)
+        double_corrected = tuple(fix_analog_stick(value) for value in expected)
+        pipe = io.StringIO()
+        controller = melee.Controller(InMemoryConsole(), 1)
+        controller.pipe = pipe
+
+        controller.tilt_analog(melee.Button.BUTTON_MAIN, *request)
+
+        self.assertAlmostEqual(request[0], 0.9)
+        self.assertAlmostEqual(request[1], 0.8)
+        self.assertEqual(controller.current.main_stick, expected)
+        self.assertNotEqual(controller.current.main_stick, request)
+        self.assertNotEqual(controller.current.main_stick, double_corrected)
+        self.assertEqual(
+            pipe.getvalue(),
+            f"SET MAIN {expected[0]} {expected[1]}\n",
+        )
+        controller.disconnect()
 
     def test_requested_magnitude_is_preserved_for_all_scales(self) -> None:
         for magnitude in (0.0, 0.1, 0.25, 0.5, 0.8, 1.0):

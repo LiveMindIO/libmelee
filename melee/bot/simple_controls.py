@@ -126,21 +126,22 @@ def stick_coordinates(
     *,
     magnitude: float = 1.0,
 ) -> tuple[float, float]:
-    """Convert an angle and radial magnitude to controller request coordinates.
+    """Convert an angle and radial magnitude to processed-stick coordinates.
 
     Positive angles rotate clockwise and negative angles counter-clockwise.
     Angles may have any finite magnitude and are reduced modulo 360 degrees.
     For a clockwise angle from up, the centered components are ``magnitude *
     sin(angle)`` and ``magnitude * cos(angle)``. An affine map from ``[-1, 1]``
-    to ``[0, 1]`` produces the independent X and Y request axes accepted by
-    :meth:`Controller.tilt_analog`. Thus a 45-degree unit-magnitude request is
-    approximately ``(0.8536, 0.8536)``, while magnitude zero is neutral
-    ``(0.5, 0.5)``.
+    to ``[0, 1]`` produces the desired processed-stick X and Y coordinates: the
+    position a caller wants :meth:`Console.step` to report. Thus a 45-degree
+    unit-magnitude request is approximately ``(0.8536, 0.8536)``, while
+    magnitude zero is neutral ``(0.5, 0.5)``.
 
-    This helper does not model stick gates, emulator processing, game
-    processing, or hardware output. :class:`Controller` applies its existing
-    per-axis input correction afterward when enabled; exact downstream output
-    is outside this helper's contract.
+    Pass the returned pair uncorrected to :meth:`Controller.tilt_analog` exactly
+    once. The controller applies its existing per-axis input correction when
+    enabled. This helper does not model stick gates, emulator processing, game
+    processing, or hardware output; exact downstream output is outside its
+    contract.
 
     Exact cardinal directions are snapped to ``0.0``, ``0.5``, and ``1.0``;
     all other results are clamped to ``[0, 1]`` against floating-point leakage.
