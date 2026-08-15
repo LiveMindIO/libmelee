@@ -46,6 +46,8 @@ from melee.bot.simple_controls import (
     Hold,
     LedgeRecoveryOption,
     SimpleControls,
+    StickReferenceAxis,
+    stick_coordinates,
 )
 
 __all__ = [
@@ -65,6 +67,7 @@ __all__ = [
     "OtherPlayerRelation",
     "PlayerMatchRecord",
     "SimpleControls",
+    "StickReferenceAxis",
     "attack_is_holdable",
     "can_air_attack",
     "can_attack",
@@ -85,5 +88,6 @@ __all__ = [
     "is_shield_broken",
     "is_taunting",
     "neutral_b_is_chargeable",
+    "stick_coordinates",
     "z_air_is_supported",
 ]

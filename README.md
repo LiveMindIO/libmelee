@@ -105,6 +105,23 @@ Or tilt one of the analog sticks by:
 
 (X and Y are numbers between 0->1. Where 0 is left/down and 1 is right/up. 0.5 is neutral)
 
+Bots can express an absolute direction and radial strength with
+`melee.bot.stick_coordinates(reference_axis, angle_degrees, magnitude=...)`, or
+apply it with `SimpleControls.tilt_stick`. Angles rotate clockwise from the
+reference axis. `magnitude` is keyword-only, finite, and ranges from `0.0`
+(neutral) through `1.0` (the unit circle in centered processed-stick space);
+omitting it preserves unit-magnitude behavior. The helper computes centered
+radial components with sine and cosine, then maps each component independently
+into the desired processed-stick/`Console.step` coordinates normalized to
+`[0, 1]`. For example, centered components `(0.8, 0.6)` become `(0.9, 0.8)`.
+
+Pass that pair uncorrected to `Controller.tilt_analog` exactly once. The
+controller applies libmelee's existing per-axis `fix_analog_stick` correction
+when enabled. These are desired processed-stick coordinates, not predicted
+emulator, game, hardware, or physical-gate outputs. Exact downstream output is
+outside `stick_coordinates`' contract; the helper performs no gate calibration
+or downstream-processing emulation.
+
 ### Note on Controller Input
 Dolphin will accept whatever your last button input was each frame. So if you press A, and then release A on the same frame, only the last action will matter and A will never be seen as pressed to the game.
 

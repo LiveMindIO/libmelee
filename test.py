@@ -1,7 +1,11 @@
 #!/usr/bin/python3
+import math
+import sys
 import unittest
 
 import melee
+from melee.bot import SimpleControls, StickReferenceAxis, stick_coordinates
+from melee.controller import fix_analog_stick
 
 class SLPFile(unittest.TestCase):
     """
@@ -277,6 +281,228 @@ class MenuEventCostumeTests(unittest.TestCase):
         self.assertFalse(gamestate.match_pause.is_paused)
         self.assertIsNone(gamestate.match_pause.pause_port)
         self.assertEqual(gamestate.match_pause.pause_cooldown_frames, 6)
+
+
+class AngularStickTests(unittest.TestCase):
+    def test_every_reference_axis_and_required_angle(self) -> None:
+        high = (1.0 + math.sqrt(0.5)) / 2.0
+        low = (1.0 - math.sqrt(0.5)) / 2.0
+        expected_by_direction = {
+            0.0: (0.5, 1.0),
+            45.0: (high, high),
+            90.0: (1.0, 0.5),
+            135.0: (high, low),
+            180.0: (0.5, 0.0),
+            225.0: (low, low),
+            270.0: (0.0, 0.5),
+            315.0: (low, high),
+        }
+
+        for axis in StickReferenceAxis:
+            for angle in (0.0, 45.0, -45.0, 90.0, -90.0, 180.0, -180.0):
+                with self.subTest(axis=axis, angle=angle):
+                    direction = (axis.value + angle) % 360.0
+                    actual = stick_coordinates(axis, angle)
+                    expected = expected_by_direction[direction]
+                    self.assertAlmostEqual(actual[0], expected[0])
+                    self.assertAlmostEqual(actual[1], expected[1])
+
+    def test_periodicity_bounds_and_unit_magnitude(self) -> None:
+        angles = [float(angle) for angle in range(-1440, 1441, 7)]
+        angles.extend((sys.float_info.max, -sys.float_info.max))
+
+        for axis in StickReferenceAxis:
+            for angle in angles:
+                with self.subTest(axis=axis, angle=angle):
+                    actual = stick_coordinates(axis, angle)
+                    equivalent = stick_coordinates(axis, angle % 360.0)
+                    self.assertAlmostEqual(actual[0], equivalent[0])
+                    self.assertAlmostEqual(actual[1], equivalent[1])
+                    self.assertTrue(all(math.isfinite(value) for value in actual))
+                    self.assertTrue(all(0.0 <= value <= 1.0 for value in actual))
+                    magnitude = math.hypot(
+                        2.0 * actual[0] - 1.0,
+                        2.0 * actual[1] - 1.0,
+                    )
+                    self.assertAlmostEqual(magnitude, 1.0)
+
+    def test_zero_and_scaled_cardinals(self) -> None:
+        cardinals = {
+            StickReferenceAxis.UP: (0.5, 1.0),
+            StickReferenceAxis.RIGHT: (1.0, 0.5),
+            StickReferenceAxis.DOWN: (0.5, 0.0),
+            StickReferenceAxis.LEFT: (0.0, 0.5),
+        }
+        for axis, full_tilt in cardinals.items():
+            with self.subTest(axis=axis, magnitude=0.0):
+                self.assertEqual(
+                    stick_coordinates(axis, 0.0, magnitude=0.0),
+                    (0.5, 0.5),
+                )
+            with self.subTest(axis=axis, magnitude=0.25):
+                expected = tuple(0.5 + 0.25 * (value - 0.5) for value in full_tilt)
+                self.assertEqual(
+                    stick_coordinates(axis, 0.0, magnitude=0.25),
+                    expected,
+                )
+
+    def test_representative_angles_and_magnitudes(self) -> None:
+        cases = (
+            (StickReferenceAxis.UP, 30.0, 0.5, (0.625, 0.5 + math.sqrt(3) / 8)),
+            (StickReferenceAxis.RIGHT, -60.0, 0.75, (0.6875, 0.5 + 0.75 * math.sqrt(3) / 4)),
+            (StickReferenceAxis.DOWN, 225.0, 0.4, (0.5 + math.sqrt(2) / 10, 0.5 + math.sqrt(2) / 10)),
+        )
+        for axis, angle, magnitude, expected in cases:
+            with self.subTest(axis=axis, angle=angle, magnitude=magnitude):
+                actual = stick_coordinates(axis, angle, magnitude=magnitude)
+                self.assertAlmostEqual(actual[0], expected[0])
+                self.assertAlmostEqual(actual[1], expected[1])
+
+    def test_notable_centered_components_map_to_public_coordinates(self) -> None:
+        cases = (
+            ((0.8, 0.6), (0.9, 0.8)),
+            ((0.6, 0.8), (0.8, 0.9)),
+        )
+        for (centered_x, centered_y), expected in cases:
+            angle = math.degrees(math.atan2(centered_x, centered_y))
+            with self.subTest(centered=(centered_x, centered_y)):
+                actual = stick_coordinates(StickReferenceAxis.UP, angle)
+                self.assertAlmostEqual(actual[0], expected[0])
+                self.assertAlmostEqual(actual[1], expected[1])
+
+    def test_real_controller_corrects_processed_coordinates_exactly_once(self) -> None:
+        class InMemoryConsole:
+            is_dolphin = True
+            logger = None
+
+            def __init__(self) -> None:
+                self.controllers = []
+
+            def get_dolphin_pipes_path(self, port):
+                return f"unused-{port}"
+
+            def setup_dolphin_controller(self, port, controller_type):
+                pass
+
+        request = stick_coordinates(
+            StickReferenceAxis.UP,
+            math.degrees(math.atan2(0.8, 0.6)),
+        )
+        expected = tuple(fix_analog_stick(value) for value in request)
+        double_corrected = tuple(fix_analog_stick(value) for value in expected)
+        writes: list[str] = []
+        controller = melee.Controller(InMemoryConsole(), 1)
+        controller.pipe = object()
+        controller._write = writes.append
+
+        controller.tilt_analog(melee.Button.BUTTON_MAIN, *request)
+        controller.pipe = None
+
+        self.assertAlmostEqual(request[0], 0.9)
+        self.assertAlmostEqual(request[1], 0.8)
+        self.assertEqual(controller.current.main_stick, expected)
+        self.assertNotEqual(controller.current.main_stick, request)
+        self.assertNotEqual(controller.current.main_stick, double_corrected)
+        self.assertEqual(
+            writes,
+            [f"SET MAIN {expected[0]} {expected[1]}\n"],
+        )
+
+    def test_requested_magnitude_is_preserved_for_all_scales(self) -> None:
+        for magnitude in (0.0, 0.1, 0.25, 0.5, 0.8, 1.0):
+            for axis in StickReferenceAxis:
+                for angle in range(-720, 721, 11):
+                    with self.subTest(axis=axis, angle=angle, magnitude=magnitude):
+                        x, y = stick_coordinates(axis, angle, magnitude=magnitude)
+                        self.assertAlmostEqual(
+                            math.hypot(2 * x - 1, 2 * y - 1),
+                            magnitude,
+                        )
+
+    def test_scaled_requests_remain_periodic(self) -> None:
+        for magnitude in (0.0, 0.25, 0.5, 1.0):
+            for axis in StickReferenceAxis:
+                for angle in (-721.25, -45.0, 0.0, 33.3, 1080.5):
+                    expected = stick_coordinates(axis, angle, magnitude=magnitude)
+                    for turns in (-5, -1, 1, 5):
+                        with self.subTest(
+                            axis=axis,
+                            angle=angle,
+                            magnitude=magnitude,
+                            turns=turns,
+                        ):
+                            actual = stick_coordinates(
+                                axis,
+                                angle + 360 * turns,
+                                magnitude=magnitude,
+                            )
+                            self.assertAlmostEqual(actual[0], expected[0])
+                            self.assertAlmostEqual(actual[1], expected[1])
+
+    def test_invalid_magnitudes_are_rejected(self) -> None:
+        for magnitude in (math.nan, math.inf, -math.inf, -0.0001, 1.0001):
+            with self.subTest(magnitude=magnitude):
+                with self.assertRaisesRegex(ValueError, "magnitude must"):
+                    stick_coordinates(
+                        StickReferenceAxis.UP,
+                        0.0,
+                        magnitude=magnitude,
+                    )
+
+    def test_non_finite_angles_are_rejected(self) -> None:
+        for angle in (math.nan, math.inf, -math.inf):
+            with self.subTest(angle=angle):
+                with self.assertRaisesRegex(ValueError, "must be finite"):
+                    stick_coordinates(StickReferenceAxis.UP, angle)
+
+    def test_tilt_stick_selects_stick_without_resetting_other_inputs(self) -> None:
+        class RecordingController:
+            def __init__(self) -> None:
+                self.tilts = []
+                self.release_count = 0
+                self.flush_count = 0
+
+            def tilt_analog(self, button, x, y) -> None:
+                self.tilts.append((button, x, y))
+
+            def release_all(self) -> None:
+                self.release_count += 1
+
+            def flush(self) -> None:
+                self.flush_count += 1
+
+        controller = RecordingController()
+        controls = SimpleControls(
+            melee.GameState(),
+            1,
+            controller,
+            frame_data=melee.FrameData(),
+        )
+
+        controls.tilt_stick(StickReferenceAxis.UP, 90.0, magnitude=0.5)
+        controls.tilt_stick(
+            StickReferenceAxis.LEFT,
+            -90.0,
+            stick=melee.Button.BUTTON_C,
+        )
+
+        self.assertEqual(
+            controller.tilts,
+            [
+                (melee.Button.BUTTON_MAIN, 0.75, 0.5),
+                (melee.Button.BUTTON_C, 0.5, 0.0),
+            ],
+        )
+        self.assertEqual(controller.release_count, 0)
+        self.assertEqual(controller.flush_count, 0)
+
+        with self.assertRaisesRegex(ValueError, "Invalid button type"):
+            controls.tilt_stick(
+                StickReferenceAxis.UP,
+                0.0,
+                stick=melee.Button.BUTTON_A,
+            )
+        self.assertEqual(len(controller.tilts), 2)
 
 if __name__ == '__main__':
     unittest.main()

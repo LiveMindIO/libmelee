@@ -38,6 +38,7 @@ See :class:`SimpleControls` for return-value semantics and charge/release behavi
 
 from __future__ import annotations
 
+import math
 import warnings
 from dataclasses import dataclass
 from enum import Enum, auto
@@ -100,6 +101,82 @@ _SMASH_CHARGE_ACTIONS: Final = frozenset(
         Action.NEUTRAL_B_CHARGING_AIR,
     }
 )
+
+
+class StickReferenceAxis(Enum):
+    """Absolute axis from which a signed stick angle is measured clockwise."""
+
+    UP = 0.0
+    RIGHT = 90.0
+    DOWN = 180.0
+    LEFT = 270.0
+
+
+_CARDINAL_STICK_COORDINATES: Final[dict[float, tuple[float, float]]] = {
+    0.0: (0.5, 1.0),
+    90.0: (1.0, 0.5),
+    180.0: (0.5, 0.0),
+    270.0: (0.0, 0.5),
+}
+
+
+def stick_coordinates(
+    reference_axis: StickReferenceAxis,
+    angle_degrees: float,
+    *,
+    magnitude: float = 1.0,
+) -> tuple[float, float]:
+    """Convert an angle and radial magnitude to processed-stick coordinates.
+
+    Positive angles rotate clockwise and negative angles counter-clockwise.
+    Angles may have any finite magnitude and are reduced modulo 360 degrees.
+    For a clockwise angle from up, the centered components are ``magnitude *
+    sin(angle)`` and ``magnitude * cos(angle)``. An affine map from ``[-1, 1]``
+    to ``[0, 1]`` produces the desired processed-stick X and Y coordinates: the
+    position a caller wants :meth:`Console.step` to report. Thus a 45-degree
+    unit-magnitude request is approximately ``(0.8536, 0.8536)``, while
+    magnitude zero is neutral ``(0.5, 0.5)``.
+
+    Pass the returned pair uncorrected to :meth:`Controller.tilt_analog` exactly
+    once. The controller applies its existing per-axis input correction when
+    enabled. This helper does not model stick gates, emulator processing, game
+    processing, or hardware output; exact downstream output is outside its
+    contract.
+
+    Exact cardinal directions are snapped to ``0.0``, ``0.5``, and ``1.0``;
+    all other results are clamped to ``[0, 1]`` against floating-point leakage.
+
+    Args:
+        reference_axis: Absolute controller/screen axis at zero degrees.
+        angle_degrees: Signed clockwise rotation in degrees.
+        magnitude: Requested radial magnitude from ``0.0`` through ``1.0``.
+
+    Raises:
+        ValueError: If an argument is non-finite or ``magnitude`` is outside
+            the inclusive range ``[0, 1]``.
+    """
+    if not math.isfinite(angle_degrees):
+        raise ValueError("angle_degrees must be finite")
+    if not math.isfinite(magnitude):
+        raise ValueError("magnitude must be finite")
+    if not 0.0 <= magnitude <= 1.0:
+        raise ValueError("magnitude must be between 0 and 1 inclusive")
+
+    if magnitude == 0.0:
+        return 0.5, 0.5
+
+    absolute_degrees = (reference_axis.value + angle_degrees % 360.0) % 360.0
+    cardinal = _CARDINAL_STICK_COORDINATES.get(absolute_degrees)
+    if cardinal is not None:
+        return (
+            0.5 + magnitude * (cardinal[0] - 0.5),
+            0.5 + magnitude * (cardinal[1] - 0.5),
+        )
+
+    radians = math.radians(absolute_degrees)
+    x = 0.5 + magnitude * math.sin(radians) / 2.0
+    y = 0.5 + magnitude * math.cos(radians) / 2.0
+    return min(1.0, max(0.0, x)), min(1.0, max(0.0, y))
 
 
 # DESNOTE(jbarber, 2026-06-25): Per-type default Action labels for Hold.action only.
@@ -329,6 +406,42 @@ class SimpleControls:
     def character_state(self) -> CharacterState:
         """Bound :class:`CharacterState` backing all state classification."""
         return self._character_state
+
+    def tilt_stick(
+        self,
+        reference_axis: StickReferenceAxis,
+        angle_degrees: float,
+        *,
+        magnitude: float = 1.0,
+        stick: Button = Button.BUTTON_MAIN,
+    ) -> None:
+        """Request a main-stick or C-stick tilt from an absolute axis.
+
+        This mutates only the selected stick's pending controller state. It does
+        not call ``release_all()`` or ``flush()``, so existing button, shoulder,
+        and other-stick inputs remain intact for the runtime's next
+        ``console.step()``.
+
+        Args:
+            reference_axis: Absolute controller/screen axis at zero degrees.
+            angle_degrees: Signed rotation; positive is clockwise and negative
+                is counter-clockwise.
+            magnitude: Request-space radial magnitude from ``0.0`` through
+                ``1.0``.
+            stick: :attr:`Button.BUTTON_MAIN` or :attr:`Button.BUTTON_C`.
+
+        Raises:
+            ValueError: If ``stick`` is not the main stick or C-stick, an
+                argument is non-finite, or ``magnitude`` is outside ``[0, 1]``.
+        """
+        if stick not in {Button.BUTTON_MAIN, Button.BUTTON_C}:
+            raise ValueError(f"Invalid button type {stick} for tilt_stick.")
+        x, y = stick_coordinates(
+            reference_axis,
+            angle_degrees,
+            magnitude=magnitude,
+        )
+        self._controller.tilt_analog(stick, x, y)
 
     def attack(
         self,
@@ -991,6 +1104,7 @@ __all__ = [
     "Hold",
     "LedgeRecoveryOption",
     "SimpleControls",
+    "StickReferenceAxis",
     # Re-exported from melee.bot.character_state for backward compatibility with
     # callers that imported these names from melee.bot.simple_controls.
     "attack_is_holdable",
@@ -1011,5 +1125,6 @@ __all__ = [
     "is_shield_broken",
     "is_taunting",
     "neutral_b_is_chargeable",
+    "stick_coordinates",
     "z_air_is_supported",
 ]
