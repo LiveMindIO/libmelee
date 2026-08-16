@@ -5,6 +5,10 @@
 ```bash
 python -m pip install .
 python test.py
+uv python install 3.13
+uv venv --python 3.13 .venv
+uv pip install --python .venv/bin/python .
+.venv/bin/python test.py
 ```
 
 ## Forgejo CI
