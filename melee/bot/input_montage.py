@@ -160,7 +160,12 @@ class InputMontage(ABC):
         opponent_state: CharacterState,
         state: GameState,
     ) -> bool:
-        """Return whether external game state made the sequence invalid."""
+        """Return whether game state made continuing the sequence invalid.
+
+        Examples include an aerial-attack montage whose character is no longer
+        airborne, a jump montage when no jump is available, or any sequence that
+        was interrupted because the character was hit.
+        """
         raise NotImplementedError
 
     @abstractmethod
