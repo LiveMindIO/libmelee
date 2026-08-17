@@ -49,3 +49,14 @@ uv pip install --python .venv/bin/python .
   roundoff clamp one representable float inward. Ledgedash's default ECB-bottom
   world-Y threshold is 0.25 for standard main-stage ledges and is intentionally
   configurable.
+
+## Simple Controls
+
+- `FTILT`, `FSMASH`, `FAIR`/`BAIR`, and `SIDE_B` remain relative to character
+  facing. `LTILT`/`RTILT`, `LSMASH`/`RSMASH`, `LAIR`/`RAIR`, and
+  `LEFT_B`/`RIGHT_B` request an absolute screen direction.
+- Aerial attacks use the C-stick without also pressing `A`; horizontal aerials
+  retain matching main-stick drift.
+- `CharacterState.can_jump()` and the module-level `can_jump()` allow actionable
+  ground jumps and remaining aerial jumps. Every shield phase is jumpable for
+  all characters except Yoshi, who cannot jump out of shield.

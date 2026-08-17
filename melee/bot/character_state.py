@@ -281,21 +281,23 @@ class AttackType(Enum):
     """Logical attack input a bot can request from :class:`SimpleControls`.
 
     Values map to Melee stick and button combinations (main stick + ``A`` for
-    ground tilts and smashes, C-stick + ``A`` for aerials, main stick + ``B`` for
+    ground tilts and smashes, C-stick for aerials, main stick + ``B`` for
     specials, ``Z`` for grab). Directional attacks use the controlled port's
-    ``PlayerState.facing`` to pick left vs right.
+    ``PlayerState.facing`` to pick left vs right unless an explicit left/right
+    variant is requested.
 
-    Ground-only: ``JAB``, ``FTILT``, ``UTILT``, ``DTILT``, ``FSMASH``, ``USMASH``,
-    ``DSMASH``, ``GRAB``.
+    Ground-only: ``JAB``, ``FTILT``, ``LTILT``, ``RTILT``, ``UTILT``, ``DTILT``,
+    ``FSMASH``, ``LSMASH``, ``RSMASH``, ``USMASH``, ``DSMASH``, ``GRAB``.
 
     ``DASH_ATTACK`` requires ``Action.DASHING`` — the bot must enter a dash with
     raw movement inputs before calling it; SimpleControls does not walk or dash
     on the bot's behalf.
 
-    Air-only (or grounded jump startup): ``NAIR``, ``FAIR``, ``BAIR``, ``UAIR``,
-    ``DAIR``.
+    Air-only (or grounded jump startup): ``NAIR``, ``FAIR``, ``BAIR``, ``LAIR``,
+    ``RAIR``, ``UAIR``, ``DAIR``.
 
-    Specials (ground or air): ``NEUTRAL_B``, ``SIDE_B``, ``UP_B``, ``DOWN_B``.
+    Specials (ground or air): ``NEUTRAL_B``, ``SIDE_B``, ``LEFT_B``, ``RIGHT_B``,
+    ``UP_B``, ``DOWN_B``.
 
     Grab throws (requires ``GRAB_WAIT`` / ``GRAB_PUMMEL``): ``FTHROW``, ``BTHROW``,
     ``UTHROW``, ``DTHROW``. Throws are stick-only; ``A`` pummels during a grab.
@@ -308,19 +310,27 @@ class AttackType(Enum):
 
     JAB = auto()
     FTILT = auto()
+    LTILT = auto()
+    RTILT = auto()
     UTILT = auto()
     DTILT = auto()
     FSMASH = auto()
+    LSMASH = auto()
+    RSMASH = auto()
     USMASH = auto()
     DSMASH = auto()
     DASH_ATTACK = auto()
     NAIR = auto()
     FAIR = auto()
     BAIR = auto()
+    LAIR = auto()
+    RAIR = auto()
     UAIR = auto()
     DAIR = auto()
     NEUTRAL_B = auto()
     SIDE_B = auto()
+    LEFT_B = auto()
+    RIGHT_B = auto()
     UP_B = auto()
     DOWN_B = auto()
     GRAB = auto()
@@ -487,9 +497,13 @@ _GROUND_ATTACKS: Final = frozenset(
     {
         AttackType.JAB,
         AttackType.FTILT,
+        AttackType.LTILT,
+        AttackType.RTILT,
         AttackType.UTILT,
         AttackType.DTILT,
         AttackType.FSMASH,
+        AttackType.LSMASH,
+        AttackType.RSMASH,
         AttackType.USMASH,
         AttackType.DSMASH,
     }
@@ -499,6 +513,8 @@ _AIR_ATTACKS: Final = frozenset(
         AttackType.NAIR,
         AttackType.FAIR,
         AttackType.BAIR,
+        AttackType.LAIR,
+        AttackType.RAIR,
         AttackType.UAIR,
         AttackType.DAIR,
     }
@@ -507,6 +523,8 @@ _SPECIAL_ATTACKS: Final = frozenset(
     {
         AttackType.NEUTRAL_B,
         AttackType.SIDE_B,
+        AttackType.LEFT_B,
+        AttackType.RIGHT_B,
         AttackType.UP_B,
         AttackType.DOWN_B,
     }
@@ -525,6 +543,21 @@ _GRAB_THROW_ATTACKS: Final = frozenset(
 def _action_set(*names: str) -> frozenset[Action]:
     """Build a frozenset of ``Action`` members from enum attribute names."""
     return frozenset(getattr(Action, name) for name in names)
+
+
+def _relative_attack_type(attack_type: AttackType, facing: bool) -> AttackType:
+    """Resolve an absolute horizontal request to its facing-relative move."""
+    if attack_type in {AttackType.LTILT, AttackType.RTILT}:
+        return AttackType.FTILT
+    if attack_type in {AttackType.LSMASH, AttackType.RSMASH}:
+        return AttackType.FSMASH
+    if attack_type in {AttackType.LEFT_B, AttackType.RIGHT_B}:
+        return AttackType.SIDE_B
+    if attack_type is AttackType.LAIR:
+        return AttackType.BAIR if facing else AttackType.FAIR
+    if attack_type is AttackType.RAIR:
+        return AttackType.FAIR if facing else AttackType.BAIR
+    return attack_type
 
 
 # Action IDs that count as a given AttackType once the move is active in-game.
@@ -865,6 +898,13 @@ class CharacterState:
             return False
         return can_shield(target, self._frame_data)
 
+    def can_jump(self) -> bool:
+        """Return whether a ground or remaining aerial jump could start."""
+        target = self.player()
+        if target is None:
+            return False
+        return can_jump(target, self._frame_data)
+
     def can_grab(self) -> bool:
         """Return whether a grounded grab could start (including out of shield)."""
         target = self.player()
@@ -1095,6 +1135,22 @@ def can_shield(player: LibPlayerState, frame_data: FrameData) -> bool:
     return can_attack(player, frame_data)
 
 
+def can_jump(player: LibPlayerState, frame_data: FrameData) -> bool:
+    """Return whether a ground or remaining aerial jump could start.
+
+    Every shield phase permits jump-canceling for the roster except Yoshi, whose
+    unique shield cannot be jumped out of. Outside shield, the player must be in
+    an actionable ground or air state and retain an aerial jump when airborne.
+    """
+    if is_shielding(player, frame_data):
+        return player.character is not Character.YOSHI
+    if not can_attack(player, frame_data) or not isinstance(player.action, Action):
+        return False
+    if player.on_ground:
+        return player.action in _ACTIONABLE_GROUND
+    return player.jumps_left > 0 and player.action in _ACTIONABLE_AIR
+
+
 def can_grab(player: LibPlayerState, frame_data: FrameData) -> bool:
     """Return whether a grounded grab could start (including out of shield)."""
     if get_state(player, frame_data) in _BLOCKS_GRAB_INPUT:
@@ -1203,7 +1259,13 @@ def attack_is_holdable(attack_type: AttackType, character: Character) -> bool:
     Returns:
         ``True`` if :meth:`SimpleControls.attack` begins a charging hold.
     """
-    if attack_type in {AttackType.FSMASH, AttackType.USMASH, AttackType.DSMASH}:
+    if attack_type in {
+        AttackType.FSMASH,
+        AttackType.LSMASH,
+        AttackType.RSMASH,
+        AttackType.USMASH,
+        AttackType.DSMASH,
+    }:
         return True
     if attack_type is AttackType.NEUTRAL_B:
         return neutral_b_is_chargeable(character)
@@ -1234,6 +1296,7 @@ __all__ = [
     "can_air_attack",
     "can_attack",
     "can_grab",
+    "can_jump",
     "can_shield",
     "can_taunt",
     "can_z_air",
