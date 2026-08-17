@@ -145,7 +145,11 @@ class InputMontage(ABC):
         opponent_state: CharacterState,
         state: GameState,
     ) -> InputMontage | bool:
-        """Apply one active frame and return completion or the next montage."""
+        """Apply one active frame and report what should happen next.
+
+        Return ``self`` to continue this montage on the next game tick, another
+        montage to hand off control, ``True`` on success, or ``False`` on failure.
+        """
         raise NotImplementedError
 
     @abstractmethod
