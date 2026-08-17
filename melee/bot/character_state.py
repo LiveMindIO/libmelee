@@ -992,7 +992,8 @@ def in_hitstun(player: LibPlayerState, frame_data: FrameData) -> bool:
 
 def is_grabbed(player: LibPlayerState, frame_data: FrameData) -> bool:
     """Return whether ``player`` is held in an opponent's grab."""
-    return get_state(player, frame_data) is CharacterStatus.GrabbedByEnemy
+    del frame_data
+    return player.action in _GRABBED_VICTIM_ACTIONS
 
 
 def is_grabbing(player: LibPlayerState, frame_data: FrameData) -> bool:

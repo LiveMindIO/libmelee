@@ -32,6 +32,7 @@ from melee.bot.character_state import (
     neutral_b_is_chargeable,
     z_air_is_supported,
 )
+from melee.bot.input_montage import InputMontage, MontageState
 from melee.bot.logger import BotLogger, BotLogEntry
 from melee.bot.match_history import (
     MatchHistory,
@@ -49,6 +50,13 @@ from melee.bot.simple_controls import (
     StickReferenceAxis,
     stick_coordinates,
 )
+from melee.bot.techskill import (
+    LedgedashMontage,
+    MultishineMontage,
+    SDIMontage,
+    WavedashDirection,
+    WavedashMontage,
+)
 
 __all__ = [
     "AttackFrameData",
@@ -60,14 +68,21 @@ __all__ = [
     "CharacterStatus",
     "CrowdControl",
     "Hold",
+    "InputMontage",
+    "LedgedashMontage",
     "LedgeRecoveryOption",
     "MatchHistory",
     "MatchRoundOutcome",
+    "MontageState",
+    "MultishineMontage",
     "OtherPlayer",
     "OtherPlayerRelation",
     "PlayerMatchRecord",
+    "SDIMontage",
     "SimpleControls",
     "StickReferenceAxis",
+    "WavedashDirection",
+    "WavedashMontage",
     "attack_is_holdable",
     "can_air_attack",
     "can_attack",

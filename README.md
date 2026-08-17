@@ -107,8 +107,10 @@ Or tilt one of the analog sticks by:
 
 Bots can express an absolute direction and radial strength with
 `melee.bot.stick_coordinates(reference_axis, angle_degrees, magnitude=...)`, or
-apply it with `SimpleControls.tilt_stick`. Angles rotate clockwise from the
-reference axis. `magnitude` is keyword-only, finite, and ranges from `0.0`
+apply it with `SimpleControls.tilt_stick`. Positive angles rotate
+counter-clockwise from the reference axis, following the conventional signed
+angle direction (`RIGHT=0°`, `UP=90°`, `LEFT=180°`, `DOWN=270°`). `magnitude`
+is keyword-only, finite, and ranges from `0.0`
 (neutral) through `1.0` (the unit circle in centered processed-stick space);
 omitting it preserves unit-magnitude behavior. The helper computes centered
 radial components with sine and cosine, then maps each component independently
@@ -130,6 +132,61 @@ Also, if you don't press a button, Dolphin will just use whatever you pressed la
 `controller.release_all()`
 
 which will release all buttons and set all sticks / shoulders to neutral.
+
+### Input Montages
+
+`melee.bot.InputMontage` is the base class for short-lived controller sequences
+that need coordinated input over multiple game ticks. A bot creates a new montage
+for each attempt, calls `tick(simple_controls, player_state, opponent_state,
+game_state)` every tick, and retains the returned montage while work continues.
+
+- The current montage returns itself while it is waiting or active.
+- Returning another `InputMontage` finishes the current node and hands control to
+  a follow-up or branch.
+- Returning `True` finishes successfully; returning `False`, aborting, cancelling,
+  or timing out makes that montage instance terminal.
+- `frame_limit` counts active `on_tick` calls only. It is a safety boundary, not a
+  substitute for an implementation detecting failure and returning `False`.
+- `cancel(...)` only cancels an active montage and returns its configured fallback,
+  if any. It neutralizes pending input before handoff; implementations may override
+  it to choose a state-dependent cancellation montage.
+
+Montages are intentionally single-use and should model relatively short sequences
+such as a multishine cycle, charge cancel, or one link in a combo. An implementation
+may retain the match's shared `FrameData` when it needs framedata queries.
+
+Libmelee includes four concrete technique montages:
+
+- `MultishineMontage` performs one Fox multishine cycle using the same action
+  sequence as the historical `techskill.multishine` helper and succeeds only when
+  the second Shine begins.
+- `WavedashMontage` supports every standard character's jump-squat duration and
+  requests the down-diagonal air dodge on the final `KNEE_BEND` frame. Its default
+  45-degree angle is conservative; 17.1 degrees is accepted as the researched
+  maximum-distance boundary. Boundary values and one adjacent float of roundoff
+  are clamped one representable value inside the accepted interval. It succeeds
+  only after `LANDING_SPECIAL` ends in an actionable grounded state and aborts if
+  the observed state skips past jump squat before the air-dodge request.
+- `LedgedashMontage` releases with the C-stick away, double-jumps inward on the
+  first falling frame, and air dodges down-inward after the character's world-space
+  ECB bottom clears a configurable threshold. The default `0.25` world-Y threshold
+  follows the proven SmashBot standard-stage heuristic; override it for other
+  geometry or character-specific routes. Once the double jump is confirmed, later
+  falling or apex frames do not invalidate that completed phase.
+- `SDIMontage` identifies damage victims instead of reacting to attacker or grab
+  hitlag. During damage hitlag it alternates full-stick diagonals around a requested cardinal for
+  one regular SDI pulse per frame. Horizontal shield SDI alternates the target
+  direction with neutral because shield displacement ignores the vertical axis;
+  vertical requests ignore shield windows and remain waiting for damage hitlag.
+  Damage hitlag exits with cardinal C-stick ASDI without assuming trajectory DI;
+  shield hitlag exits with the horizontal main-stick input its callback reads.
+
+The execution model follows the technical descriptions in
+[SmashWiki's wavedash guide](https://www.ssbwiki.com/Wavedash),
+[jump-squat table](https://www.ssbwiki.com/Jump#Jump_squat), and
+[ledgedash guide](https://www.ssbwiki.com/Ledgedash). The ECB-based ledgedash
+trigger is adapted from
+[SmashBot's implementation](https://github.com/altf4/SmashBot/blob/main/Chains/edgedash.py).
 
 ### API Changes
 Each of these old values will be removed in version 1.0.0. So update your programs!
