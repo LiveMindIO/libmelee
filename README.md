@@ -165,16 +165,19 @@ Libmelee includes four concrete technique montages:
   45-degree angle is conservative; 17.1 degrees is accepted as the researched
   maximum-distance boundary. Boundary values and one adjacent float of roundoff
   are clamped one representable value inside the accepted interval. It succeeds
-  only after `LANDING_SPECIAL` ends in an actionable grounded state.
+  only after `LANDING_SPECIAL` ends in an actionable grounded state and aborts if
+  the observed state skips past jump squat before the air-dodge request.
 - `LedgedashMontage` releases with the C-stick away, double-jumps inward on the
   first falling frame, and air dodges down-inward after the character's world-space
   ECB bottom clears a configurable threshold. The default `0.25` world-Y threshold
   follows the proven SmashBot standard-stage heuristic; override it for other
-  geometry or character-specific routes.
-- `SDIMontage` identifies victims instead of reacting to attacker hitlag. During
-  damage hitlag it alternates full-stick diagonals around a requested cardinal for
+  geometry or character-specific routes. Once the double jump is confirmed, later
+  falling or apex frames do not invalidate that completed phase.
+- `SDIMontage` identifies damage victims instead of reacting to attacker or grab
+  hitlag. During damage hitlag it alternates full-stick diagonals around a requested cardinal for
   one regular SDI pulse per frame. Horizontal shield SDI alternates the target
-  direction with neutral because shield displacement ignores the vertical axis.
+  direction with neutral because shield displacement ignores the vertical axis;
+  vertical requests ignore shield windows and remain waiting for damage hitlag.
   Damage hitlag exits with cardinal C-stick ASDI without assuming trajectory DI;
   shield hitlag exits with the horizontal main-stick input its callback reads.
 

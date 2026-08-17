@@ -1197,10 +1197,36 @@ class TechniqueMontageTests(unittest.TestCase):
                 melee.Action.SHIELD_STUN,
                 hitlag_left=3,
             ),
-            False,
+            montage,
         )
-        self.assertEqual(montage.get_montage_state(), MontageState.Aborted)
-        self.assertEqual(self.controls.take_calls(), [("release_all",)])
+        self.assertEqual(montage.get_montage_state(), MontageState.Waiting)
+        self.assertEqual(self.controls.take_calls(), [])
+
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action.DAMAGE_HIGH_1,
+                hitlag_left=2,
+                hitstun_frames_left=4,
+            ),
+            montage,
+        )
+        self.assertEqual(montage.get_montage_state(), MontageState.Active)
+
+    def test_sdi_waits_during_grab_victim_hitlag(self):
+        montage = SDIMontage(StickReferenceAxis.RIGHT)
+
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action.GRAB_PUMMELED,
+                hitlag_left=3,
+                is_defender_in_hitlag=True,
+            ),
+            montage,
+        )
+        self.assertEqual(montage.get_montage_state(), MontageState.Waiting)
+        self.assertEqual(self.controls.take_calls(), [])
 
     def test_sdi_can_start_on_final_hitlag_frame_for_asdi(self):
         montage = SDIMontage(StickReferenceAxis.DOWN)
@@ -1424,6 +1450,25 @@ class TechniqueMontageTests(unittest.TestCase):
         self.assertEqual(montage.get_montage_state(), MontageState.Waiting)
         self.assertEqual(self.controls.take_calls(), [])
 
+    def test_wavedash_aborts_after_missing_jump_squat(self):
+        montage = WavedashMontage(WavedashDirection.Right)
+        self.tick(montage, melee.Action.STANDING)
+        self.controls.take_calls()
+
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action.JUMPING_ARIAL_FORWARD,
+                on_ground=False,
+            ),
+            False,
+        )
+        self.assertEqual(montage.get_montage_state(), MontageState.Aborted)
+        self.assertNotIn(
+            ("press_button", melee.Button.BUTTON_Y),
+            self.controls.take_calls(),
+        )
+
     def test_wavedash_validates_angle_and_buttons(self):
         with self.assertRaisesRegex(ValueError, "direction"):
             WavedashMontage("right")
@@ -1621,7 +1666,7 @@ class TechniqueMontageTests(unittest.TestCase):
         self.assertIs(
             self.tick(
                 montage,
-                melee.Action.JUMPING_ARIAL_FORWARD,
+                melee.Action.FALLING,
                 on_ground=False,
                 off_stage=True,
                 jumps_left=0,

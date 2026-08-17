@@ -97,6 +97,11 @@ class SDIMontage(InputMontage):
             player_state_value is None
             or player_state_value.hitlag_left <= 0
             or kind is None
+            or player_state.is_grabbed()
+            or (
+                kind is _SDIKind.Shield
+                and self._direction not in _HORIZONTAL_DIRECTIONS
+            )
         ):
             return False
         self._character = player_state_value.character
@@ -118,6 +123,7 @@ class SDIMontage(InputMontage):
             or player_state_value.character is not self._character
             or player_state_value.stock != self._stock
             or player_state_value.action in DEAD_ACTIONS
+            or player_state.is_grabbed()
         )
 
     def on_tick(
@@ -132,12 +138,6 @@ class SDIMontage(InputMontage):
         if player_state_value is None:
             controls.release_all()
             return False
-        if (
-            self._kind is _SDIKind.Shield
-            and self._direction not in _HORIZONTAL_DIRECTIONS
-        ):
-            return False
-
         controls.release_all()
         if player_state_value.hitlag_left <= 0:
             return True

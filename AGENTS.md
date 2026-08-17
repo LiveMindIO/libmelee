@@ -36,12 +36,13 @@ uv pip install --python .venv/bin/python .
 - Concrete montages live in separate files under `melee/bot/techskill/`, with
   reused state and helpers in `melee/bot/techskill/common.py`.
   `MultishineMontage` is Fox-only and models one cycle. `WavedashMontage` uses the
-  character-specific final jump-squat frame. `LedgedashMontage` uses C-stick-away
-  release and world-space ECB-bottom clearance before its down-inward air dodge.
-  `SDIMontage` distinguishes victims from attackers, alternates diagonal main-stick
-  pulses during damage hitlag, uses target-neutral pulses for horizontal shield SDI,
-  queues cardinal C-stick ASDI as damage hitlag exits, and uses the main stick for
-  shield hitlag's final displacement.
+  character-specific final jump-squat frame and aborts if that state is missed.
+  `LedgedashMontage` uses C-stick-away release and world-space ECB-bottom clearance
+  before its down-inward air dodge; confirmed jumps remain confirmed through apex.
+  `SDIMontage` excludes attacker and grab hitlag, alternates diagonal main-stick
+  pulses during damage hitlag, ignores vertical shield windows, uses target-neutral
+  pulses for horizontal shield SDI, queues cardinal C-stick ASDI as damage hitlag
+  exits, and uses the main stick for shield hitlag's final displacement.
 - The wavedash and ledgedash default angle is a conservative 45 degrees. The
   accepted shallow boundary is 17.1 degrees; boundary values and one ULP of
   roundoff clamp one representable float inward. Ledgedash's default ECB-bottom

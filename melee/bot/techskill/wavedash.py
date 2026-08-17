@@ -138,6 +138,15 @@ class WavedashMontage(InputMontage):
         controls.release_all()
         if self._phase is _WavedashPhase.JumpRequested:
             if player_state_value.action is not Action.KNEE_BEND:
+                can_request_jump = player_state_value.on_ground and (
+                    player_state_value.action in _WAVEDASH_START_ACTIONS
+                    or (
+                        player_state_value.action in SHINE_ACTIONS
+                        and player_state_value.action_frame >= 3
+                    )
+                )
+                if not can_request_jump:
+                    return False
                 controls.press_button(self._jump_button)
                 return self
             jump_squat_frames = JUMP_SQUAT_FRAMES[self._character]

@@ -171,10 +171,7 @@ class LedgedashMontage(InputMontage):
             self._phase = _LedgedashPhase.JumpRequested
             return self
 
-        if self._phase in {
-            _LedgedashPhase.JumpRequested,
-            _LedgedashPhase.Rising,
-        }:
+        if self._phase is _LedgedashPhase.JumpRequested:
             jump_confirmed = player_state_value.action in _AERIAL_JUMP_ACTIONS or (
                 self._jumps_before_request is not None
                 and player_state_value.jumps_left < self._jumps_before_request
@@ -183,6 +180,8 @@ class LedgedashMontage(InputMontage):
             if not jump_confirmed:
                 return False
             self._phase = _LedgedashPhase.Rising
+
+        if self._phase is _LedgedashPhase.Rising:
             ecb_bottom_y = float(player_state_value.position.y) + float(
                 player_state_value.ecb.bottom.y
             )
