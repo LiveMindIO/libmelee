@@ -5,10 +5,15 @@ import unittest
 
 import melee
 from melee.bot import (
+    CharacterState,
     InputMontage,
+    LedgedashMontage,
     MontageState,
+    MultishineMontage,
     SimpleControls,
     StickReferenceAxis,
+    WavedashDirection,
+    WavedashMontage,
     stick_coordinates,
 )
 from melee.controller import fix_analog_stick
@@ -465,6 +470,7 @@ class AngularStickTests(unittest.TestCase):
         class RecordingController:
             def __init__(self) -> None:
                 self.tilts = []
+                self.buttons = []
                 self.release_count = 0
                 self.flush_count = 0
 
@@ -473,6 +479,9 @@ class AngularStickTests(unittest.TestCase):
 
             def release_all(self) -> None:
                 self.release_count += 1
+
+            def press_button(self, button) -> None:
+                self.buttons.append(button)
 
             def flush(self) -> None:
                 self.flush_count += 1
@@ -510,6 +519,14 @@ class AngularStickTests(unittest.TestCase):
             )
         self.assertEqual(len(controller.tilts), 2)
 
+        controls.press_button(melee.Button.BUTTON_A)
+        controls.release_all()
+        self.assertEqual(controller.buttons, [melee.Button.BUTTON_A])
+        self.assertEqual(controller.release_count, 1)
+
+        with self.assertRaisesRegex(ValueError, "Invalid button type"):
+            controls.press_button(melee.Button.BUTTON_MAIN)
+
 
 class RecordingMontage(InputMontage):
     def __init__(
@@ -544,9 +561,17 @@ class RecordingMontage(InputMontage):
         return self
 
 
+class RecordingMontageControls:
+    def __init__(self):
+        self.release_count = 0
+
+    def release_all(self):
+        self.release_count += 1
+
+
 class InputMontageTests(unittest.TestCase):
     def setUp(self):
-        self.controls = object()
+        self.controls = RecordingMontageControls()
         self.player_state = object()
         self.opponent_state = object()
         self.game_state = melee.GameState()
@@ -601,6 +626,7 @@ class InputMontageTests(unittest.TestCase):
         self.assertEqual(montage.get_montage_state(), MontageState.Aborted)
         self.assertIs(self.tick(montage), False)
         self.assertEqual(montage.on_tick_calls, 1)
+        self.assertEqual(self.controls.release_count, 1)
 
     def test_should_abort_prevents_input_tick(self):
         montage = RecordingMontage(abort=True)
@@ -609,6 +635,7 @@ class InputMontageTests(unittest.TestCase):
         self.assertEqual(montage.get_montage_state(), MontageState.Aborted)
         self.assertEqual(montage.should_abort_calls, 1)
         self.assertEqual(montage.on_tick_calls, 0)
+        self.assertEqual(self.controls.release_count, 1)
 
     def test_invalid_tick_result_aborts_and_raises(self):
         montage = RecordingMontage(results=(None,))
@@ -617,6 +644,7 @@ class InputMontageTests(unittest.TestCase):
             self.tick(montage)
         self.assertEqual(montage.get_montage_state(), MontageState.Aborted)
         self.assertIs(self.tick(montage), False)
+        self.assertEqual(self.controls.release_count, 1)
 
     def test_frame_limit_allows_exact_number_of_active_ticks(self):
         montage = RecordingMontage(frame_limit=2)
@@ -627,6 +655,7 @@ class InputMontageTests(unittest.TestCase):
         self.assertIs(self.tick(montage), False)
         self.assertEqual(montage.get_montage_state(), MontageState.TimedOut)
         self.assertEqual(montage.on_tick_calls, 2)
+        self.assertEqual(self.controls.release_count, 1)
 
     def test_returning_another_montage_finishes_current_node(self):
         follow_up = RecordingMontage(results=(True,))
@@ -652,6 +681,7 @@ class InputMontageTests(unittest.TestCase):
         self.assertEqual(montage.get_montage_state(), MontageState.Cancelled)
         self.assertEqual(fallback.get_montage_state(), MontageState.Waiting)
         self.assertIs(self.tick(montage), False)
+        self.assertEqual(self.controls.release_count, 1)
 
     def test_cancel_without_fallback_returns_none(self):
         montage = RecordingMontage()
@@ -659,6 +689,540 @@ class InputMontageTests(unittest.TestCase):
 
         self.assertIsNone(self.cancel(montage))
         self.assertEqual(montage.get_montage_state(), MontageState.Cancelled)
+        self.assertEqual(self.controls.release_count, 1)
+
+
+class RecordingTechniqueControls:
+    def __init__(self):
+        self.calls = []
+
+    def release_all(self):
+        self.calls.append(("release_all",))
+
+    def press_button(self, button):
+        self.calls.append(("press_button", button))
+
+    def tilt_stick(
+        self,
+        reference_axis,
+        angle_degrees,
+        *,
+        magnitude=1.0,
+        stick=melee.Button.BUTTON_MAIN,
+    ):
+        self.calls.append(
+            (
+                "tilt_stick",
+                reference_axis,
+                angle_degrees,
+                magnitude,
+                stick,
+            )
+        )
+
+    def take_calls(self):
+        calls = self.calls
+        self.calls = []
+        return calls
+
+
+class TechniqueMontageTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.frame_data = melee.FrameData()
+
+    def setUp(self):
+        self.controls = RecordingTechniqueControls()
+        self.frame = 0
+
+    def tick(
+        self,
+        montage,
+        action,
+        *,
+        character=melee.Character.FOX,
+        action_frame=1,
+        on_ground=True,
+        off_stage=False,
+        jumps_left=2,
+        position_x=0.0,
+        position_y=0.0,
+        ecb_bottom_y=0.0,
+        speed_y_self=0.0,
+        hitlag_left=0,
+        hitstun_frames_left=0,
+    ):
+        game_state = melee.GameState(frame=self.frame)
+        player = melee.PlayerState(
+            character=character,
+            action=action,
+            action_frame=action_frame,
+            on_ground=on_ground,
+            off_stage=off_stage,
+            jumps_left=jumps_left,
+            speed_y_self=speed_y_self,
+            hitlag_left=hitlag_left,
+            hitstun_frames_left=hitstun_frames_left,
+        )
+        player.position.x = position_x
+        player.position.y = position_y
+        player.ecb.bottom.y = ecb_bottom_y
+        opponent = melee.PlayerState(
+            character=melee.Character.MARTH,
+            action=melee.Action.STANDING,
+        )
+        game_state.players = {1: player, 2: opponent}
+        player_state = CharacterState(
+            game_state,
+            1,
+            frame_data=self.frame_data,
+        )
+        opponent_state = CharacterState(
+            game_state,
+            2,
+            frame_data=self.frame_data,
+        )
+        self.frame += 1
+        return montage.tick(
+            self.controls,
+            player_state,
+            opponent_state,
+            game_state,
+        )
+
+    def test_multishine_completes_after_second_shine_starts(self):
+        montage = MultishineMontage()
+
+        self.assertIs(self.tick(montage, melee.Action.STANDING), montage)
+        calls = self.controls.take_calls()
+        self.assertIn(("press_button", melee.Button.BUTTON_B), calls)
+        self.assertIn(
+            (
+                "tilt_stick",
+                StickReferenceAxis.DOWN,
+                0.0,
+                1.0,
+                melee.Button.BUTTON_MAIN,
+            ),
+            calls,
+        )
+
+        self.assertIs(
+            self.tick(montage, melee.Action.DOWN_B_GROUND),
+            montage,
+        )
+        self.assertIn(
+            ("press_button", melee.Button.BUTTON_Y),
+            self.controls.take_calls(),
+        )
+        for action_frame in (1, 2):
+            self.assertIs(
+                self.tick(
+                    montage,
+                    melee.Action.KNEE_BEND,
+                    action_frame=action_frame,
+                ),
+                montage,
+            )
+            self.assertNotIn(
+                ("press_button", melee.Button.BUTTON_B),
+                self.controls.take_calls(),
+            )
+
+        self.assertIs(
+            self.tick(montage, melee.Action.KNEE_BEND, action_frame=3),
+            montage,
+        )
+        self.assertIn(
+            ("press_button", melee.Button.BUTTON_B),
+            self.controls.take_calls(),
+        )
+        self.assertIs(
+            self.tick(montage, melee.Action.DOWN_B_GROUND_START),
+            True,
+        )
+        self.assertEqual(montage.get_montage_state(), MontageState.Finished)
+
+    def test_multishine_waits_for_fox_in_standing_state(self):
+        montage = MultishineMontage()
+
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action.STANDING,
+                character=melee.Character.FALCO,
+            ),
+            montage,
+        )
+        self.assertEqual(montage.get_montage_state(), MontageState.Waiting)
+        self.assertEqual(self.controls.take_calls(), [])
+
+    def test_multishine_continues_through_shine_hitlag(self):
+        montage = MultishineMontage()
+        self.tick(montage, melee.Action.STANDING)
+        self.controls.take_calls()
+
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action.DOWN_B_GROUND,
+                hitlag_left=2,
+            ),
+            montage,
+        )
+        self.assertIn(
+            ("press_button", melee.Button.BUTTON_Y),
+            self.controls.take_calls(),
+        )
+
+    def test_wavedash_airdodges_on_final_fox_jump_squat_frame(self):
+        montage = WavedashMontage(WavedashDirection.Right)
+
+        self.assertIs(self.tick(montage, melee.Action.STANDING), montage)
+        self.assertIn(
+            ("press_button", melee.Button.BUTTON_Y),
+            self.controls.take_calls(),
+        )
+        for action_frame in (1, 2):
+            self.assertIs(
+                self.tick(
+                    montage,
+                    melee.Action.KNEE_BEND,
+                    action_frame=action_frame,
+                ),
+                montage,
+            )
+            self.assertNotIn(
+                ("press_button", melee.Button.BUTTON_L),
+                self.controls.take_calls(),
+            )
+
+        self.assertIs(
+            self.tick(montage, melee.Action.KNEE_BEND, action_frame=3),
+            montage,
+        )
+        calls = self.controls.take_calls()
+        self.assertIn(("press_button", melee.Button.BUTTON_L), calls)
+        self.assertIn(
+            (
+                "tilt_stick",
+                StickReferenceAxis.RIGHT,
+                45.0,
+                1.0,
+                melee.Button.BUTTON_MAIN,
+            ),
+            calls,
+        )
+
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action.AIRDODGE,
+                on_ground=False,
+            ),
+            montage,
+        )
+        self.controls.take_calls()
+        self.assertIs(
+            self.tick(montage, melee.Action.LANDING_SPECIAL),
+            montage,
+        )
+        self.controls.take_calls()
+        self.assertIs(self.tick(montage, melee.Action.STANDING), True)
+
+    def test_wavedash_uses_falcos_fifth_jump_squat_frame(self):
+        montage = WavedashMontage(WavedashDirection.Left)
+
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action.STANDING,
+                character=melee.Character.FALCO,
+            ),
+            montage,
+        )
+        self.controls.take_calls()
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action.KNEE_BEND,
+                character=melee.Character.FALCO,
+                action_frame=4,
+            ),
+            montage,
+        )
+        self.assertNotIn(
+            ("press_button", melee.Button.BUTTON_L),
+            self.controls.take_calls(),
+        )
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action.KNEE_BEND,
+                character=melee.Character.FALCO,
+                action_frame=5,
+            ),
+            montage,
+        )
+        calls = self.controls.take_calls()
+        self.assertIn(("press_button", melee.Button.BUTTON_L), calls)
+        self.assertIn(
+            (
+                "tilt_stick",
+                StickReferenceAxis.LEFT,
+                -45.0,
+                1.0,
+                melee.Button.BUTTON_MAIN,
+            ),
+            calls,
+        )
+
+    def test_wavedash_requires_special_landing(self):
+        montage = WavedashMontage(WavedashDirection.Right)
+        self.tick(montage, melee.Action.STANDING)
+        self.controls.take_calls()
+        self.tick(montage, melee.Action.KNEE_BEND, action_frame=3)
+        self.controls.take_calls()
+
+        self.assertIs(self.tick(montage, melee.Action.LANDING), False)
+        self.assertEqual(montage.get_montage_state(), MontageState.Aborted)
+
+    def test_wavedash_waits_in_normal_landing_lag(self):
+        montage = WavedashMontage(WavedashDirection.Right)
+
+        self.assertIs(self.tick(montage, melee.Action.LANDING), montage)
+        self.assertEqual(montage.get_montage_state(), MontageState.Waiting)
+        self.assertEqual(self.controls.take_calls(), [])
+
+    def test_wavedash_validates_angle_and_buttons(self):
+        with self.assertRaisesRegex(ValueError, "direction"):
+            WavedashMontage("right")
+        for angle in (math.nan, 17.0, 90.0):
+            with self.subTest(angle=angle):
+                with self.assertRaises(ValueError):
+                    WavedashMontage(
+                        WavedashDirection.Right,
+                        angle_degrees=angle,
+                    )
+        with self.assertRaisesRegex(ValueError, "jump_button"):
+            WavedashMontage(
+                WavedashDirection.Right,
+                jump_button=melee.Button.BUTTON_A,
+            )
+        with self.assertRaisesRegex(ValueError, "dodge_button"):
+            WavedashMontage(
+                WavedashDirection.Right,
+                dodge_button=melee.Button.BUTTON_Z,
+            )
+
+    def test_wavedash_aborts_and_neutralizes_when_hit(self):
+        montage = WavedashMontage(WavedashDirection.Right)
+        self.tick(montage, melee.Action.STANDING)
+        self.controls.take_calls()
+
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action.DAMAGE_HIGH_1,
+                on_ground=False,
+                hitstun_frames_left=8,
+            ),
+            False,
+        )
+        self.assertEqual(
+            self.controls.take_calls(),
+            [("release_all",)],
+        )
+
+    def test_wavedash_aborts_during_hitlag(self):
+        montage = WavedashMontage(WavedashDirection.Right)
+        self.tick(montage, melee.Action.STANDING)
+        self.controls.take_calls()
+
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action.KNEE_BEND,
+                hitlag_left=2,
+            ),
+            False,
+        )
+        self.assertEqual(self.controls.take_calls(), [("release_all",)])
+
+    def test_ledgedash_releases_away_and_airdodges_inward_after_clearance(self):
+        montage = LedgedashMontage()
+
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action.EDGE_CATCHING,
+                on_ground=False,
+                off_stage=True,
+                jumps_left=1,
+                position_x=70.0,
+            ),
+            montage,
+        )
+        self.controls.take_calls()
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action.EDGE_HANGING,
+                on_ground=False,
+                off_stage=True,
+                jumps_left=1,
+                position_x=70.0,
+            ),
+            montage,
+        )
+        self.assertIn(
+            (
+                "tilt_stick",
+                StickReferenceAxis.RIGHT,
+                0.0,
+                1.0,
+                melee.Button.BUTTON_C,
+            ),
+            self.controls.take_calls(),
+        )
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action.FALLING,
+                on_ground=False,
+                off_stage=True,
+                jumps_left=1,
+                position_x=70.0,
+            ),
+            montage,
+        )
+        calls = self.controls.take_calls()
+        self.assertIn(("press_button", melee.Button.BUTTON_Y), calls)
+        self.assertIn(
+            (
+                "tilt_stick",
+                StickReferenceAxis.LEFT,
+                0.0,
+                1.0,
+                melee.Button.BUTTON_MAIN,
+            ),
+            calls,
+        )
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action.JUMPING_ARIAL_FORWARD,
+                on_ground=False,
+                off_stage=True,
+                jumps_left=0,
+                position_x=69.0,
+                position_y=0.1,
+                ecb_bottom_y=0.0,
+            ),
+            montage,
+        )
+        self.assertNotIn(
+            ("press_button", melee.Button.BUTTON_L),
+            self.controls.take_calls(),
+        )
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action.JUMPING_ARIAL_FORWARD,
+                on_ground=False,
+                off_stage=True,
+                jumps_left=0,
+                position_x=68.0,
+                position_y=0.5,
+                ecb_bottom_y=0.0,
+            ),
+            montage,
+        )
+        calls = self.controls.take_calls()
+        self.assertIn(("press_button", melee.Button.BUTTON_L), calls)
+        self.assertIn(
+            (
+                "tilt_stick",
+                StickReferenceAxis.LEFT,
+                -45.0,
+                1.0,
+                melee.Button.BUTTON_MAIN,
+            ),
+            calls,
+        )
+
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action.LANDING_SPECIAL,
+                off_stage=False,
+            ),
+            montage,
+        )
+        self.controls.take_calls()
+        self.assertIs(self.tick(montage, melee.Action.STANDING), True)
+
+    def test_ledgedash_does_not_release_without_a_double_jump(self):
+        montage = LedgedashMontage()
+
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action.EDGE_HANGING,
+                on_ground=False,
+                off_stage=True,
+                jumps_left=0,
+                position_x=-70.0,
+            ),
+            montage,
+        )
+        self.assertEqual(montage.get_montage_state(), MontageState.Waiting)
+        self.assertEqual(self.controls.take_calls(), [])
+
+    def test_ledgedash_retries_release_after_a_neutral_frame(self):
+        montage = LedgedashMontage()
+        ledge_state = {
+            "on_ground": False,
+            "off_stage": True,
+            "jumps_left": 1,
+            "position_x": 70.0,
+        }
+
+        self.assertIs(
+            self.tick(montage, melee.Action.EDGE_HANGING, **ledge_state),
+            montage,
+        )
+        first_attempt = self.controls.take_calls()
+        self.assertIn(
+            (
+                "tilt_stick",
+                StickReferenceAxis.RIGHT,
+                0.0,
+                1.0,
+                melee.Button.BUTTON_C,
+            ),
+            first_attempt,
+        )
+        self.assertIs(
+            self.tick(montage, melee.Action.EDGE_HANGING, **ledge_state),
+            montage,
+        )
+        self.assertEqual(self.controls.take_calls(), [("release_all",)])
+        self.assertIs(
+            self.tick(montage, melee.Action.EDGE_HANGING, **ledge_state),
+            montage,
+        )
+        retry = self.controls.take_calls()
+        self.assertIn(
+            (
+                "tilt_stick",
+                StickReferenceAxis.RIGHT,
+                0.0,
+                1.0,
+                melee.Button.BUTTON_C,
+            ),
+            retry,
+        )
 
 if __name__ == '__main__':
     unittest.main()

@@ -84,6 +84,7 @@ class InputMontage(ABC):
             self._montage_state = MontageState.Active
 
         if self._frame_count >= self._frame_limit:
+            controls.release_all()
             self._montage_state = MontageState.TimedOut
             return False
 
@@ -93,6 +94,7 @@ class InputMontage(ABC):
             opponent_state,
             state,
         ):
+            controls.release_all()
             self._montage_state = MontageState.Aborted
             return False
 
@@ -108,9 +110,11 @@ class InputMontage(ABC):
             self._montage_state = MontageState.Finished
             return True
         if result is False:
+            controls.release_all()
             self._montage_state = MontageState.Aborted
             return False
         if not isinstance(result, InputMontage):
+            controls.release_all()
             self._montage_state = MontageState.Aborted
             raise TypeError("on_tick must return an InputMontage or bool")
         if result is not self:
@@ -127,13 +131,14 @@ class InputMontage(ABC):
         """Cancel an active montage and return its configured fallback.
 
         The frame arguments let specialized implementations override this method
-        and select a state-dependent cancellation sequence. The base method does
-        not apply controller input.
+        and select a state-dependent cancellation sequence. The base method
+        neutralizes pending controller input before returning the fallback.
         """
-        del controls, player_state, opponent_state, state
+        del player_state, opponent_state, state
         if self._montage_state is not MontageState.Active:
             return None
 
+        controls.release_all()
         self._montage_state = MontageState.Cancelled
         return self._cancel_montage
 

@@ -146,12 +146,35 @@ game_state)` every tick, and retains the returned montage while work continues.
 - `frame_limit` counts active `on_tick` calls only. It is a safety boundary, not a
   substitute for an implementation detecting failure and returning `False`.
 - `cancel(...)` only cancels an active montage and returns its configured fallback,
-  if any. Implementations may override it to choose a state-dependent cancellation
-  montage.
+  if any. It neutralizes pending input before handoff; implementations may override
+  it to choose a state-dependent cancellation montage.
 
 Montages are intentionally single-use and should model relatively short sequences
 such as a multishine cycle, charge cancel, or one link in a combo. An implementation
 may retain the match's shared `FrameData` when it needs framedata queries.
+
+Libmelee includes three concrete technique montages:
+
+- `MultishineMontage` performs one Fox multishine cycle using the same action
+  sequence as the historical `techskill.multishine` helper and succeeds only when
+  the second Shine begins.
+- `WavedashMontage` supports every standard character's jump-squat duration and
+  requests the down-diagonal air dodge on the final `KNEE_BEND` frame. Its default
+  45-degree angle is conservative; 17.1 degrees is accepted as the researched
+  maximum-distance boundary. It succeeds only after `LANDING_SPECIAL` ends in an
+  actionable grounded state.
+- `LedgedashMontage` releases with the C-stick away, double-jumps inward on the
+  first falling frame, and air dodges down-inward after the character's world-space
+  ECB bottom clears a configurable threshold. The default `0.25` world-Y threshold
+  follows the proven SmashBot standard-stage heuristic; override it for other
+  geometry or character-specific routes.
+
+The execution model follows the technical descriptions in
+[SmashWiki's wavedash guide](https://www.ssbwiki.com/Wavedash),
+[jump-squat table](https://www.ssbwiki.com/Jump#Jump_squat), and
+[ledgedash guide](https://www.ssbwiki.com/Ledgedash). The ECB-based ledgedash
+trigger is adapted from
+[SmashBot's implementation](https://github.com/altf4/SmashBot/blob/main/Chains/edgedash.py).
 
 ### API Changes
 Each of these old values will be removed in version 1.0.0. So update your programs!

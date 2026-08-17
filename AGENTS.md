@@ -29,6 +29,14 @@ uv pip install --python .venv/bin/python .
   next game tick.
 - `False` and `should_abort()` use `Aborted`; exhausting the safety limit uses
   `TimedOut`; cancelling an active montage uses `Cancelled` and may return a
-  configured fallback montage.
+  configured fallback montage. Timeout, abort, explicit failure, malformed return,
+  and active cancellation neutralize pending input before returning.
 - Terminal montage instances cannot restart. Instantiate a new montage for every
   attempt.
+- Concrete montages live in `melee/bot/techskill_montage.py`.
+  `MultishineMontage` is Fox-only and models one cycle. `WavedashMontage` uses the
+  character-specific final jump-squat frame. `LedgedashMontage` uses C-stick-away
+  release and world-space ECB-bottom clearance before its down-inward air dodge.
+- The wavedash and ledgedash default angle is a conservative 45 degrees. The
+  accepted shallow boundary is 17.1 degrees. Ledgedash's default ECB-bottom world-Y
+  threshold is 0.25 for standard main-stage ledges and is intentionally configurable.

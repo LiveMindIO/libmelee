@@ -94,6 +94,10 @@ _INPUT_COMMIT_FRAMES: Final = 12
 _SMASH_MAX_CHARGE_FRAMES: Final = 60
 _NEUTRAL_B_MAX_CHARGE_FRAMES: Final = 120
 _AERIAL_COMMIT_FRAMES: Final = 8
+_DIGITAL_BUTTONS: Final = frozenset(Button) - {
+    Button.BUTTON_MAIN,
+    Button.BUTTON_C,
+}
 # Neutral-B charge animations (misnamed _SMASH_CHARGE_ACTIONS historically).
 _SMASH_CHARGE_ACTIONS: Final = frozenset(
     {
@@ -442,6 +446,23 @@ class SimpleControls:
             magnitude=magnitude,
         )
         self._controller.tilt_analog(stick, x, y)
+
+    def press_button(self, button: Button) -> None:
+        """Press one digital controller button without changing other inputs.
+
+        This mutates pending controller state only. The runtime commits it on the
+        next :meth:`Console.step`; callers must not flush from bot code.
+
+        Raises:
+            ValueError: If ``button`` identifies the main stick or C-stick.
+        """
+        if button not in _DIGITAL_BUTTONS:
+            raise ValueError(f"Invalid button type {button} for press_button.")
+        self._controller.press_button(button)
+
+    def release_all(self) -> None:
+        """Set all pending controller inputs to neutral without flushing."""
+        self._controller.release_all()
 
     def attack(
         self,

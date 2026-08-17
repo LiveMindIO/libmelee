@@ -50,6 +50,12 @@ from melee.bot.simple_controls import (
     StickReferenceAxis,
     stick_coordinates,
 )
+from melee.bot.techskill_montage import (
+    LedgedashMontage,
+    MultishineMontage,
+    WavedashDirection,
+    WavedashMontage,
+)
 
 __all__ = [
     "AttackFrameData",
@@ -62,15 +68,19 @@ __all__ = [
     "CrowdControl",
     "Hold",
     "InputMontage",
+    "LedgedashMontage",
     "LedgeRecoveryOption",
     "MatchHistory",
     "MatchRoundOutcome",
     "MontageState",
+    "MultishineMontage",
     "OtherPlayer",
     "OtherPlayerRelation",
     "PlayerMatchRecord",
     "SimpleControls",
     "StickReferenceAxis",
+    "WavedashDirection",
+    "WavedashMontage",
     "attack_is_holdable",
     "can_air_attack",
     "can_attack",
