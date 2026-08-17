@@ -33,7 +33,8 @@ uv pip install --python .venv/bin/python .
   and active cancellation neutralize pending input before returning.
 - Terminal montage instances cannot restart. Instantiate a new montage for every
   attempt.
-- Concrete montages live in `melee/bot/techskill_montage.py`.
+- Concrete montages live in separate files under `melee/bot/techskill/`, with
+  reused state and helpers in `melee/bot/techskill/common.py`.
   `MultishineMontage` is Fox-only and models one cycle. `WavedashMontage` uses the
   character-specific final jump-squat frame. `LedgedashMontage` uses C-stick-away
   release and world-space ECB-bottom clearance before its down-inward air dodge.

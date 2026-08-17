@@ -50,7 +50,7 @@ from melee.bot.simple_controls import (
     StickReferenceAxis,
     stick_coordinates,
 )
-from melee.bot.techskill_montage import (
+from melee.bot.techskill import (
     LedgedashMontage,
     MultishineMontage,
     WavedashDirection,
