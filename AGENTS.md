@@ -18,3 +18,17 @@ uv pip install --python .venv/bin/python .
   through 3.13. It intentionally excludes Windows, macOS, and the live Dolphin
   test that requires an external Melee ISO.
 - Forgejo is the `origin` remote. The LiveMindIO GitHub fork is `mirror`.
+
+## Input Montages
+
+- `melee.bot.InputMontage` instances are single-use, short-lived input sequences.
+- Waiting does not consume `frame_limit`; each active `on_tick` call consumes one
+  frame, and exactly `frame_limit` active calls are allowed.
+- Returning another montage marks the current node `Finished` but does not tick the
+  follow-up automatically. The bot owns the returned montage and advances it on the
+  next game tick.
+- `False` and `should_abort()` use `Aborted`; exhausting the safety limit uses
+  `TimedOut`; cancelling an active montage uses `Cancelled` and may return a
+  configured fallback montage.
+- Terminal montage instances cannot restart. Instantiate a new montage for every
+  attempt.

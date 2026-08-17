@@ -4,7 +4,13 @@ import sys
 import unittest
 
 import melee
-from melee.bot import SimpleControls, StickReferenceAxis, stick_coordinates
+from melee.bot import (
+    InputMontage,
+    MontageState,
+    SimpleControls,
+    StickReferenceAxis,
+    stick_coordinates,
+)
 from melee.controller import fix_analog_stick
 
 class SLPFile(unittest.TestCase):
@@ -503,6 +509,156 @@ class AngularStickTests(unittest.TestCase):
                 stick=melee.Button.BUTTON_A,
             )
         self.assertEqual(len(controller.tilts), 2)
+
+
+class RecordingMontage(InputMontage):
+    def __init__(
+        self,
+        frame_limit=3,
+        cancel_montage=None,
+        *,
+        start_allowed=True,
+        abort=False,
+        results=(),
+    ):
+        super().__init__(frame_limit, cancel_montage)
+        self.start_allowed = start_allowed
+        self.abort = abort
+        self.results = list(results)
+        self.can_start_calls = 0
+        self.should_abort_calls = 0
+        self.on_tick_calls = 0
+
+    def can_start(self, controls, player_state, opponent_state, state):
+        self.can_start_calls += 1
+        return self.start_allowed
+
+    def should_abort(self, controls, player_state, opponent_state, state):
+        self.should_abort_calls += 1
+        return self.abort
+
+    def on_tick(self, controls, player_state, opponent_state, state):
+        self.on_tick_calls += 1
+        if self.results:
+            return self.results.pop(0)
+        return self
+
+
+class InputMontageTests(unittest.TestCase):
+    def setUp(self):
+        self.controls = object()
+        self.player_state = object()
+        self.opponent_state = object()
+        self.game_state = melee.GameState()
+
+    def tick(self, montage):
+        return montage.tick(
+            self.controls,
+            self.player_state,
+            self.opponent_state,
+            self.game_state,
+        )
+
+    def cancel(self, montage):
+        return montage.cancel(
+            self.controls,
+            self.player_state,
+            self.opponent_state,
+            self.game_state,
+        )
+
+    def test_frame_limit_must_be_positive(self):
+        for frame_limit in (0, -1):
+            with self.subTest(frame_limit=frame_limit):
+                with self.assertRaisesRegex(ValueError, "greater than zero"):
+                    RecordingMontage(frame_limit)
+
+    def test_waiting_montage_returns_itself_without_using_frame_budget(self):
+        montage = RecordingMontage(frame_limit=1, start_allowed=False)
+
+        self.assertIs(self.tick(montage), montage)
+        self.assertIs(self.tick(montage), montage)
+        self.assertEqual(montage.get_montage_state(), MontageState.Waiting)
+        self.assertEqual(montage.on_tick_calls, 0)
+
+        montage.start_allowed = True
+        self.assertIs(self.tick(montage), montage)
+        self.assertEqual(montage.get_montage_state(), MontageState.Active)
+        self.assertEqual(montage.on_tick_calls, 1)
+
+    def test_true_finishes_montage_and_terminal_instances_cannot_restart(self):
+        montage = RecordingMontage(results=(True,))
+
+        self.assertIs(self.tick(montage), True)
+        self.assertEqual(montage.get_montage_state(), MontageState.Finished)
+        self.assertIs(self.tick(montage), False)
+        self.assertEqual(montage.on_tick_calls, 1)
+
+    def test_false_aborts_montage(self):
+        montage = RecordingMontage(results=(False,))
+
+        self.assertIs(self.tick(montage), False)
+        self.assertEqual(montage.get_montage_state(), MontageState.Aborted)
+        self.assertIs(self.tick(montage), False)
+        self.assertEqual(montage.on_tick_calls, 1)
+
+    def test_should_abort_prevents_input_tick(self):
+        montage = RecordingMontage(abort=True)
+
+        self.assertIs(self.tick(montage), False)
+        self.assertEqual(montage.get_montage_state(), MontageState.Aborted)
+        self.assertEqual(montage.should_abort_calls, 1)
+        self.assertEqual(montage.on_tick_calls, 0)
+
+    def test_invalid_tick_result_aborts_and_raises(self):
+        montage = RecordingMontage(results=(None,))
+
+        with self.assertRaisesRegex(TypeError, "InputMontage or bool"):
+            self.tick(montage)
+        self.assertEqual(montage.get_montage_state(), MontageState.Aborted)
+        self.assertIs(self.tick(montage), False)
+
+    def test_frame_limit_allows_exact_number_of_active_ticks(self):
+        montage = RecordingMontage(frame_limit=2)
+
+        self.assertIs(self.tick(montage), montage)
+        self.assertIs(self.tick(montage), montage)
+        self.assertEqual(montage.on_tick_calls, 2)
+        self.assertIs(self.tick(montage), False)
+        self.assertEqual(montage.get_montage_state(), MontageState.TimedOut)
+        self.assertEqual(montage.on_tick_calls, 2)
+
+    def test_returning_another_montage_finishes_current_node(self):
+        follow_up = RecordingMontage(results=(True,))
+        montage = RecordingMontage(results=(follow_up,))
+
+        self.assertIs(self.tick(montage), follow_up)
+        self.assertEqual(montage.get_montage_state(), MontageState.Finished)
+        self.assertEqual(follow_up.get_montage_state(), MontageState.Waiting)
+        self.assertEqual(follow_up.on_tick_calls, 0)
+
+        self.assertIs(self.tick(follow_up), True)
+        self.assertEqual(follow_up.get_montage_state(), MontageState.Finished)
+
+    def test_cancel_active_montage_returns_configured_fallback(self):
+        fallback = RecordingMontage()
+        montage = RecordingMontage(cancel_montage=fallback)
+
+        self.assertIsNone(self.cancel(montage))
+        self.assertEqual(montage.get_montage_state(), MontageState.Waiting)
+
+        self.assertIs(self.tick(montage), montage)
+        self.assertIs(self.cancel(montage), fallback)
+        self.assertEqual(montage.get_montage_state(), MontageState.Cancelled)
+        self.assertEqual(fallback.get_montage_state(), MontageState.Waiting)
+        self.assertIs(self.tick(montage), False)
+
+    def test_cancel_without_fallback_returns_none(self):
+        montage = RecordingMontage()
+        self.assertIs(self.tick(montage), montage)
+
+        self.assertIsNone(self.cancel(montage))
+        self.assertEqual(montage.get_montage_state(), MontageState.Cancelled)
 
 if __name__ == '__main__':
     unittest.main()

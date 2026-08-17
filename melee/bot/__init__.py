@@ -32,6 +32,7 @@ from melee.bot.character_state import (
     neutral_b_is_chargeable,
     z_air_is_supported,
 )
+from melee.bot.input_montage import InputMontage, MontageState
 from melee.bot.logger import BotLogger, BotLogEntry
 from melee.bot.match_history import (
     MatchHistory,
@@ -60,9 +61,11 @@ __all__ = [
     "CharacterStatus",
     "CrowdControl",
     "Hold",
+    "InputMontage",
     "LedgeRecoveryOption",
     "MatchHistory",
     "MatchRoundOutcome",
+    "MontageState",
     "OtherPlayer",
     "OtherPlayerRelation",
     "PlayerMatchRecord",

@@ -131,6 +131,28 @@ Also, if you don't press a button, Dolphin will just use whatever you pressed la
 
 which will release all buttons and set all sticks / shoulders to neutral.
 
+### Input Montages
+
+`melee.bot.InputMontage` is the base class for short-lived controller sequences
+that need coordinated input over multiple game ticks. A bot creates a new montage
+for each attempt, calls `tick(simple_controls, player_state, opponent_state,
+game_state)` every tick, and retains the returned montage while work continues.
+
+- The current montage returns itself while it is waiting or active.
+- Returning another `InputMontage` finishes the current node and hands control to
+  a follow-up or branch.
+- Returning `True` finishes successfully; returning `False`, aborting, cancelling,
+  or timing out makes that montage instance terminal.
+- `frame_limit` counts active `on_tick` calls only. It is a safety boundary, not a
+  substitute for an implementation detecting failure and returning `False`.
+- `cancel(...)` only cancels an active montage and returns its configured fallback,
+  if any. Implementations may override it to choose a state-dependent cancellation
+  montage.
+
+Montages are intentionally single-use and should model relatively short sequences
+such as a multishine cycle, charge cancel, or one link in a combo. An implementation
+may retain the match's shared `FrameData` when it needs framedata queries.
+
 ### API Changes
 Each of these old values will be removed in version 1.0.0. So update your programs!
 1. `gamestate.player` has been changed to `gamestate.players` (plural) to be more Pythonic.
