@@ -97,6 +97,29 @@ JUMP_SQUAT_FRAMES: Final[dict[Character, int]] = {
     Character.BOWSER: 8,
 }
 
+# DESNOTE(jbarber, 2026-08-17): 17.1 degrees is the documented request-space
+# boundary. Keep hardware/game integer-stick quantization outside this API, but
+# clamp one representable float inward so trigonometric roundoff cannot cross the
+# montage's accepted interval. See https://www.ssbwiki.com/Wavedash#Lengths
+WAVEDASH_MIN_ANGLE_DEGREES: Final = 17.1
+WAVEDASH_MAX_ANGLE_DEGREES: Final = 90.0
+_WAVEDASH_MIN_SAFE_ANGLE_DEGREES: Final = math.nextafter(
+    WAVEDASH_MIN_ANGLE_DEGREES,
+    WAVEDASH_MAX_ANGLE_DEGREES,
+)
+_WAVEDASH_MAX_SAFE_ANGLE_DEGREES: Final = math.nextafter(
+    WAVEDASH_MAX_ANGLE_DEGREES,
+    WAVEDASH_MIN_ANGLE_DEGREES,
+)
+_WAVEDASH_MIN_ROUNDOFF_ANGLE_DEGREES: Final = math.nextafter(
+    WAVEDASH_MIN_ANGLE_DEGREES,
+    -math.inf,
+)
+_WAVEDASH_MAX_ROUNDOFF_ANGLE_DEGREES: Final = math.nextafter(
+    WAVEDASH_MAX_ANGLE_DEGREES,
+    math.inf,
+)
+
 
 def player(player_state: CharacterState) -> PlayerState | None:
     return player_state.player()
@@ -127,11 +150,19 @@ def validate_button(button: Button, allowed: frozenset[Button], name: str) -> No
         raise ValueError(f"{name} must be one of: {choices}")
 
 
-def validate_wavedash_angle(angle_degrees: float) -> None:
+def clamp_wavedash_angle(angle_degrees: float) -> float:
     if not math.isfinite(angle_degrees):
         raise ValueError("angle_degrees must be finite")
-    if not 17.1 <= angle_degrees < 90.0:
-        raise ValueError("angle_degrees must be at least 17.1 and less than 90")
+    if not (
+        _WAVEDASH_MIN_ROUNDOFF_ANGLE_DEGREES
+        <= angle_degrees
+        <= _WAVEDASH_MAX_ROUNDOFF_ANGLE_DEGREES
+    ):
+        raise ValueError("angle_degrees must be between 17.1 and 90")
+    return min(
+        _WAVEDASH_MAX_SAFE_ANGLE_DEGREES,
+        max(_WAVEDASH_MIN_SAFE_ANGLE_DEGREES, angle_degrees),
+    )
 
 
 def apply_wavedash_input(

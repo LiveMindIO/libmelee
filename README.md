@@ -163,8 +163,9 @@ Libmelee includes four concrete technique montages:
 - `WavedashMontage` supports every standard character's jump-squat duration and
   requests the down-diagonal air dodge on the final `KNEE_BEND` frame. Its default
   45-degree angle is conservative; 17.1 degrees is accepted as the researched
-  maximum-distance boundary. It succeeds only after `LANDING_SPECIAL` ends in an
-  actionable grounded state.
+  maximum-distance boundary. Boundary values and one adjacent float of roundoff
+  are clamped one representable value inside the accepted interval. It succeeds
+  only after `LANDING_SPECIAL` ends in an actionable grounded state.
 - `LedgedashMontage` releases with the C-stick away, double-jumps inward on the
   first falling frame, and air dodges down-inward after the character's world-space
   ECB bottom clears a configurable threshold. The default `0.25` world-Y threshold

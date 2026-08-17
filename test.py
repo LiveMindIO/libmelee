@@ -17,6 +17,11 @@ from melee.bot import (
     WavedashMontage,
     stick_coordinates,
 )
+from melee.bot.techskill.common import (
+    WAVEDASH_MAX_ANGLE_DEGREES,
+    WAVEDASH_MIN_ANGLE_DEGREES,
+    clamp_wavedash_angle,
+)
 from melee.controller import fix_analog_stick
 
 
@@ -779,6 +784,21 @@ class TechniqueMontageTests(unittest.TestCase):
         self.controls = RecordingTechniqueControls()
         self.frame = 0
 
+    def requested_stick_coordinates(
+        self,
+        calls,
+        *,
+        stick=melee.Button.BUTTON_MAIN,
+    ):
+        requests = [
+            call
+            for call in calls
+            if call[0] == "tilt_stick" and call[4] is stick
+        ]
+        self.assertTrue(requests)
+        _, axis, angle, magnitude, _ = requests[-1]
+        return stick_coordinates(axis, angle, magnitude=magnitude)
+
     def tick(
         self,
         montage,
@@ -856,6 +876,7 @@ class TechniqueMontageTests(unittest.TestCase):
             ),
             calls,
         )
+        self.assertEqual(self.requested_stick_coordinates(calls), (0.5, 0.0))
 
         self.assertIs(
             self.tick(montage, melee.Action.DOWN_B_GROUND),
@@ -939,8 +960,9 @@ class TechniqueMontageTests(unittest.TestCase):
                     ),
                     montage,
                 )
+                calls = self.controls.take_calls()
                 self.assertEqual(
-                    self.controls.take_calls(),
+                    calls,
                     [
                         ("release_all",),
                         (
@@ -952,6 +974,8 @@ class TechniqueMontageTests(unittest.TestCase):
                         ),
                     ],
                 )
+                pulse_x, _ = self.requested_stick_coordinates(calls)
+                self.assertGreater(pulse_x, 0.5)
 
         self.assertIs(
             self.tick(
@@ -962,8 +986,9 @@ class TechniqueMontageTests(unittest.TestCase):
             ),
             montage,
         )
+        calls = self.controls.take_calls()
         self.assertEqual(
-            self.controls.take_calls(),
+            calls,
             [
                 ("release_all",),
                 (
@@ -975,6 +1000,13 @@ class TechniqueMontageTests(unittest.TestCase):
                 ),
             ],
         )
+        self.assertEqual(
+            self.requested_stick_coordinates(
+                calls,
+                stick=melee.Button.BUTTON_C,
+            ),
+            (1.0, 0.5),
+        )
         self.assertIs(
             self.tick(
                 montage,
@@ -984,6 +1016,31 @@ class TechniqueMontageTests(unittest.TestCase):
             True,
         )
         self.assertEqual(self.controls.take_calls(), [("release_all",)])
+
+    def test_sdi_pulses_toward_every_requested_cardinal(self):
+        cases = (
+            (StickReferenceAxis.UP, 1, 1.0),
+            (StickReferenceAxis.RIGHT, 0, 1.0),
+            (StickReferenceAxis.DOWN, 1, -1.0),
+            (StickReferenceAxis.LEFT, 0, -1.0),
+        )
+        for direction, component_index, expected_sign in cases:
+            with self.subTest(direction=direction):
+                montage = SDIMontage(direction)
+                self.assertIs(
+                    self.tick(
+                        montage,
+                        melee.Action.DAMAGE_HIGH_1,
+                        hitlag_left=3,
+                        hitstun_frames_left=5,
+                    ),
+                    montage,
+                )
+                coordinates = self.requested_stick_coordinates(
+                    self.controls.take_calls()
+                )
+                requested_component = coordinates[component_index] - 0.5
+                self.assertGreater(expected_sign * requested_component, 0.0)
 
     def test_sdi_waits_during_attacker_hitlag(self):
         montage = SDIMontage(StickReferenceAxis.LEFT)
@@ -1280,6 +1337,9 @@ class TechniqueMontageTests(unittest.TestCase):
             ),
             calls,
         )
+        right_x, right_y = self.requested_stick_coordinates(calls)
+        self.assertGreater(right_x, 0.5)
+        self.assertLess(right_y, 0.5)
 
         self.assertIs(
             self.tick(
@@ -1343,6 +1403,9 @@ class TechniqueMontageTests(unittest.TestCase):
             ),
             calls,
         )
+        left_x, left_y = self.requested_stick_coordinates(calls)
+        self.assertLess(left_x, 0.5)
+        self.assertLess(left_y, 0.5)
 
     def test_wavedash_requires_special_landing(self):
         montage = WavedashMontage(WavedashDirection.Right)
@@ -1364,7 +1427,7 @@ class TechniqueMontageTests(unittest.TestCase):
     def test_wavedash_validates_angle_and_buttons(self):
         with self.assertRaisesRegex(ValueError, "direction"):
             WavedashMontage("right")
-        for angle in (math.nan, 17.0, 90.0):
+        for angle in (math.nan, 17.0, 90.1):
             with self.subTest(angle=angle):
                 with self.assertRaises(ValueError):
                     WavedashMontage(
@@ -1381,6 +1444,69 @@ class TechniqueMontageTests(unittest.TestCase):
                 WavedashDirection.Right,
                 dodge_button=melee.Button.BUTTON_Z,
             )
+
+    def test_wavedash_clamps_boundary_roundoff_inward(self):
+        minimum_safe = math.nextafter(
+            WAVEDASH_MIN_ANGLE_DEGREES,
+            WAVEDASH_MAX_ANGLE_DEGREES,
+        )
+        maximum_safe = math.nextafter(
+            WAVEDASH_MAX_ANGLE_DEGREES,
+            WAVEDASH_MIN_ANGLE_DEGREES,
+        )
+        minimum_roundoff = math.nextafter(
+            WAVEDASH_MIN_ANGLE_DEGREES,
+            -math.inf,
+        )
+        maximum_roundoff = math.nextafter(
+            WAVEDASH_MAX_ANGLE_DEGREES,
+            math.inf,
+        )
+
+        for requested in (minimum_roundoff, WAVEDASH_MIN_ANGLE_DEGREES):
+            with self.subTest(requested=requested):
+                self.assertEqual(clamp_wavedash_angle(requested), minimum_safe)
+        for requested in (WAVEDASH_MAX_ANGLE_DEGREES, maximum_roundoff):
+            with self.subTest(requested=requested):
+                self.assertEqual(clamp_wavedash_angle(requested), maximum_safe)
+
+        below_roundoff = math.nextafter(minimum_roundoff, -math.inf)
+        above_roundoff = math.nextafter(maximum_roundoff, math.inf)
+        for requested in (below_roundoff, above_roundoff):
+            with self.subTest(requested=requested):
+                with self.assertRaisesRegex(ValueError, "between 17.1 and 90"):
+                    clamp_wavedash_angle(requested)
+
+    def test_wavedash_uses_clamped_minimum_angle(self):
+        minimum_roundoff = math.nextafter(
+            WAVEDASH_MIN_ANGLE_DEGREES,
+            -math.inf,
+        )
+        expected = math.nextafter(
+            WAVEDASH_MIN_ANGLE_DEGREES,
+            WAVEDASH_MAX_ANGLE_DEGREES,
+        )
+        montage = WavedashMontage(
+            WavedashDirection.Right,
+            angle_degrees=minimum_roundoff,
+        )
+        self.tick(montage, melee.Action.STANDING)
+        self.controls.take_calls()
+
+        self.assertIs(
+            self.tick(montage, melee.Action.KNEE_BEND, action_frame=3),
+            montage,
+        )
+        self.assertIn(
+            (
+                "tilt_stick",
+                StickReferenceAxis.RIGHT,
+                -expected,
+                1.0,
+                melee.Button.BUTTON_MAIN,
+            ),
+            self.controls.take_calls(),
+        )
 
     def test_wavedash_aborts_and_neutralizes_when_hit(self):
         montage = WavedashMontage(WavedashDirection.Right)
@@ -1517,6 +1643,9 @@ class TechniqueMontageTests(unittest.TestCase):
             ),
             calls,
         )
+        ledgedash_x, ledgedash_y = self.requested_stick_coordinates(calls)
+        self.assertLess(ledgedash_x, 0.5)
+        self.assertLess(ledgedash_y, 0.5)
 
         self.assertIs(
             self.tick(

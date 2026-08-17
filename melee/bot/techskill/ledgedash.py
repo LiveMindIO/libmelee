@@ -13,10 +13,10 @@ from melee.bot.techskill.common import (
     GROUND_MOVEMENT_ACTIONS,
     WavedashDirection,
     apply_wavedash_input,
+    clamp_wavedash_angle,
     is_interrupted,
     player,
     validate_button,
-    validate_wavedash_angle,
 )
 from melee.enums import Action, Button, Character
 from melee.gamestate import GameState
@@ -46,7 +46,8 @@ class LedgedashMontage(InputMontage):
     the first falling frame, and waits until the player's world-space ECB bottom
     exceeds ``minimum_ecb_bottom_y`` before air dodging down and inward. The
     default ``0.25`` threshold is a conservative standard-stage heuristic and may
-    be overridden for other stage geometry or character-specific routing.
+    be overridden for other stage geometry or character-specific routing. Angle
+    boundaries use the same inward floating-point clamp as ``WavedashMontage``.
     """
 
     def __init__(
@@ -60,7 +61,7 @@ class LedgedashMontage(InputMontage):
         dodge_button: Button = Button.BUTTON_L,
     ) -> None:
         super().__init__(frame_limit, cancel_montage)
-        validate_wavedash_angle(angle_degrees)
+        safe_angle_degrees = clamp_wavedash_angle(angle_degrees)
         if not math.isfinite(minimum_ecb_bottom_y):
             raise ValueError("minimum_ecb_bottom_y must be finite")
         validate_button(
@@ -73,7 +74,7 @@ class LedgedashMontage(InputMontage):
             frozenset({Button.BUTTON_L, Button.BUTTON_R}),
             "dodge_button",
         )
-        self._angle_degrees = angle_degrees
+        self._angle_degrees = safe_angle_degrees
         self._minimum_ecb_bottom_y = minimum_ecb_bottom_y
         self._jump_button = jump_button
         self._dodge_button = dodge_button

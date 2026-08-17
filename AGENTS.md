@@ -43,5 +43,7 @@ uv pip install --python .venv/bin/python .
   queues cardinal C-stick ASDI as damage hitlag exits, and uses the main stick for
   shield hitlag's final displacement.
 - The wavedash and ledgedash default angle is a conservative 45 degrees. The
-  accepted shallow boundary is 17.1 degrees. Ledgedash's default ECB-bottom world-Y
-  threshold is 0.25 for standard main-stage ledges and is intentionally configurable.
+  accepted shallow boundary is 17.1 degrees; boundary values and one ULP of
+  roundoff clamp one representable float inward. Ledgedash's default ECB-bottom
+  world-Y threshold is 0.25 for standard main-stage ledges and is intentionally
+  configurable.

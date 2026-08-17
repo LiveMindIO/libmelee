@@ -14,10 +14,10 @@ from melee.bot.techskill.common import (
     SHINE_ACTIONS,
     WavedashDirection,
     apply_wavedash_input,
+    clamp_wavedash_angle,
     is_interrupted,
     player,
     validate_button,
-    validate_wavedash_angle,
 )
 from melee.enums import Action, Button, Character
 from melee.gamestate import GameState
@@ -42,7 +42,8 @@ class WavedashMontage(InputMontage):
 
     The air dodge is requested on the character's final jump-squat frame. The
     default 45-degree angle favors reliability; 17.1 degrees is the researched
-    maximum-distance boundary and the shallowest accepted value.
+    maximum-distance boundary. Boundary requests and one-ULP roundoff are clamped
+    to a representable float strictly inside the accepted interval.
     """
 
     def __init__(
@@ -58,7 +59,7 @@ class WavedashMontage(InputMontage):
         super().__init__(frame_limit, cancel_montage)
         if not isinstance(direction, WavedashDirection):
             raise ValueError("direction must be a WavedashDirection")
-        validate_wavedash_angle(angle_degrees)
+        safe_angle_degrees = clamp_wavedash_angle(angle_degrees)
         validate_button(
             jump_button,
             frozenset({Button.BUTTON_X, Button.BUTTON_Y}),
@@ -70,7 +71,7 @@ class WavedashMontage(InputMontage):
             "dodge_button",
         )
         self._direction = direction
-        self._angle_degrees = angle_degrees
+        self._angle_degrees = safe_angle_degrees
         self._jump_button = jump_button
         self._dodge_button = dodge_button
         self._phase = _WavedashPhase.JumpRequested
