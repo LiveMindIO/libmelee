@@ -137,11 +137,12 @@ which will release all buttons and set all sticks / shoulders to neutral.
 
 `melee.bot.SimpleControls.attack` supports facing-relative attacks as well as
 absolute horizontal variants. Use `LTILT`/`RTILT`, `LSMASH`/`RSMASH`,
-`LAIR`/`RAIR`, and `LEFT_B`/`RIGHT_B` when a bot should attack toward a screen
-direction without translating through `PlayerState.facing`. Existing `FTILT`,
-`FSMASH`, `FAIR`/`BAIR`, and `SIDE_B` requests remain facing-relative. Aerial
-attacks are issued through the C-stick only while retaining matching horizontal
-main-stick drift.
+and `LEFT_B`/`RIGHT_B` when a bot should attack toward a screen direction without
+translating through `PlayerState.facing`. Existing `FTILT`, `FSMASH`, and
+`SIDE_B` requests remain facing-relative. Aerials intentionally provide only
+facing-relative `FAIR`/`BAIR`, since their move behavior depends on character
+facing. Aerial attacks are issued through the C-stick only while retaining
+matching horizontal main-stick drift.
 
 `CharacterState.can_jump()` (also available as `melee.bot.can_jump`) reports
 actionable ground jumps and remaining aerial jumps. It returns `True` throughout

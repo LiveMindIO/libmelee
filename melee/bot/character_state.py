@@ -293,8 +293,8 @@ class AttackType(Enum):
     raw movement inputs before calling it; SimpleControls does not walk or dash
     on the bot's behalf.
 
-    Air-only (or grounded jump startup): ``NAIR``, ``FAIR``, ``BAIR``, ``LAIR``,
-    ``RAIR``, ``UAIR``, ``DAIR``.
+    Air-only (or grounded jump startup): ``NAIR``, ``FAIR``, ``BAIR``, ``UAIR``,
+    ``DAIR``.
 
     Specials (ground or air): ``NEUTRAL_B``, ``SIDE_B``, ``LEFT_B``, ``RIGHT_B``,
     ``UP_B``, ``DOWN_B``.
@@ -323,8 +323,6 @@ class AttackType(Enum):
     NAIR = auto()
     FAIR = auto()
     BAIR = auto()
-    LAIR = auto()
-    RAIR = auto()
     UAIR = auto()
     DAIR = auto()
     NEUTRAL_B = auto()
@@ -513,8 +511,6 @@ _AIR_ATTACKS: Final = frozenset(
         AttackType.NAIR,
         AttackType.FAIR,
         AttackType.BAIR,
-        AttackType.LAIR,
-        AttackType.RAIR,
         AttackType.UAIR,
         AttackType.DAIR,
     }
@@ -545,7 +541,7 @@ def _action_set(*names: str) -> frozenset[Action]:
     return frozenset(getattr(Action, name) for name in names)
 
 
-def _relative_attack_type(attack_type: AttackType, facing: bool) -> AttackType:
+def _relative_attack_type(attack_type: AttackType) -> AttackType:
     """Resolve an absolute horizontal request to its facing-relative move."""
     if attack_type in {AttackType.LTILT, AttackType.RTILT}:
         return AttackType.FTILT
@@ -553,10 +549,6 @@ def _relative_attack_type(attack_type: AttackType, facing: bool) -> AttackType:
         return AttackType.FSMASH
     if attack_type in {AttackType.LEFT_B, AttackType.RIGHT_B}:
         return AttackType.SIDE_B
-    if attack_type is AttackType.LAIR:
-        return AttackType.BAIR if facing else AttackType.FAIR
-    if attack_type is AttackType.RAIR:
-        return AttackType.FAIR if facing else AttackType.BAIR
     return attack_type
 
 

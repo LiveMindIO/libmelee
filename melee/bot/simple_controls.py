@@ -207,8 +207,6 @@ _PRIMARY_ACTION: Final[dict[AttackType, Action]] = {
     AttackType.NAIR: Action.NAIR,
     AttackType.FAIR: Action.FAIR,
     AttackType.BAIR: Action.BAIR,
-    AttackType.LAIR: Action.BAIR,
-    AttackType.RAIR: Action.FAIR,
     AttackType.UAIR: Action.UAIR,
     AttackType.DAIR: Action.DAIR,
     AttackType.NEUTRAL_B: Action.NEUTRAL_B_ATTACKING,
@@ -339,7 +337,6 @@ def _toward_stage_stick(player: LibPlayerState) -> float:
 def _primary_action(
     character: Character,
     attack_type: AttackType,
-    facing: bool,
 ) -> Action:
     """Return a representative ``Action`` for pre-move ``FrameData`` lookups.
 
@@ -352,7 +349,7 @@ def _primary_action(
     ``_ACTIONS_FOR_TYPE``.
     """
     _ = character
-    return _PRIMARY_ACTION[_relative_attack_type(attack_type, facing)]
+    return _PRIMARY_ACTION[_relative_attack_type(attack_type)]
 
 
 def _commit_frame_limit(hold: Hold) -> int:
@@ -866,7 +863,7 @@ class SimpleControls:
         stick_y: float,
     ) -> Hold:
         """Start a smash or chargeable neutral-B hold (``charging=True``)."""
-        action = _primary_action(player.character, attack_type, player.facing)
+        action = _primary_action(player.character, attack_type)
         max_hold = (
             _NEUTRAL_B_MAX_CHARGE_FRAMES
             if attack_type is AttackType.NEUTRAL_B
@@ -895,7 +892,7 @@ class SimpleControls:
         stick_y: float,
     ) -> Hold:
         """Start a short commit hold (``charging=False``) for non-charge moves."""
-        action = _primary_action(player.character, attack_type, player.facing)
+        action = _primary_action(player.character, attack_type)
         hold = Hold(
             attack_type=attack_type,
             character=player.character,
@@ -1074,7 +1071,7 @@ class SimpleControls:
         """
         if not isinstance(player.action, Action):
             return None
-        relative_attack_type = _relative_attack_type(attack_type, player.facing)
+        relative_attack_type = _relative_attack_type(attack_type)
         if player.action not in _ACTIONS_FOR_TYPE[relative_attack_type]:
             return None
         if attack_type in _GRAB_THROW_ATTACKS:
@@ -1116,8 +1113,6 @@ class SimpleControls:
             AttackType.NAIR: (0.5, 0.5),
             AttackType.FAIR: (toward, 0.5),
             AttackType.BAIR: (away, 0.5),
-            AttackType.LAIR: (0.0, 0.5),
-            AttackType.RAIR: (1.0, 0.5),
             AttackType.UAIR: (0.5, 1.0),
             AttackType.DAIR: (0.5, 0.0),
             AttackType.NEUTRAL_B: (0.5, 0.5),
@@ -1145,7 +1140,7 @@ class SimpleControls:
             return False
         if player.action in _SMASH_CHARGE_ACTIONS:
             return False
-        relative_attack_type = _relative_attack_type(hold.attack_type, player.facing)
+        relative_attack_type = _relative_attack_type(hold.attack_type)
         return player.action in _ACTIONS_FOR_TYPE[relative_attack_type]
 
 

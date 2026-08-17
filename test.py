@@ -5,7 +5,6 @@ import unittest
 
 import melee
 from melee.bot import (
-    AttackFrameData,
     AttackType,
     CharacterState,
     Hold,
@@ -642,11 +641,13 @@ class SimpleControlsInputTests(unittest.TestCase):
                     self.assertEqual(controller.buttons, {button})
                     self.assertEqual(result.charging, charging)
 
-    def test_absolute_aerials_use_only_c_stick(self) -> None:
+    def test_aerials_use_only_c_stick_and_remain_facing_relative(self) -> None:
         for facing in (False, True):
+            toward = 1.0 if facing else 0.0
+            away = 0.0 if facing else 1.0
             for attack_type, stick_x in (
-                (AttackType.LAIR, 0.0),
-                (AttackType.RAIR, 1.0),
+                (AttackType.FAIR, toward),
+                (AttackType.BAIR, away),
             ):
                 with self.subTest(facing=facing, attack_type=attack_type):
                     player = melee.PlayerState(
@@ -661,28 +662,6 @@ class SimpleControlsInputTests(unittest.TestCase):
                     self.assertEqual(controller.main_stick, (stick_x, 0.5))
                     self.assertEqual(controller.c_stick, (stick_x, 0.5))
                     self.assertEqual(controller.buttons, set())
-
-    def test_absolute_aerial_recognition_respects_facing(self) -> None:
-        start = melee.PlayerState(
-            character=melee.Character.MARTH,
-            action=melee.Action.FALLING,
-            on_ground=False,
-            facing=True,
-        )
-        controls, controller = self.controls(start)
-        hold = controls.attack(AttackType.LAIR)
-        self.assertIsInstance(hold, Hold)
-
-        attacking = melee.PlayerState(
-            character=melee.Character.MARTH,
-            action=melee.Action.BAIR,
-            on_ground=False,
-            facing=True,
-        )
-        controls, _ = self.controls(attacking, controller, frame=1)
-        result = controls.attack(AttackType.LAIR, hold=hold)
-        self.assertIsInstance(result, AttackFrameData)
-        self.assertEqual(result.action, melee.Action.BAIR)
 
     def test_can_jump_during_all_shield_phases_except_yoshi(self) -> None:
         shield_actions = (
