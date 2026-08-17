@@ -343,14 +343,14 @@ class AngularStickTests(unittest.TestCase):
         high = (1.0 + math.sqrt(0.5)) / 2.0
         low = (1.0 - math.sqrt(0.5)) / 2.0
         expected_by_direction = {
-            0.0: (0.5, 1.0),
+            0.0: (1.0, 0.5),
             45.0: (high, high),
-            90.0: (1.0, 0.5),
-            135.0: (high, low),
-            180.0: (0.5, 0.0),
+            90.0: (0.5, 1.0),
+            135.0: (low, high),
+            180.0: (0.0, 0.5),
             225.0: (low, low),
-            270.0: (0.0, 0.5),
-            315.0: (low, high),
+            270.0: (0.5, 0.0),
+            315.0: (high, low),
         }
 
         for axis in StickReferenceAxis:
@@ -403,9 +403,9 @@ class AngularStickTests(unittest.TestCase):
 
     def test_representative_angles_and_magnitudes(self) -> None:
         cases = (
-            (StickReferenceAxis.UP, 30.0, 0.5, (0.625, 0.5 + math.sqrt(3) / 8)),
-            (StickReferenceAxis.RIGHT, -60.0, 0.75, (0.6875, 0.5 + 0.75 * math.sqrt(3) / 4)),
-            (StickReferenceAxis.DOWN, 225.0, 0.4, (0.5 + math.sqrt(2) / 10, 0.5 + math.sqrt(2) / 10)),
+            (StickReferenceAxis.UP, 30.0, 0.5, (0.375, 0.5 + math.sqrt(3) / 8)),
+            (StickReferenceAxis.RIGHT, -60.0, 0.75, (0.6875, 0.5 - 0.75 * math.sqrt(3) / 4)),
+            (StickReferenceAxis.DOWN, 225.0, 0.4, (0.5 - math.sqrt(2) / 10, 0.5 + math.sqrt(2) / 10)),
         )
         for axis, angle, magnitude, expected in cases:
             with self.subTest(axis=axis, angle=angle, magnitude=magnitude):
@@ -419,7 +419,7 @@ class AngularStickTests(unittest.TestCase):
             ((0.6, 0.8), (0.8, 0.9)),
         )
         for (centered_x, centered_y), expected in cases:
-            angle = math.degrees(math.atan2(centered_x, centered_y))
+            angle = -math.degrees(math.atan2(centered_x, centered_y))
             with self.subTest(centered=(centered_x, centered_y)):
                 actual = stick_coordinates(StickReferenceAxis.UP, angle)
                 self.assertAlmostEqual(actual[0], expected[0])
@@ -441,7 +441,7 @@ class AngularStickTests(unittest.TestCase):
 
         request = stick_coordinates(
             StickReferenceAxis.UP,
-            math.degrees(math.atan2(0.8, 0.6)),
+            -math.degrees(math.atan2(0.8, 0.6)),
         )
         expected = tuple(fix_analog_stick(value) for value in request)
         double_corrected = tuple(fix_analog_stick(value) for value in expected)
@@ -548,8 +548,8 @@ class AngularStickTests(unittest.TestCase):
         self.assertEqual(
             controller.tilts,
             [
-                (melee.Button.BUTTON_MAIN, 0.75, 0.5),
-                (melee.Button.BUTTON_C, 0.5, 0.0),
+                (melee.Button.BUTTON_MAIN, 0.25, 0.5),
+                (melee.Button.BUTTON_C, 0.5, 1.0),
             ],
         )
         self.assertEqual(controller.release_count, 0)
@@ -1274,7 +1274,7 @@ class TechniqueMontageTests(unittest.TestCase):
             (
                 "tilt_stick",
                 StickReferenceAxis.RIGHT,
-                45.0,
+                -45.0,
                 1.0,
                 melee.Button.BUTTON_MAIN,
             ),
@@ -1337,7 +1337,7 @@ class TechniqueMontageTests(unittest.TestCase):
             (
                 "tilt_stick",
                 StickReferenceAxis.LEFT,
-                -45.0,
+                45.0,
                 1.0,
                 melee.Button.BUTTON_MAIN,
             ),
@@ -1511,7 +1511,7 @@ class TechniqueMontageTests(unittest.TestCase):
             (
                 "tilt_stick",
                 StickReferenceAxis.LEFT,
-                -45.0,
+                45.0,
                 1.0,
                 melee.Button.BUTTON_MAIN,
             ),

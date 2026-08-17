@@ -107,8 +107,10 @@ Or tilt one of the analog sticks by:
 
 Bots can express an absolute direction and radial strength with
 `melee.bot.stick_coordinates(reference_axis, angle_degrees, magnitude=...)`, or
-apply it with `SimpleControls.tilt_stick`. Angles rotate clockwise from the
-reference axis. `magnitude` is keyword-only, finite, and ranges from `0.0`
+apply it with `SimpleControls.tilt_stick`. Positive angles rotate
+counter-clockwise from the reference axis, following the conventional signed
+angle direction (`RIGHT=0°`, `UP=90°`, `LEFT=180°`, `DOWN=270°`). `magnitude`
+is keyword-only, finite, and ranges from `0.0`
 (neutral) through `1.0` (the unit circle in centered processed-stick space);
 omitting it preserves unit-magnitude behavior. The helper computes centered
 radial components with sine and cosine, then maps each component independently

@@ -142,7 +142,7 @@ def apply_wavedash_input(
 ) -> None:
     controls.release_all()
     if direction is WavedashDirection.Right:
-        controls.tilt_stick(StickReferenceAxis.RIGHT, angle_degrees)
+        controls.tilt_stick(StickReferenceAxis.RIGHT, -angle_degrees)
     else:
-        controls.tilt_stick(StickReferenceAxis.LEFT, -angle_degrees)
+        controls.tilt_stick(StickReferenceAxis.LEFT, angle_degrees)
     controls.press_button(dodge_button)

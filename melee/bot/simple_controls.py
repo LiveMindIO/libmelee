@@ -108,19 +108,22 @@ _SMASH_CHARGE_ACTIONS: Final = frozenset(
 
 
 class StickReferenceAxis(Enum):
-    """Absolute axis from which a signed stick angle is measured clockwise."""
+    """Conventional absolute axis from which a signed angle is measured.
 
-    UP = 0.0
-    RIGHT = 90.0
-    DOWN = 180.0
-    LEFT = 270.0
+    Right is 0 degrees and positive rotation is counter-clockwise.
+    """
+
+    UP = 90.0
+    RIGHT = 0.0
+    DOWN = 270.0
+    LEFT = 180.0
 
 
 _CARDINAL_STICK_COORDINATES: Final[dict[float, tuple[float, float]]] = {
-    0.0: (0.5, 1.0),
-    90.0: (1.0, 0.5),
-    180.0: (0.5, 0.0),
-    270.0: (0.0, 0.5),
+    0.0: (1.0, 0.5),
+    90.0: (0.5, 1.0),
+    180.0: (0.0, 0.5),
+    270.0: (0.5, 0.0),
 }
 
 
@@ -132,13 +135,14 @@ def stick_coordinates(
 ) -> tuple[float, float]:
     """Convert an angle and radial magnitude to processed-stick coordinates.
 
-    Positive angles rotate clockwise and negative angles counter-clockwise.
+    Positive angles rotate counter-clockwise and negative angles clockwise.
     Angles may have any finite magnitude and are reduced modulo 360 degrees.
-    For a clockwise angle from up, the centered components are ``magnitude *
-    sin(angle)`` and ``magnitude * cos(angle)``. An affine map from ``[-1, 1]``
-    to ``[0, 1]`` produces the desired processed-stick X and Y coordinates: the
-    position a caller wants :meth:`Console.step` to report. Thus a 45-degree
-    unit-magnitude request is approximately ``(0.8536, 0.8536)``, while
+    For a counter-clockwise angle from up, the centered components are
+    ``-magnitude * sin(angle)`` and ``magnitude * cos(angle)``. An affine map
+    from ``[-1, 1]`` to ``[0, 1]`` produces the desired processed-stick X and Y
+    coordinates: the position a caller wants :meth:`Console.step` to report.
+    Thus a 45-degree unit-magnitude request is approximately
+    ``(0.1464, 0.8536)``, while
     magnitude zero is neutral ``(0.5, 0.5)``.
 
     Pass the returned pair uncorrected to :meth:`Controller.tilt_analog` exactly
@@ -152,7 +156,7 @@ def stick_coordinates(
 
     Args:
         reference_axis: Absolute controller/screen axis at zero degrees.
-        angle_degrees: Signed clockwise rotation in degrees.
+        angle_degrees: Signed counter-clockwise rotation in degrees.
         magnitude: Requested radial magnitude from ``0.0`` through ``1.0``.
 
     Raises:
@@ -178,8 +182,8 @@ def stick_coordinates(
         )
 
     radians = math.radians(absolute_degrees)
-    x = 0.5 + magnitude * math.sin(radians) / 2.0
-    y = 0.5 + magnitude * math.cos(radians) / 2.0
+    x = 0.5 + magnitude * math.cos(radians) / 2.0
+    y = 0.5 + magnitude * math.sin(radians) / 2.0
     return min(1.0, max(0.0, x)), min(1.0, max(0.0, y))
 
 
@@ -428,8 +432,8 @@ class SimpleControls:
 
         Args:
             reference_axis: Absolute controller/screen axis at zero degrees.
-            angle_degrees: Signed rotation; positive is clockwise and negative
-                is counter-clockwise.
+            angle_degrees: Signed rotation; positive is counter-clockwise and
+                negative is clockwise.
             magnitude: Request-space radial magnitude from ``0.0`` through
                 ``1.0``.
             stick: :attr:`Button.BUTTON_MAIN` or :attr:`Button.BUTTON_C`.
