@@ -1284,6 +1284,15 @@ class Console:
         playerstate.stock = np.ndarray((1,), ">B", event_bytes, 0x21)[0]
         playerstate.action_frame = int(np.ndarray((1,), ">f", event_bytes, 0x22)[0])
 
+        # DESNOTE(jbarber, 2026-08-17): Hitlag freezes both fighters, but only the
+        # defender may SDI. Slippi exposes that distinction in state bit flags 2.
+        # See https://github.com/project-slippi/slippi-wiki/blob/master/SPEC.md#state-bit-flags-2
+        try:
+            sb2 = int(np.ndarray((1,), ">B", event_bytes, 0x27)[0])
+            playerstate.is_defender_in_hitlag = (sb2 & 0x10) == 0x10
+        except (TypeError, ValueError):
+            playerstate.is_defender_in_hitlag = False
+
         try:
             sb4 = int(np.ndarray((1,), ">B", event_bytes, 0x29)[0])
             playerstate.is_powershield = (sb4 & 0x20) == 0x20

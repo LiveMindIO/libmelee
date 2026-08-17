@@ -172,6 +172,8 @@ class PlayerState:
     """(float): The player's shield strength (max 60). Shield breaks at 0"""
     is_powershield: bool = False
     """(bool): Is the current action a Powershield? (not directly determinable via action states)"""
+    is_defender_in_hitlag: bool = False
+    """(bool): Whether this player is the defender, rather than attacker, in hitlag."""
     stock: int = 0
     """(int): The player's remaining stock count"""
     facing: bool = True

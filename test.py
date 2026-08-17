@@ -10,6 +10,7 @@ from melee.bot import (
     LedgedashMontage,
     MontageState,
     MultishineMontage,
+    SDIMontage,
     SimpleControls,
     StickReferenceAxis,
     WavedashDirection,
@@ -17,6 +18,49 @@ from melee.bot import (
     stick_coordinates,
 )
 from melee.controller import fix_analog_stick
+
+
+class PostFrameParsingTests(unittest.TestCase):
+    def setUp(self):
+        self.console = object.__new__(melee.Console)
+        self.console._current_stage = melee.Stage.FINAL_DESTINATION
+        self.console._is_teams = False
+        self.console._prev_gamestate = melee.GameState()
+        self.console._use_manual_bookends = False
+
+    def post_frame_payload(self):
+        payload = bytearray(0x6D)
+        payload[1:5] = (0).to_bytes(4, "big", signed=True)
+        payload[5] = 0
+        payload[7] = melee.Character.FOX.value
+        payload[8:10] = melee.Action.STANDING.value.to_bytes(2, "big")
+        return payload
+
+    def parse_post_frame(self, game_state, payload):
+        self.console._Console__post_frame(game_state, payload)
+
+    def test_defender_hitlag_flag_sets_and_clears_on_reused_player(self):
+        game_state = melee.GameState(frame=0)
+        payload = self.post_frame_payload()
+        payload[0x27] = 0x10
+
+        self.parse_post_frame(game_state, payload)
+        self.assertTrue(game_state.players[1].is_defender_in_hitlag)
+
+        payload[0x27] = 0
+        self.parse_post_frame(game_state, payload)
+        self.assertFalse(game_state.players[1].is_defender_in_hitlag)
+
+    def test_legacy_post_frame_resets_defender_hitlag_flag(self):
+        game_state = melee.GameState(
+            frame=0,
+            players={1: melee.PlayerState(is_defender_in_hitlag=True)},
+        )
+
+        self.parse_post_frame(game_state, self.post_frame_payload()[:0x27])
+
+        self.assertFalse(game_state.players[1].is_defender_in_hitlag)
+
 
 class SLPFile(unittest.TestCase):
     """
@@ -751,6 +795,9 @@ class TechniqueMontageTests(unittest.TestCase):
         speed_y_self=0.0,
         hitlag_left=0,
         hitstun_frames_left=0,
+        is_powershield=False,
+        is_defender_in_hitlag=False,
+        stock=4,
     ):
         game_state = melee.GameState(frame=self.frame)
         player = melee.PlayerState(
@@ -763,6 +810,9 @@ class TechniqueMontageTests(unittest.TestCase):
             speed_y_self=speed_y_self,
             hitlag_left=hitlag_left,
             hitstun_frames_left=hitstun_frames_left,
+            is_powershield=is_powershield,
+            is_defender_in_hitlag=is_defender_in_hitlag,
+            stock=stock,
         )
         player.position.x = position_x
         player.position.y = position_y
@@ -874,6 +924,323 @@ class TechniqueMontageTests(unittest.TestCase):
             ("press_button", melee.Button.BUTTON_Y),
             self.controls.take_calls(),
         )
+
+    def test_sdi_alternates_diagonals_then_uses_c_stick_asdi(self):
+        montage = SDIMontage(StickReferenceAxis.RIGHT)
+
+        for hitlag_left, expected_angle in ((4, 45.0), (3, -45.0), (2, 45.0)):
+            with self.subTest(hitlag_left=hitlag_left):
+                self.assertIs(
+                    self.tick(
+                        montage,
+                        melee.Action.DAMAGE_HIGH_1,
+                        hitlag_left=hitlag_left,
+                        hitstun_frames_left=8,
+                    ),
+                    montage,
+                )
+                self.assertEqual(
+                    self.controls.take_calls(),
+                    [
+                        ("release_all",),
+                        (
+                            "tilt_stick",
+                            StickReferenceAxis.RIGHT,
+                            expected_angle,
+                            1.0,
+                            melee.Button.BUTTON_MAIN,
+                        ),
+                    ],
+                )
+
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action.DAMAGE_HIGH_1,
+                hitlag_left=1,
+                hitstun_frames_left=8,
+            ),
+            montage,
+        )
+        self.assertEqual(
+            self.controls.take_calls(),
+            [
+                ("release_all",),
+                (
+                    "tilt_stick",
+                    StickReferenceAxis.RIGHT,
+                    0.0,
+                    1.0,
+                    melee.Button.BUTTON_C,
+                ),
+            ],
+        )
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action.DAMAGE_HIGH_1,
+                hitstun_frames_left=7,
+            ),
+            True,
+        )
+        self.assertEqual(self.controls.take_calls(), [("release_all",)])
+
+    def test_sdi_waits_during_attacker_hitlag(self):
+        montage = SDIMontage(StickReferenceAxis.LEFT)
+
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action.FSMASH_MID,
+                hitlag_left=4,
+                hitstun_frames_left=1,
+            ),
+            montage,
+        )
+        self.assertEqual(montage.get_montage_state(), MontageState.Waiting)
+        self.assertEqual(self.controls.take_calls(), [])
+
+    def test_sdi_starts_for_non_flinching_defender_hitlag(self):
+        montage = SDIMontage(StickReferenceAxis.RIGHT)
+
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action.STANDING,
+                hitlag_left=3,
+                is_defender_in_hitlag=True,
+            ),
+            montage,
+        )
+        self.assertEqual(montage.get_montage_state(), MontageState.Active)
+        self.assertIn(
+            (
+                "tilt_stick",
+                StickReferenceAxis.RIGHT,
+                45.0,
+                1.0,
+                melee.Button.BUTTON_MAIN,
+            ),
+            self.controls.take_calls(),
+        )
+
+    def test_sdi_starts_for_horizontal_shield_stun_without_hitstun(self):
+        montage = SDIMontage(StickReferenceAxis.RIGHT)
+
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action.SHIELD_STUN,
+                hitlag_left=2,
+            ),
+            montage,
+        )
+        self.assertEqual(montage.get_montage_state(), MontageState.Active)
+        self.assertIn(
+            (
+                "tilt_stick",
+                StickReferenceAxis.RIGHT,
+                0.0,
+                1.0,
+                melee.Button.BUTTON_MAIN,
+            ),
+            self.controls.take_calls(),
+        )
+
+    def test_sdi_starts_for_powershield_hitlag(self):
+        montage = SDIMontage(StickReferenceAxis.LEFT)
+
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action.SHIELD_REFLECT,
+                hitlag_left=2,
+                is_powershield=True,
+            ),
+            montage,
+        )
+        self.assertEqual(montage.get_montage_state(), MontageState.Active)
+        self.assertIn(
+            (
+                "tilt_stick",
+                StickReferenceAxis.LEFT,
+                0.0,
+                1.0,
+                melee.Button.BUTTON_MAIN,
+            ),
+            self.controls.take_calls(),
+        )
+
+    def test_sdi_shield_pulses_return_to_neutral(self):
+        montage = SDIMontage(StickReferenceAxis.LEFT)
+
+        expected_calls = (
+            [
+                ("release_all",),
+                (
+                    "tilt_stick",
+                    StickReferenceAxis.LEFT,
+                    0.0,
+                    1.0,
+                    melee.Button.BUTTON_MAIN,
+                ),
+            ],
+            [("release_all",)],
+            [
+                ("release_all",),
+                (
+                    "tilt_stick",
+                    StickReferenceAxis.LEFT,
+                    0.0,
+                    1.0,
+                    melee.Button.BUTTON_MAIN,
+                ),
+            ],
+        )
+        for hitlag_left, calls in zip((4, 3, 2), expected_calls):
+            with self.subTest(hitlag_left=hitlag_left):
+                self.assertIs(
+                    self.tick(
+                        montage,
+                        melee.Action.SHIELD_STUN,
+                        hitlag_left=hitlag_left,
+                    ),
+                    montage,
+                )
+                self.assertEqual(self.controls.take_calls(), calls)
+
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action.SHIELD_STUN,
+                hitlag_left=1,
+            ),
+            montage,
+        )
+        self.assertEqual(
+            self.controls.take_calls(),
+            [
+                ("release_all",),
+                (
+                    "tilt_stick",
+                    StickReferenceAxis.LEFT,
+                    0.0,
+                    1.0,
+                    melee.Button.BUTTON_MAIN,
+                ),
+            ],
+        )
+
+    def test_sdi_waits_for_vertical_shield_direction(self):
+        montage = SDIMontage(StickReferenceAxis.UP)
+
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action.SHIELD_STUN,
+                hitlag_left=3,
+            ),
+            False,
+        )
+        self.assertEqual(montage.get_montage_state(), MontageState.Aborted)
+        self.assertEqual(self.controls.take_calls(), [("release_all",)])
+
+    def test_sdi_can_start_on_final_hitlag_frame_for_asdi(self):
+        montage = SDIMontage(StickReferenceAxis.DOWN)
+
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action.DAMAGE_HIGH_1,
+                hitlag_left=1,
+                hitstun_frames_left=4,
+            ),
+            montage,
+        )
+        self.assertIn(
+            (
+                "tilt_stick",
+                StickReferenceAxis.DOWN,
+                0.0,
+                1.0,
+                melee.Button.BUTTON_C,
+            ),
+            self.controls.take_calls(),
+        )
+
+    def test_sdi_aborts_if_character_changes_during_hitlag(self):
+        montage = SDIMontage(StickReferenceAxis.RIGHT)
+        self.tick(
+            montage,
+            melee.Action.DAMAGE_HIGH_1,
+            character=melee.Character.ZELDA,
+            hitlag_left=3,
+            hitstun_frames_left=5,
+        )
+        self.controls.take_calls()
+
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action.DAMAGE_HIGH_1,
+                character=melee.Character.SHEIK,
+                hitlag_left=2,
+                hitstun_frames_left=5,
+            ),
+            False,
+        )
+        self.assertEqual(montage.get_montage_state(), MontageState.Aborted)
+        self.assertEqual(self.controls.take_calls(), [("release_all",)])
+
+    def test_sdi_aborts_if_stock_changes_during_hitlag(self):
+        montage = SDIMontage(StickReferenceAxis.RIGHT)
+        self.tick(
+            montage,
+            melee.Action.DAMAGE_HIGH_1,
+            hitlag_left=3,
+            hitstun_frames_left=5,
+            stock=4,
+        )
+        self.controls.take_calls()
+
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action.DAMAGE_HIGH_1,
+                hitlag_left=2,
+                hitstun_frames_left=5,
+                stock=3,
+            ),
+            False,
+        )
+        self.assertEqual(montage.get_montage_state(), MontageState.Aborted)
+        self.assertEqual(self.controls.take_calls(), [("release_all",)])
+
+    def test_sdi_aborts_if_player_dies_during_hitlag(self):
+        montage = SDIMontage(StickReferenceAxis.RIGHT)
+        self.tick(
+            montage,
+            melee.Action.DAMAGE_HIGH_1,
+            hitlag_left=3,
+            hitstun_frames_left=5,
+        )
+        self.controls.take_calls()
+
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action.DEAD_FLY,
+                hitlag_left=2,
+                hitstun_frames_left=5,
+            ),
+            False,
+        )
+        self.assertEqual(montage.get_montage_state(), MontageState.Aborted)
+        self.assertEqual(self.controls.take_calls(), [("release_all",)])
+
+    def test_sdi_validates_direction(self):
+        with self.assertRaisesRegex(ValueError, "StickReferenceAxis"):
+            SDIMontage("right")
 
     def test_wavedash_airdodges_on_final_fox_jump_squat_frame(self):
         montage = WavedashMontage(WavedashDirection.Right)

@@ -45,7 +45,7 @@ GROUND_MOVEMENT_ACTIONS: Final = frozenset(
     }
 )
 
-_DEAD_ACTIONS: Final = frozenset(
+DEAD_ACTIONS: Final = frozenset(
     {
         Action.DEAD_DOWN,
         Action.DEAD_LEFT,
@@ -110,7 +110,7 @@ def is_interrupted(
 ) -> bool:
     status = player_state.get_state()
     return (
-        player_state_value.action in _DEAD_ACTIONS
+        player_state_value.action in DEAD_ACTIONS
         or (include_hitlag and status is CharacterStatus.HitLag)
         or status
         in {

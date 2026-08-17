@@ -38,6 +38,10 @@ uv pip install --python .venv/bin/python .
   `MultishineMontage` is Fox-only and models one cycle. `WavedashMontage` uses the
   character-specific final jump-squat frame. `LedgedashMontage` uses C-stick-away
   release and world-space ECB-bottom clearance before its down-inward air dodge.
+  `SDIMontage` distinguishes victims from attackers, alternates diagonal main-stick
+  pulses during damage hitlag, uses target-neutral pulses for horizontal shield SDI,
+  queues cardinal C-stick ASDI as damage hitlag exits, and uses the main stick for
+  shield hitlag's final displacement.
 - The wavedash and ledgedash default angle is a conservative 45 degrees. The
   accepted shallow boundary is 17.1 degrees. Ledgedash's default ECB-bottom world-Y
   threshold is 0.25 for standard main-stage ledges and is intentionally configurable.

@@ -153,7 +153,7 @@ Montages are intentionally single-use and should model relatively short sequence
 such as a multishine cycle, charge cancel, or one link in a combo. An implementation
 may retain the match's shared `FrameData` when it needs framedata queries.
 
-Libmelee includes three concrete technique montages:
+Libmelee includes four concrete technique montages:
 
 - `MultishineMontage` performs one Fox multishine cycle using the same action
   sequence as the historical `techskill.multishine` helper and succeeds only when
@@ -168,6 +168,12 @@ Libmelee includes three concrete technique montages:
   ECB bottom clears a configurable threshold. The default `0.25` world-Y threshold
   follows the proven SmashBot standard-stage heuristic; override it for other
   geometry or character-specific routes.
+- `SDIMontage` identifies victims instead of reacting to attacker hitlag. During
+  damage hitlag it alternates full-stick diagonals around a requested cardinal for
+  one regular SDI pulse per frame. Horizontal shield SDI alternates the target
+  direction with neutral because shield displacement ignores the vertical axis.
+  Damage hitlag exits with cardinal C-stick ASDI without assuming trajectory DI;
+  shield hitlag exits with the horizontal main-stick input its callback reads.
 
 The execution model follows the technical descriptions in
 [SmashWiki's wavedash guide](https://www.ssbwiki.com/Wavedash),
