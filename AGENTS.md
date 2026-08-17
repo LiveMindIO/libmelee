@@ -38,7 +38,8 @@ uv pip install --python .venv/bin/python .
   `MultishineMontage` is Fox-only and models one cycle. `WavedashMontage` uses the
   character-specific final jump-squat frame and aborts if that state is missed.
   `LedgedashMontage` uses C-stick-away release and world-space ECB-bottom clearance
-  before its down-inward air dodge; confirmed jumps remain confirmed through apex.
+  before its down-inward air dodge; confirmed jumps remain confirmed through apex,
+  but landing or leaving neutral aerial movement before clearance aborts the route.
   `SDIMontage` excludes attacker and grab hitlag, alternates diagonal main-stick
   pulses during damage hitlag, ignores vertical shield windows, uses target-neutral
   pulses for horizontal shield SDI, queues cardinal C-stick ASDI as damage hitlag

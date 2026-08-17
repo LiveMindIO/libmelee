@@ -1765,5 +1765,57 @@ class TechniqueMontageTests(unittest.TestCase):
             retry,
         )
 
+    def test_ledgedash_aborts_nonviable_state_before_ecb_clearance(self):
+        for action, on_ground in (
+            (melee.Action.STANDING, True),
+            (melee.Action.NAIR, False),
+        ):
+            with self.subTest(action=action):
+                montage = LedgedashMontage()
+                ledge_state = {
+                    "on_ground": False,
+                    "off_stage": True,
+                    "position_x": 70.0,
+                }
+
+                self.tick(
+                    montage,
+                    melee.Action.EDGE_HANGING,
+                    jumps_left=1,
+                    **ledge_state,
+                )
+                self.controls.take_calls()
+                self.tick(
+                    montage,
+                    melee.Action.FALLING,
+                    jumps_left=1,
+                    **ledge_state,
+                )
+                self.controls.take_calls()
+                self.tick(
+                    montage,
+                    melee.Action.JUMPING_ARIAL_FORWARD,
+                    jumps_left=0,
+                    **ledge_state,
+                )
+                self.controls.take_calls()
+
+                self.assertIs(
+                    self.tick(
+                        montage,
+                        action,
+                        on_ground=on_ground,
+                        off_stage=not on_ground,
+                        jumps_left=0,
+                        position_x=70.0,
+                    ),
+                    False,
+                )
+                self.assertEqual(
+                    montage.get_montage_state(),
+                    MontageState.Aborted,
+                )
+                self.assertEqual(self.controls.take_calls(), [("release_all",)])
+
 if __name__ == '__main__':
     unittest.main()

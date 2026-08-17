@@ -37,6 +37,14 @@ _AERIAL_JUMP_ACTIONS: Final = frozenset(
         Action.JUMPING_ARIAL_BACKWARD,
     }
 )
+_RISING_ACTIONS: Final = _AERIAL_JUMP_ACTIONS | {
+    Action.FALLING,
+    Action.FALLING_FORWARD,
+    Action.FALLING_BACKWARD,
+    Action.FALLING_AERIAL,
+    Action.FALLING_AERIAL_FORWARD,
+    Action.FALLING_AERIAL_BACKWARD,
+}
 
 
 class LedgedashMontage(InputMontage):
@@ -139,6 +147,11 @@ class LedgedashMontage(InputMontage):
         player_state_value = player(player_state)
         if player_state_value is None or self._direction is None:
             controls.release_all()
+            return False
+        if self._phase is _LedgedashPhase.Rising and (
+            player_state_value.on_ground
+            or player_state_value.action not in _RISING_ACTIONS
+        ):
             return False
 
         controls.release_all()
