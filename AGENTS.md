@@ -49,9 +49,9 @@ uv pip install --python .venv/bin/python .
   attempt.
 - Concrete montages live in separate files under `melee/bot/techskill/`, with
   reused state and helpers in `melee/bot/techskill/common.py`.
-  The shipped Multishine, Wavedash, Ledgedash, SDI, and Perfect Pivot montages
-  model their mutable phases as typed `StatefulInputMontage` values and dispatch
-  phase transitions with structural pattern matching.
+  The shipped Multishine, Wavedash, Ledgedash, SDI, Perfect Pivot, and Smash Turn
+  Jump montages model their mutable phases as typed `StatefulInputMontage` values
+  and dispatch phase transitions with structural pattern matching.
   `MultishineMontage` is Fox-only and models one cycle. `WavedashMontage` uses the
   character-specific final jump-squat frame and aborts if that state is missed.
   `PerfectPivotMontage` requires an onstage grounded `DASHING` state, requests the
@@ -59,6 +59,11 @@ uv pip install --python .venv/bin/python .
   on the resulting one-frame `TURNING` state; a missed turn frame aborts. Use
   explicit `LSMASH` / `RSMASH` for horizontal pivot smashes, not facing-relative
   `FSMASH`, because facing has already reversed on that turn frame.
+  `SmashTurnJumpMontage` uses the same one-frame smash-turn pivot but jumps instead
+  of attacking, retaining dash momentum while reversing facing for aerial setups.
+  A smash turn jump and perfect pivot jump are the same technique.
+  It finishes after confirming `KNEE_BEND` and deliberately leaves X/Y held; the
+  caller or an `add_branch()` continuation owns short-hop/full-hop release timing.
   `LedgedashMontage` uses C-stick-away release and world-space ECB-bottom clearance
   before its down-inward air dodge; confirmed jumps remain confirmed through apex,
   but landing or leaving neutral aerial movement before clearance aborts the route.
@@ -86,9 +91,16 @@ uv pip install --python .venv/bin/python .
 - `CharacterState.can_jump()` and the module-level `can_jump()` allow actionable
   ground jumps and remaining aerial jumps. Every shield phase is jumpable for
   all characters except Yoshi, who cannot jump out of shield.
+- Short hops require releasing X/Y before `Action.KNEE_BEND` jump squat ends. For
+  `N` jump-squat frames, hold jump for at most `N - 1` committed game frames;
+  holding through the final frame produces a full hop. Controller input persists
+  until explicitly changed.
 - `CharacterState.forward_axis()` / `backward_axis()` map the bound player's
   facing to an absolute `StickReferenceAxis`; use them instead of duplicating
   left/right conditionals in bot inputs.
+- `SimpleControls.tilt_turn()` requests a half-strength backward input and reverses
+  facing on character-dependent turn frames 5-9. `smash_turn()` requests full
+  backward input and reverses facing on turn frame 1; holding it can start a dash.
 - `SimpleControls.down_left()` / `down_right()` / `up_left()` / `up_right()` /
   `left_up()` / `left_down()` / `right_up()` / `right_down()` tilt from the first
   named cardinal toward the second. Their angle is inclusive from 0 through 90

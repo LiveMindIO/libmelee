@@ -152,6 +152,19 @@ actionable ground jumps and remaining aerial jumps. It returns `True` throughout
 shield start, hold, reflect, stun, and release for every character except Yoshi,
 whose shield cannot be jumped out of.
 
+For a short hop, press X or Y and release it before the character's
+`Action.KNEE_BEND` jump-squat animation ends. A character with `N` jump-squat
+frames has an `N - 1` frame short-hop hold window. Holding jump through the final
+jump-squat frame produces a full hop. Controller input persists until explicitly
+changed, and pending input is committed on the next `Console.step()`, so count
+committed game frames when scheduling the release.
+
+`SimpleControls.tilt_turn()` requests a half-strength backward main-stick input;
+Melee reverses facing on character-dependent turn frames 5 through 9.
+`SimpleControls.smash_turn()` requests full backward input, reversing facing on
+turn frame 1 and starting a dash if held. Neither helper flushes or clears other
+pending inputs.
+
 ### Input Montages
 
 `melee.bot.InputMontage` is the base class for short-lived controller sequences
@@ -174,7 +187,7 @@ Montages are intentionally single-use and should model relatively short sequence
 such as a multishine cycle, charge cancel, or one link in a combo. An implementation
 may retain the match's shared `FrameData` when it needs framedata queries.
 
-Libmelee includes four concrete technique montages:
+Libmelee includes concrete technique montages:
 
 - `MultishineMontage` performs one Fox multishine cycle using the same action
   sequence as the historical `techskill.multishine` helper and succeeds only when
@@ -199,6 +212,14 @@ Libmelee includes four concrete technique montages:
   vertical requests ignore shield windows and remain waiting for damage hitlag.
   Damage hitlag exits with cardinal C-stick ASDI without assuming trajectory DI;
   shield hitlag exits with the horizontal main-stick input its callback reads.
+- `PerfectPivotMontage` smash turns out of a grounded initial dash and attacks on
+  the resulting one-frame turn state.
+- `SmashTurnJumpMontage` uses the same pivot but jumps, retaining dash momentum
+  while reversing facing for movement such as back-air setups. It finishes after
+  confirming jump squat with its jump button still held. The caller or an
+  `add_branch()` continuation must hold or release that button for the intended
+  short-hop or full-hop timing. "Smash turn jump" and "perfect pivot jump" are
+  two names for this same technique.
 
 The execution model follows the technical descriptions in
 [SmashWiki's wavedash guide](https://www.ssbwiki.com/Wavedash),

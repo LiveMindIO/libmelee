@@ -16,6 +16,7 @@ from melee.bot import (
     PerfectPivotMontage,
     SDIMontage,
     SimpleControls,
+    SmashTurnJumpMontage,
     StatefulInputMontage,
     StickReferenceAxis,
     WavedashDirection,
@@ -641,6 +642,29 @@ class SimpleControlsInputTests(unittest.TestCase):
         self.assertIs(character_state.forward_axis(), StickReferenceAxis.RIGHT)
         self.assertIs(character_state.backward_axis(), StickReferenceAxis.LEFT)
 
+    def test_turn_helpers_request_weak_and_full_backward_inputs(self) -> None:
+        for facing, tilt_coordinates, smash_coordinates in (
+            (True, (0.25, 0.5), (0.0, 0.5)),
+            (False, (0.75, 0.5), (1.0, 0.5)),
+        ):
+            with self.subTest(facing=facing):
+                player = melee.PlayerState(facing=facing)
+                controls, controller = self.controls(player)
+                controller.buttons.add(melee.Button.BUTTON_A)
+                controller.c_stick = (0.0, 1.0)
+
+                controls.tilt_turn()
+
+                self.assertEqual(controller.main_stick, tilt_coordinates)
+                self.assertEqual(controller.c_stick, (0.0, 1.0))
+                self.assertEqual(controller.buttons, {melee.Button.BUTTON_A})
+
+                controls.smash_turn()
+
+                self.assertEqual(controller.main_stick, smash_coordinates)
+                self.assertEqual(controller.c_stick, (0.0, 1.0))
+                self.assertEqual(controller.buttons, {melee.Button.BUTTON_A})
+
     def test_directional_stick_helpers_rotate_toward_named_axis(self) -> None:
         cases = (
             ("down_left", StickReferenceAxis.DOWN, -1.0),
@@ -1231,6 +1255,9 @@ class RecordingTechniqueControls:
         self.calls.append(("attack", attack_type, hold))
         return self.attack_result
 
+    def smash_turn(self):
+        self.calls.append(("smash_turn",))
+
     def tilt_stick(
         self,
         reference_axis,
@@ -1271,6 +1298,7 @@ class TechniqueMontageTests(unittest.TestCase):
             LedgedashMontage(),
             SDIMontage(StickReferenceAxis.RIGHT),
             PerfectPivotMontage(AttackType.JAB),
+            SmashTurnJumpMontage(),
         )
 
         for montage in montages:
@@ -1358,10 +1386,7 @@ class TechniqueMontageTests(unittest.TestCase):
     def test_perfect_pivot_reverses_attacks_then_releases_for_each_facing_direction(
         self,
     ):
-        for facing, reverse in (
-            (True, StickReferenceAxis.LEFT),
-            (False, StickReferenceAxis.RIGHT),
-        ):
+        for facing in (True, False):
             with self.subTest(facing=facing):
                 montage = PerfectPivotMontage(AttackType.LSMASH)
 
@@ -1373,13 +1398,7 @@ class TechniqueMontageTests(unittest.TestCase):
                     self.controls.take_calls(),
                     [
                         ("release_all",),
-                        (
-                            "tilt_stick",
-                            reverse,
-                            0.0,
-                            1.0,
-                            melee.Button.BUTTON_MAIN,
-                        ),
+                        ("smash_turn",),
                     ],
                 )
 
@@ -1481,6 +1500,116 @@ class TechniqueMontageTests(unittest.TestCase):
     def test_perfect_pivot_validates_attack_type(self):
         with self.assertRaisesRegex(ValueError, "attack_type must be an AttackType"):
             PerfectPivotMontage("jab")
+
+    def test_smash_turn_jump_reverses_then_finishes_with_jump_held(self):
+        for jump_button in (melee.Button.BUTTON_X, melee.Button.BUTTON_Y):
+            with self.subTest(jump_button=jump_button):
+                montage = SmashTurnJumpMontage(jump_button=jump_button)
+
+                self.assertIs(
+                    self.tick(montage, melee.Action.DASHING),
+                    montage,
+                )
+                self.assertEqual(
+                    self.controls.take_calls(),
+                    [("release_all",), ("smash_turn",)],
+                )
+
+                self.assertIs(
+                    self.tick(montage, melee.Action.TURNING, facing=False),
+                    montage,
+                )
+                self.assertEqual(
+                    self.controls.take_calls(),
+                    [("release_all",), ("press_button", jump_button)],
+                )
+
+                self.assertIs(
+                    self.tick(
+                        montage,
+                        melee.Action.KNEE_BEND,
+                        facing=False,
+                        on_ground=True,
+                    ),
+                    True,
+                )
+                self.assertEqual(self.controls.take_calls(), [])
+                self.assertEqual(montage.get_montage_state(), MontageState.Finished)
+
+    def test_smash_turn_jump_hands_held_jump_to_branch_without_ticking_it(self):
+        branch = RecordingMontage(results=(True,))
+        montage = SmashTurnJumpMontage().add_branch(branch)
+        self.tick(montage, melee.Action.DASHING)
+        self.controls.take_calls()
+        self.tick(montage, melee.Action.TURNING, facing=False)
+        self.controls.take_calls()
+
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action.KNEE_BEND,
+                facing=False,
+                on_ground=True,
+            ),
+            branch,
+        )
+        self.assertEqual(self.controls.take_calls(), [])
+        self.assertEqual(montage.get_montage_state(), MontageState.Finished)
+        self.assertEqual(branch.get_montage_state(), MontageState.Active)
+        self.assertEqual(branch.on_tick_calls, 0)
+
+    def test_smash_turn_jump_aborts_when_jump_squat_does_not_start(self):
+        montage = SmashTurnJumpMontage()
+        self.tick(montage, melee.Action.DASHING)
+        self.controls.take_calls()
+        self.tick(montage, melee.Action.TURNING, facing=False)
+        self.controls.take_calls()
+
+        self.assertIs(
+            self.tick(montage, melee.Action.STANDING, facing=False),
+            False,
+        )
+        self.assertEqual(montage.get_montage_state(), MontageState.Aborted)
+        self.assertEqual(self.controls.take_calls(), [("release_all",)])
+
+    def test_smash_turn_jump_requires_a_grounded_onstage_dash(self):
+        for action, on_ground, off_stage in (
+            (melee.Action.STANDING, True, False),
+            (melee.Action.RUNNING, True, False),
+            (melee.Action.DASHING, False, False),
+            (melee.Action.DASHING, True, True),
+        ):
+            with self.subTest(action=action, on_ground=on_ground, off_stage=off_stage):
+                montage = SmashTurnJumpMontage()
+
+                self.assertIs(
+                    self.tick(
+                        montage,
+                        action,
+                        on_ground=on_ground,
+                        off_stage=off_stage,
+                    ),
+                    montage,
+                )
+                self.assertEqual(montage.get_montage_state(), MontageState.Waiting)
+                self.assertEqual(self.controls.take_calls(), [])
+
+    def test_smash_turn_jump_aborts_when_turn_frame_is_missed(self):
+        montage = SmashTurnJumpMontage()
+        self.tick(montage, melee.Action.DASHING)
+        self.controls.take_calls()
+
+        self.assertIs(self.tick(montage, melee.Action.DASHING), False)
+        self.assertEqual(montage.get_montage_state(), MontageState.Aborted)
+        self.assertEqual(self.controls.take_calls(), [("release_all",)])
+
+    def test_smash_turn_jump_validates_jump_button(self):
+        for jump_button in (melee.Button.BUTTON_A, melee.Button.BUTTON_L):
+            with self.subTest(jump_button=jump_button), self.assertRaisesRegex(
+                ValueError,
+                "jump_button",
+            ):
+                SmashTurnJumpMontage(jump_button=jump_button)
 
     def test_multishine_completes_after_second_shine_starts(self):
         montage = MultishineMontage()

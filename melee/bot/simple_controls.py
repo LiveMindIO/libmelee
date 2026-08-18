@@ -97,6 +97,7 @@ _INPUT_COMMIT_FRAMES: Final = 12
 _SMASH_MAX_CHARGE_FRAMES: Final = 60
 _NEUTRAL_B_MAX_CHARGE_FRAMES: Final = 120
 _AERIAL_COMMIT_FRAMES: Final = 8
+_TILT_TURN_MAGNITUDE: Final = 0.5
 _DIGITAL_BUTTONS: Final = frozenset(Button) - {
     Button.BUTTON_MAIN,
     Button.BUTTON_C,
@@ -450,6 +451,27 @@ class SimpleControls:
             magnitude=magnitude,
         )
         self._controller.tilt_analog(stick, x, y)
+
+    def tilt_turn(self) -> None:
+        """Request a weak backward input that turns the character around.
+
+        A tilt turn reverses facing on character-dependent turn frames 5 through
+        9. The half-strength input stays safely inside Melee's tilt-turn range.
+        Existing pending buttons and C-stick input are preserved.
+        """
+        self.tilt_stick(
+            self._character_state.backward_axis(),
+            0.0,
+            magnitude=_TILT_TURN_MAGNITUDE,
+        )
+
+    def smash_turn(self) -> None:
+        """Request a full backward input that turns the character around.
+
+        A smash turn reverses facing on the first turn frame and can become a
+        dash if held. Existing pending buttons and C-stick input are preserved.
+        """
+        self.tilt_stick(self._character_state.backward_axis(), 0.0)
 
     def down_left(self, angle_degrees: float, *, magnitude: float = 1.0, stick: Button = Button.BUTTON_MAIN) -> None:
         """Tilt from down toward left by an angle from 0 through 90 degrees."""

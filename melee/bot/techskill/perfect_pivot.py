@@ -119,7 +119,7 @@ class PerfectPivotMontage(StatefulInputMontage[_PerfectPivotPhase]):
                 # See https://www.youtube.com/watch?v=GV2yx9I9IN4 and
                 # https://github.com/doldecomp/melee/blob/master/src/melee/ft/chara/ftCommon/ftCo_Turn.c
                 controls.release_all()
-                controls.tilt_stick(player_state.backward_axis(), 0.0)
+                controls.smash_turn()
                 return _PerfectPivotPhase.TurnRequested, self
             case _PerfectPivotPhase.TurnRequested, Action.TURNING:
                 if controls.attack(self._attack_type) is None:

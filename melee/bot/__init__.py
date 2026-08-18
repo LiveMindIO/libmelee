@@ -58,6 +58,7 @@ from melee.bot.techskill import (
     MultishineMontage,
     PerfectPivotMontage,
     SDIMontage,
+    SmashTurnJumpMontage,
     WavedashDirection,
     WavedashMontage,
 )
@@ -86,6 +87,7 @@ __all__ = [
     "PlayerMatchRecord",
     "SDIMontage",
     "SimpleControls",
+    "SmashTurnJumpMontage",
     "StatefulInputMontage",
     "StickReferenceAxis",
     "WavedashDirection",
