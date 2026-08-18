@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Callable, TypeVar
+from collections.abc import Callable
+from typing import TYPE_CHECKING, TypeVar
 
 from melee.bot.input_montage import InputMontage
 from melee.bot.stateful_input_montage import StatefulInputMontage

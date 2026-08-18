@@ -14,7 +14,6 @@ from melee.bot.techskill.common import DEAD_ACTIONS, player
 from melee.enums import Action, Button, Character
 from melee.gamestate import GameState, PlayerState, UnknownAnimation
 
-
 _SDI_PULSE_ANGLE_DEGREES: Final = 45.0
 _SHIELD_ACTIONS: Final = frozenset(
     {
@@ -25,9 +24,7 @@ _SHIELD_ACTIONS: Final = frozenset(
         Action.SHIELD_REFLECT,
     }
 )
-_HORIZONTAL_DIRECTIONS: Final = frozenset(
-    {StickReferenceAxis.LEFT, StickReferenceAxis.RIGHT}
-)
+_HORIZONTAL_DIRECTIONS: Final = frozenset({StickReferenceAxis.LEFT, StickReferenceAxis.RIGHT})
 
 
 class _SDIKind(Enum):
@@ -42,9 +39,7 @@ class _SDIState:
 
 
 def _is_damage_action(action: Action | UnknownAnimation) -> bool:
-    return isinstance(action, Action) and (
-        Action.DAMAGE_HIGH_1.value <= action.value <= Action.DAMAGE_FLY_ROLL.value
-    )
+    return isinstance(action, Action) and (Action.DAMAGE_HIGH_1.value <= action.value <= Action.DAMAGE_FLY_ROLL.value)
 
 
 def _sdi_kind(player_state: PlayerState) -> _SDIKind | None:
@@ -104,10 +99,7 @@ class SDIMontage(StatefulInputMontage[_SDIState]):
             or player_state_value.hitlag_left <= 0
             or kind is None
             or player_state.is_grabbed()
-            or (
-                kind is _SDIKind.Shield
-                and self._direction not in _HORIZONTAL_DIRECTIONS
-            )
+            or (kind is _SDIKind.Shield and self._direction not in _HORIZONTAL_DIRECTIONS)
         ):
             return False
         self._character = player_state_value.character
@@ -160,10 +152,7 @@ class SDIMontage(StatefulInputMontage[_SDIState]):
         # See https://github.com/doldecomp/melee/blob/master/src/melee/ft/chara/ftCommon/ftCo_Damage.c#L573-L669
         if player_state_value.hitlag_left > 1:
             match self._kind, input_state:
-                case _SDIKind.Shield, _SDIState(
-                    positive_pulse=positive_pulse,
-                    shield_pulse=shield_pulse,
-                ):
+                case _SDIKind.Shield, _SDIState(positive_pulse, shield_pulse):
                     if shield_pulse:
                         controls.tilt_stick(self._direction, 0.0)
                     return (
@@ -173,15 +162,8 @@ class SDIMontage(StatefulInputMontage[_SDIState]):
                         ),
                         self,
                     )
-                case _, _SDIState(
-                    positive_pulse=positive_pulse,
-                    shield_pulse=shield_pulse,
-                ):
-                    pulse_angle = (
-                        _SDI_PULSE_ANGLE_DEGREES
-                        if positive_pulse
-                        else -_SDI_PULSE_ANGLE_DEGREES
-                    )
+                case _, _SDIState(positive_pulse, shield_pulse):
+                    pulse_angle = _SDI_PULSE_ANGLE_DEGREES if positive_pulse else -_SDI_PULSE_ANGLE_DEGREES
                     controls.tilt_stick(self._direction, pulse_angle)
                     return (
                         _SDIState(

@@ -105,39 +105,32 @@ class MultishineMontage(StatefulInputMontage[_MultishinePhase]):
             controls.release_all()
             return input_state, False
 
-        match input_state:
-            case _MultishinePhase.FirstShineRequested:
+        match input_state, player_state_value.action:
+            case _MultishinePhase.FirstShineRequested, _:
                 _apply_down_input(controls, Button.BUTTON_B)
                 return _MultishinePhase.JumpRequested, self
-            case _MultishinePhase.JumpRequested:
+            case _MultishinePhase.JumpRequested, action if action in SHINE_ACTIONS:
                 controls.release_all()
-                if player_state_value.action in SHINE_ACTIONS:
-                    can_jump_cancel = (
-                        player_state_value.action is Action.DOWN_B_GROUND
-                        or player_state_value.action_frame >= 4
-                    )
-                    if can_jump_cancel and player_state_value.on_ground:
-                        controls.press_button(self._jump_button)
+                can_jump_cancel = action is Action.DOWN_B_GROUND or player_state_value.action_frame >= 4
+                if can_jump_cancel and player_state_value.on_ground:
+                    controls.press_button(self._jump_button)
+                return input_state, self
+            case _MultishinePhase.JumpRequested, Action.KNEE_BEND:
+                controls.release_all()
+                if player_state_value.action_frame < JUMP_SQUAT_FRAMES[Character.FOX]:
                     return input_state, self
-                if player_state_value.action is Action.KNEE_BEND:
-                    if (
-                        player_state_value.action_frame
-                        < JUMP_SQUAT_FRAMES[Character.FOX]
-                    ):
-                        return input_state, self
-                    if (
-                        player_state_value.action_frame
-                        == JUMP_SQUAT_FRAMES[Character.FOX]
-                    ):
-                        _apply_down_input(controls, Button.BUTTON_B)
-                        return _MultishinePhase.SecondShineRequested, self
+                if player_state_value.action_frame == JUMP_SQUAT_FRAMES[Character.FOX]:
+                    _apply_down_input(controls, Button.BUTTON_B)
+                    return _MultishinePhase.SecondShineRequested, self
                 return input_state, False
-            case _MultishinePhase.SecondShineRequested:
+            case _MultishinePhase.SecondShineRequested, action if action in SHINE_ACTIONS:
                 controls.release_all()
-                if player_state_value.action in SHINE_ACTIONS:
-                    return input_state, True
-                if player_state_value.action is Action.KNEE_BEND:
-                    return input_state, self
+                return input_state, True
+            case _MultishinePhase.SecondShineRequested, Action.KNEE_BEND:
+                controls.release_all()
+                return input_state, self
+            case _:
+                controls.release_all()
                 return input_state, False
 
 

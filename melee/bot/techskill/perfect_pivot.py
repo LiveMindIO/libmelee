@@ -104,17 +104,16 @@ class PerfectPivotMontage(StatefulInputMontage[_PerfectPivotPhase]):
         input_state: _PerfectPivotPhase,
     ) -> tuple[_PerfectPivotPhase, InputMontage | bool]:
         del opponent_state, state
-        player_state_value = player(player_state)
-        match input_state:
-            case _PerfectPivotPhase.AttackRequested:
-                controls.release_all()
-                return input_state, True
-            case _PerfectPivotPhase.Initial:
-                if player_state_value is None or self._initial_facing is None:
-                    return input_state, False
-                if player_state_value.action is not Action.DASHING:
-                    return input_state, False
+        if input_state is _PerfectPivotPhase.AttackRequested:
+            controls.release_all()
+            return input_state, True
 
+        player_state_value = player(player_state)
+        if player_state_value is None or self._initial_facing is None:
+            return input_state, False
+
+        match input_state, player_state_value.action:
+            case _PerfectPivotPhase.Initial, Action.DASHING:
                 # DESNOTE(jbarber, 2026-08-18): Controller input is committed on the
                 # next Console.step, so reverse during DASHING and attack only after
                 # TURNING is observable. Melee's smash turn makes that stand-like
@@ -122,21 +121,15 @@ class PerfectPivotMontage(StatefulInputMontage[_PerfectPivotPhase]):
                 # See https://www.youtube.com/watch?v=GV2yx9I9IN4 and
                 # https://github.com/doldecomp/melee/blob/master/src/melee/ft/chara/ftCommon/ftCo_Turn.c
                 controls.release_all()
-                reverse = (
-                    StickReferenceAxis.LEFT
-                    if self._initial_facing
-                    else StickReferenceAxis.RIGHT
-                )
+                reverse = StickReferenceAxis.LEFT if self._initial_facing else StickReferenceAxis.RIGHT
                 controls.tilt_stick(reverse, 0.0)
                 return _PerfectPivotPhase.TurnRequested, self
-            case _PerfectPivotPhase.TurnRequested:
-                if player_state_value is None:
-                    return input_state, False
-                if player_state_value.action is not Action.TURNING:
-                    return input_state, False
+            case _PerfectPivotPhase.TurnRequested, Action.TURNING:
                 if controls.attack(self._attack_type) is None:
                     return input_state, False
                 return _PerfectPivotPhase.AttackRequested, self
+            case _:
+                return input_state, False
 
 
 __all__ = ["PerfectPivotMontage"]
