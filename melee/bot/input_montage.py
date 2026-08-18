@@ -33,9 +33,9 @@ class InputMontage(ABC):
     means it reached a terminal unsuccessful state.
 
     Use :meth:`add_branch` to choose a follow-up from the current game state.
-    Successful segments immediately tick the first eligible branch and remain
-    active until a terminal branch succeeds. If no configured branch can start,
-    the selected path aborts.
+    A successful montage becomes finished, then returns the first eligible
+    branch for the caller to advance on the next game tick. If no configured
+    branch can start, the montage aborts.
 
     ``frame_limit`` counts calls to :meth:`on_tick`, not time spent waiting for
     :meth:`can_start`. The limit is a safety boundary; implementations should
@@ -55,8 +55,6 @@ class InputMontage(ABC):
         self._cancel_montage = cancel_montage
         self._montage_state = MontageState.Waiting
         self._branches: list[InputMontage] = []
-        self._active_branch: InputMontage | None = None
-        self._branch_parent: InputMontage | None = None
 
     def add_branch(self, montage: InputMontage) -> None:
         """Append a possible follow-up montage.
@@ -82,11 +80,10 @@ class InputMontage(ABC):
         opponent_state: CharacterState,
         state: GameState,
     ) -> InputMontage | bool:
-        """Advance this montage's selected path for the current input frame.
+        """Advance this montage by at most one active input frame.
 
         Waiting and active montages return a montage for the caller to retain.
-        A segment that succeeds may select and tick an eligible branch during
-        the same call.
+        A montage that succeeds may return an eligible branch for the next call.
         Terminal montages always return ``False`` on later calls and cannot be
         restarted.
         """
@@ -95,14 +92,6 @@ class InputMontage(ABC):
             MontageState.Active,
         }:
             return False
-
-        if self._active_branch is not None:
-            return self._tick_active_branch(
-                controls,
-                player_state,
-                opponent_state,
-                state,
-            )
 
         if self._montage_state is MontageState.Waiting:
             if not self.can_start(
@@ -116,7 +105,7 @@ class InputMontage(ABC):
 
         if self._frame_count >= self._frame_limit:
             controls.release_all()
-            self._set_terminal_state(MontageState.TimedOut)
+            self._montage_state = MontageState.TimedOut
             return False
 
         if self.should_abort(
@@ -126,7 +115,7 @@ class InputMontage(ABC):
             state,
         ):
             controls.release_all()
-            self._set_terminal_state(MontageState.Aborted)
+            self._montage_state = MontageState.Aborted
             return False
 
         result = self.on_tick(
@@ -146,11 +135,11 @@ class InputMontage(ABC):
             )
         if result is False:
             controls.release_all()
-            self._set_terminal_state(MontageState.Aborted)
+            self._montage_state = MontageState.Aborted
             return False
         if not isinstance(result, InputMontage):
             controls.release_all()
-            self._set_terminal_state(MontageState.Aborted)
+            self._montage_state = MontageState.Aborted
             raise TypeError("on_tick must return an InputMontage or bool")
         if result is not self:
             self._montage_state = MontageState.Finished
@@ -163,8 +152,8 @@ class InputMontage(ABC):
         opponent_state: CharacterState,
         state: GameState,
     ) -> InputMontage | bool:
+        self._montage_state = MontageState.Finished
         if not self._branches:
-            self._set_terminal_state(MontageState.Finished)
             return True
 
         for branch in self._branches:
@@ -179,55 +168,11 @@ class InputMontage(ABC):
                 continue
 
             branch._montage_state = MontageState.Active
-            branch._branch_parent = self
-            self._active_branch = branch
-            return self._tick_active_branch(
-                controls,
-                player_state,
-                opponent_state,
-                state,
-            )
+            return branch
 
         controls.release_all()
-        self._set_terminal_state(MontageState.Aborted)
+        self._montage_state = MontageState.Aborted
         return False
-
-    def _tick_active_branch(
-        self,
-        controls: SimpleControls,
-        player_state: CharacterState,
-        opponent_state: CharacterState,
-        state: GameState,
-    ) -> InputMontage | bool:
-        branch = self._active_branch
-        if branch is None:
-            raise RuntimeError("active branch is missing")
-
-        result = branch.tick(
-            controls,
-            player_state,
-            opponent_state,
-            state,
-        )
-        if result is True and self._montage_state is MontageState.Active:
-            self._set_terminal_state(MontageState.Finished)
-        elif result is False and self._montage_state is MontageState.Active:
-            self._set_terminal_state(MontageState.Aborted)
-        return result
-
-    def _set_terminal_state(self, state: MontageState) -> None:
-        self._montage_state = state
-        child = self
-        parent = self._branch_parent
-        while parent is not None and parent._active_branch is child:
-            if state is MontageState.Finished:
-                parent._montage_state = MontageState.Finished
-            elif state is MontageState.Cancelled:
-                parent._montage_state = MontageState.Cancelled
-            else:
-                parent._montage_state = MontageState.Aborted
-            child = parent
-            parent = parent._branch_parent
 
     def cancel(
         self,
@@ -247,7 +192,7 @@ class InputMontage(ABC):
             return None
 
         controls.release_all()
-        self._set_terminal_state(MontageState.Cancelled)
+        self._montage_state = MontageState.Cancelled
         return self._cancel_montage
 
     @abstractmethod
