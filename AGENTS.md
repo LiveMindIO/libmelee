@@ -24,9 +24,12 @@ uv pip install --python .venv/bin/python .
 - `melee.bot.InputMontage` instances are single-use, short-lived input sequences.
 - Waiting does not consume `frame_limit`; each active `on_tick` call consumes one
   frame, and exactly `frame_limit` active calls are allowed.
-- Returning another montage marks the current node `Finished` but does not tick the
-  follow-up automatically. The bot owns the returned montage and advances it on the
-  next game tick.
+- Returning another montage directly from `on_tick()` marks the current node
+  `Finished` but does not tick that external handoff automatically.
+- `add_branch()` appends possible continuations in priority order. When a segment
+  succeeds, the first branch whose `can_start()` returns true is selected and ticked
+  immediately. Every ancestor remains `Active` until a terminal branch succeeds;
+  if no configured branch can start or the selected path fails, the path aborts.
 - `False` and `should_abort()` use `Aborted`; exhausting the safety limit uses
   `TimedOut`; cancelling an active montage uses `Cancelled` and may return a
   configured fallback montage. Timeout, abort, explicit failure, malformed return,
