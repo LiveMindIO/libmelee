@@ -26,10 +26,11 @@ uv pip install --python .venv/bin/python .
   frame, and exactly `frame_limit` active calls are allowed.
 - Returning another montage directly from `on_tick()` marks the current node
   `Finished` but does not tick that external handoff automatically.
-- `add_branch()` appends possible continuations in priority order. When a segment
-  succeeds, it becomes `Finished` and returns the first branch whose `can_start()`
-  returns true. The selected branch starts on the caller's next tick. If branches
-  are configured but none can start, the completed segment aborts instead.
+- `add_branch()` appends possible continuations in priority order and returns `self`
+  so branch declarations can be chained. When a segment succeeds, it becomes
+  `Finished` and returns the first branch whose `can_start()` returns true. The
+  selected branch starts on the caller's next tick. If branches are configured but
+  none can start, the completed segment aborts instead.
 - `False` and `should_abort()` use `Aborted`; exhausting the safety limit uses
   `TimedOut`; cancelling an active montage uses `Cancelled` and may return a
   configured fallback montage. Timeout, abort, explicit failure, malformed return,

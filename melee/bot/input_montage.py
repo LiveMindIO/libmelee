@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from enum import Enum, auto
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Self
 
 if TYPE_CHECKING:
     from melee.bot.character_state import CharacterState
@@ -56,8 +56,8 @@ class InputMontage(ABC):
         self._montage_state = MontageState.Waiting
         self._branches: list[InputMontage] = []
 
-    def add_branch(self, montage: InputMontage) -> None:
-        """Append a possible follow-up montage.
+    def add_branch(self, montage: InputMontage) -> Self:
+        """Append a possible follow-up montage and return this montage.
 
         Branches are considered in insertion order after this montage's own
         segment succeeds. The first waiting branch whose :meth:`can_start`
@@ -68,6 +68,7 @@ class InputMontage(ABC):
         if montage is self:
             raise ValueError("a montage cannot branch to itself")
         self._branches.append(montage)
+        return self
 
     def get_montage_state(self) -> MontageState:
         """Return this montage's current lifecycle state."""

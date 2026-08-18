@@ -884,9 +884,12 @@ class InputMontageTests(unittest.TestCase):
         selected = RecordingMontage(results=(True,))
         ignored = RecordingMontage(results=(True,))
         montage = RecordingMontage(results=(True,))
-        montage.add_branch(unavailable)
-        montage.add_branch(selected)
-        montage.add_branch(ignored)
+        self.assertIs(
+            montage.add_branch(unavailable)
+            .add_branch(selected)
+            .add_branch(ignored),
+            montage,
+        )
 
         self.assertIs(self.tick(montage), selected)
         self.assertEqual(unavailable.can_start_calls, 1)
