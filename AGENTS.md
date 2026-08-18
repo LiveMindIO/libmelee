@@ -54,6 +54,9 @@ uv pip install --python .venv/bin/python .
   and dispatch phase transitions with structural pattern matching.
   `MultishineMontage` is Fox-only and performs a configurable `shine_count` of at
   least two consecutive shines; its default frame limit scales with that count.
+  Later shines begin as `Action.DOWN_B_AIR` after the jump-cancel, then become a
+  grounded shine on landing. Keep the aerial action in the shared shine states;
+  treating it as an interruption aborts immediately after the second shine.
   `WavedashMontage` uses the
   character-specific final jump-squat frame and aborts if that state is missed.
   `PerfectPivotMontage` requires an onstage grounded `DASHING` state, requests the

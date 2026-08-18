@@ -23,6 +23,7 @@ SHINE_ACTIONS: Final = frozenset(
         Action.DOWN_B_GROUND,
         Action.SHINE_TURN,
         Action.DOWN_B_STUN,
+        Action.DOWN_B_AIR,
     }
 )
 GROUND_MOVEMENT_ACTIONS: Final = frozenset(
