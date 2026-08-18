@@ -42,7 +42,7 @@ class WavedashMontage(StatefulInputMontage[_WavedashPhase]):
     """Jump, air dodge down-diagonally, and finish when grounded actionable.
 
     The air dodge is requested on the character's final jump-squat frame. The
-    default 45-degree angle favors reliability; 17.1 degrees is the researched
+    Callers choose the air-dodge angle explicitly; 16.84 degrees is the ideal
     maximum-distance boundary. Boundary requests and one-ULP roundoff are clamped
     to a representable float strictly inside the accepted interval.
     """
@@ -53,7 +53,7 @@ class WavedashMontage(StatefulInputMontage[_WavedashPhase]):
         frame_limit: int = 40,
         cancel_montage: InputMontage | None = None,
         *,
-        angle_degrees: float = 45.0,
+        angle_degrees: float,
         jump_button: Button = Button.BUTTON_Y,
         dodge_button: Button = Button.BUTTON_L,
     ) -> None:

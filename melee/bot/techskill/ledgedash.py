@@ -57,8 +57,9 @@ class LedgedashMontage(StatefulInputMontage[_LedgedashState]):
     the first falling frame, and waits until the player's world-space ECB bottom
     exceeds ``minimum_ecb_bottom_y`` before air dodging down and inward. The
     default ``0.25`` threshold is a conservative standard-stage heuristic and may
-    be overridden for other stage geometry or character-specific routing. Angle
-    boundaries use the same inward floating-point clamp as ``WavedashMontage``.
+    be overridden for other stage geometry or character-specific routing. Callers
+    choose the air-dodge angle explicitly; its boundaries use the same inward
+    floating-point clamp as ``WavedashMontage``.
     """
 
     def __init__(
@@ -66,7 +67,7 @@ class LedgedashMontage(StatefulInputMontage[_LedgedashState]):
         frame_limit: int = 48,
         cancel_montage: InputMontage | None = None,
         *,
-        angle_degrees: float = 45.0,
+        angle_degrees: float,
         minimum_ecb_bottom_y: float = 0.25,
         jump_button: Button = Button.BUTTON_Y,
         dodge_button: Button = Button.BUTTON_L,

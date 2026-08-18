@@ -6,6 +6,7 @@ import unittest
 import melee
 from melee.bot import (
     AnonymousInputMontage,
+    AttackFrameData,
     AttackType,
     CharacterState,
     Hold,
@@ -751,6 +752,25 @@ class SimpleControlsInputTests(unittest.TestCase):
                     self.assertEqual(controller.buttons, {button})
                     self.assertEqual(result.charging, charging)
 
+    def test_release_returns_expected_metadata_before_move_is_observed(self) -> None:
+        player = melee.PlayerState(
+            character=melee.Character.MARTH,
+            action=melee.Action.STANDING,
+            on_ground=True,
+            facing=True,
+        )
+        controls, controller = self.controls(player, frame=10)
+        hold = controls.attack(AttackType.FSMASH)
+        self.assertIsInstance(hold, Hold)
+        assert isinstance(hold, Hold)
+
+        result = controls.release(hold)
+
+        self.assertIsInstance(result, AttackFrameData)
+        self.assertEqual(result.action, melee.Action.FSMASH_MID)
+        self.assertEqual(controller.main_stick, (0.5, 0.5))
+        self.assertEqual(controller.buttons, set())
+
     def test_deprecated_absolute_special_aliases_remain_compatible(self) -> None:
         self.assertIs(AttackType.LEFT_B, AttackType.LSPECIAL)
         self.assertIs(AttackType.RIGHT_B, AttackType.RSPECIAL)
@@ -1294,8 +1314,8 @@ class TechniqueMontageTests(unittest.TestCase):
     def test_technique_montages_use_stateful_base(self):
         montages = (
             MultishineMontage(),
-            WavedashMontage(WavedashDirection.Right),
-            LedgedashMontage(),
+            WavedashMontage(WavedashDirection.Right, angle_degrees=45.0),
+            LedgedashMontage(angle_degrees=45.0),
             SDIMontage(StickReferenceAxis.RIGHT),
             PerfectPivotMontage(AttackType.JAB),
             SmashTurnJumpMontage(),
@@ -2077,7 +2097,7 @@ class TechniqueMontageTests(unittest.TestCase):
             SDIMontage("right")
 
     def test_wavedash_airdodges_on_final_fox_jump_squat_frame(self):
-        montage = WavedashMontage(WavedashDirection.Right)
+        montage = WavedashMontage(WavedashDirection.Right, angle_degrees=45.0)
 
         self.assertIs(self.tick(montage, melee.Action.STANDING), montage)
         self.assertIn(
@@ -2135,7 +2155,7 @@ class TechniqueMontageTests(unittest.TestCase):
         self.assertIs(self.tick(montage, melee.Action.STANDING), True)
 
     def test_wavedash_uses_falcos_fifth_jump_squat_frame(self):
-        montage = WavedashMontage(WavedashDirection.Left)
+        montage = WavedashMontage(WavedashDirection.Left, angle_degrees=45.0)
 
         self.assertIs(
             self.tick(
@@ -2185,7 +2205,7 @@ class TechniqueMontageTests(unittest.TestCase):
         self.assertLess(left_y, 0.5)
 
     def test_wavedash_requires_special_landing(self):
-        montage = WavedashMontage(WavedashDirection.Right)
+        montage = WavedashMontage(WavedashDirection.Right, angle_degrees=45.0)
         self.tick(montage, melee.Action.STANDING)
         self.controls.take_calls()
         self.tick(montage, melee.Action.KNEE_BEND, action_frame=3)
@@ -2195,14 +2215,14 @@ class TechniqueMontageTests(unittest.TestCase):
         self.assertEqual(montage.get_montage_state(), MontageState.Aborted)
 
     def test_wavedash_waits_in_normal_landing_lag(self):
-        montage = WavedashMontage(WavedashDirection.Right)
+        montage = WavedashMontage(WavedashDirection.Right, angle_degrees=45.0)
 
         self.assertIs(self.tick(montage, melee.Action.LANDING), montage)
         self.assertEqual(montage.get_montage_state(), MontageState.Waiting)
         self.assertEqual(self.controls.take_calls(), [])
 
     def test_wavedash_aborts_after_missing_jump_squat(self):
-        montage = WavedashMontage(WavedashDirection.Right)
+        montage = WavedashMontage(WavedashDirection.Right, angle_degrees=45.0)
         self.tick(montage, melee.Action.STANDING)
         self.controls.take_calls()
 
@@ -2221,9 +2241,11 @@ class TechniqueMontageTests(unittest.TestCase):
         )
 
     def test_wavedash_validates_angle_and_buttons(self):
+        with self.assertRaises(TypeError):
+            WavedashMontage(WavedashDirection.Right)
         with self.assertRaisesRegex(ValueError, "direction"):
-            WavedashMontage("right")
-        for angle in (math.nan, 17.0, 90.1):
+            WavedashMontage("right", angle_degrees=45.0)
+        for angle in (math.nan, 16.8, 90.1):
             with self.subTest(angle=angle):
                 with self.assertRaises(ValueError):
                     WavedashMontage(
@@ -2233,15 +2255,18 @@ class TechniqueMontageTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "jump_button"):
             WavedashMontage(
                 WavedashDirection.Right,
+                angle_degrees=45.0,
                 jump_button=melee.Button.BUTTON_A,
             )
         with self.assertRaisesRegex(ValueError, "dodge_button"):
             WavedashMontage(
                 WavedashDirection.Right,
+                angle_degrees=45.0,
                 dodge_button=melee.Button.BUTTON_Z,
             )
 
     def test_wavedash_clamps_boundary_roundoff_inward(self):
+        self.assertEqual(WAVEDASH_MIN_ANGLE_DEGREES, 16.84)
         minimum_safe = math.nextafter(
             WAVEDASH_MIN_ANGLE_DEGREES,
             WAVEDASH_MAX_ANGLE_DEGREES,
@@ -2270,7 +2295,7 @@ class TechniqueMontageTests(unittest.TestCase):
         above_roundoff = math.nextafter(maximum_roundoff, math.inf)
         for requested in (below_roundoff, above_roundoff):
             with self.subTest(requested=requested):
-                with self.assertRaisesRegex(ValueError, "between 17.1 and 90"):
+                with self.assertRaisesRegex(ValueError, "between 16.84 and 90"):
                     clamp_wavedash_angle(requested)
 
     def test_wavedash_uses_clamped_minimum_angle(self):
@@ -2305,7 +2330,7 @@ class TechniqueMontageTests(unittest.TestCase):
         )
 
     def test_wavedash_aborts_and_neutralizes_when_hit(self):
-        montage = WavedashMontage(WavedashDirection.Right)
+        montage = WavedashMontage(WavedashDirection.Right, angle_degrees=45.0)
         self.tick(montage, melee.Action.STANDING)
         self.controls.take_calls()
 
@@ -2324,7 +2349,7 @@ class TechniqueMontageTests(unittest.TestCase):
         )
 
     def test_wavedash_aborts_during_hitlag(self):
-        montage = WavedashMontage(WavedashDirection.Right)
+        montage = WavedashMontage(WavedashDirection.Right, angle_degrees=45.0)
         self.tick(montage, melee.Action.STANDING)
         self.controls.take_calls()
 
@@ -2339,7 +2364,9 @@ class TechniqueMontageTests(unittest.TestCase):
         self.assertEqual(self.controls.take_calls(), [("release_all",)])
 
     def test_ledgedash_releases_away_and_airdodges_inward_after_clearance(self):
-        montage = LedgedashMontage()
+        with self.assertRaises(TypeError):
+            LedgedashMontage()
+        montage = LedgedashMontage(angle_degrees=45.0)
 
         self.assertIs(
             self.tick(
@@ -2460,7 +2487,7 @@ class TechniqueMontageTests(unittest.TestCase):
         self.assertIs(self.tick(montage, melee.Action.STANDING), True)
 
     def test_ledgedash_does_not_release_without_a_double_jump(self):
-        montage = LedgedashMontage()
+        montage = LedgedashMontage(angle_degrees=45.0)
 
         self.assertIs(
             self.tick(
@@ -2477,7 +2504,7 @@ class TechniqueMontageTests(unittest.TestCase):
         self.assertEqual(self.controls.take_calls(), [])
 
     def test_ledgedash_retries_release_after_a_neutral_frame(self):
-        montage = LedgedashMontage()
+        montage = LedgedashMontage(angle_degrees=45.0)
         ledge_state = {
             "on_ground": False,
             "off_stage": True,
@@ -2528,7 +2555,7 @@ class TechniqueMontageTests(unittest.TestCase):
             (melee.Action.NAIR, False),
         ):
             with self.subTest(action=action):
-                montage = LedgedashMontage()
+                montage = LedgedashMontage(angle_degrees=45.0)
                 ledge_state = {
                     "on_ground": False,
                     "off_stage": True,

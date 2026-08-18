@@ -147,6 +147,14 @@ sticks because Melee has no neutral C-stick aerial input.
 
 `LEFT_B` and `RIGHT_B` remain deprecated aliases for `LSPECIAL` and `RSPECIAL`.
 
+Charging smashes and supported neutral-B moves return a `Hold`. Do not call
+`SimpleControls.release(hold)` in the frame that created it: pending controller
+input is committed on the next `Console.step()`, so same-frame release neutralizes
+the attack before Dolphin sees it. On a later frame, `release()` acknowledges the
+release command but may return `AttackFrameData` seeded with the hold's expected
+action before `PlayerState.action` reports the move. Confirm startup from a later
+game-state snapshot when observed startup matters.
+
 `CharacterState.can_jump()` (also available as `melee.bot.can_jump`) reports
 actionable ground jumps and remaining aerial jumps. It returns `True` throughout
 shield start, hold, reflect, stun, and release for every character except Yoshi,
@@ -193,8 +201,8 @@ Libmelee includes concrete technique montages:
   sequence as the historical `techskill.multishine` helper and succeeds only when
   the second Shine begins.
 - `WavedashMontage` supports every standard character's jump-squat duration and
-  requests the down-diagonal air dodge on the final `KNEE_BEND` frame. Its default
-  45-degree angle is conservative; 17.1 degrees is accepted as the researched
+  requests the down-diagonal air dodge on the final `KNEE_BEND` frame. Callers
+  must choose the angle explicitly; 16.84 degrees is accepted as the ideal
   maximum-distance boundary. Boundary values and one adjacent float of roundoff
   are clamped one representable value inside the accepted interval. It succeeds
   only after `LANDING_SPECIAL` ends in an actionable grounded state and aborts if
