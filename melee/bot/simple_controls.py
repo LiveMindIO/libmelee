@@ -451,48 +451,49 @@ class SimpleControls:
         )
         self._controller.tilt_analog(stick, x, y)
 
-    def down_left(self, angle_degrees: float, *, stick: Button = Button.BUTTON_MAIN) -> None:
+    def down_left(self, angle_degrees: float, *, magnitude: float = 1.0, stick: Button = Button.BUTTON_MAIN) -> None:
         """Tilt from down toward left by an angle from 0 through 90 degrees."""
-        self._tilt_between_axes(StickReferenceAxis.DOWN, angle_degrees, -1.0, stick)
+        self._tilt_between_axes(StickReferenceAxis.DOWN, angle_degrees, -1.0, magnitude, stick)
 
-    def down_right(self, angle_degrees: float, *, stick: Button = Button.BUTTON_MAIN) -> None:
+    def down_right(self, angle_degrees: float, *, magnitude: float = 1.0, stick: Button = Button.BUTTON_MAIN) -> None:
         """Tilt from down toward right by an angle from 0 through 90 degrees."""
-        self._tilt_between_axes(StickReferenceAxis.DOWN, angle_degrees, 1.0, stick)
+        self._tilt_between_axes(StickReferenceAxis.DOWN, angle_degrees, 1.0, magnitude, stick)
 
-    def up_left(self, angle_degrees: float, *, stick: Button = Button.BUTTON_MAIN) -> None:
+    def up_left(self, angle_degrees: float, *, magnitude: float = 1.0, stick: Button = Button.BUTTON_MAIN) -> None:
         """Tilt from up toward left by an angle from 0 through 90 degrees."""
-        self._tilt_between_axes(StickReferenceAxis.UP, angle_degrees, 1.0, stick)
+        self._tilt_between_axes(StickReferenceAxis.UP, angle_degrees, 1.0, magnitude, stick)
 
-    def up_right(self, angle_degrees: float, *, stick: Button = Button.BUTTON_MAIN) -> None:
+    def up_right(self, angle_degrees: float, *, magnitude: float = 1.0, stick: Button = Button.BUTTON_MAIN) -> None:
         """Tilt from up toward right by an angle from 0 through 90 degrees."""
-        self._tilt_between_axes(StickReferenceAxis.UP, angle_degrees, -1.0, stick)
+        self._tilt_between_axes(StickReferenceAxis.UP, angle_degrees, -1.0, magnitude, stick)
 
-    def left_up(self, angle_degrees: float, *, stick: Button = Button.BUTTON_MAIN) -> None:
+    def left_up(self, angle_degrees: float, *, magnitude: float = 1.0, stick: Button = Button.BUTTON_MAIN) -> None:
         """Tilt from left toward up by an angle from 0 through 90 degrees."""
-        self._tilt_between_axes(StickReferenceAxis.LEFT, angle_degrees, -1.0, stick)
+        self._tilt_between_axes(StickReferenceAxis.LEFT, angle_degrees, -1.0, magnitude, stick)
 
-    def left_down(self, angle_degrees: float, *, stick: Button = Button.BUTTON_MAIN) -> None:
+    def left_down(self, angle_degrees: float, *, magnitude: float = 1.0, stick: Button = Button.BUTTON_MAIN) -> None:
         """Tilt from left toward down by an angle from 0 through 90 degrees."""
-        self._tilt_between_axes(StickReferenceAxis.LEFT, angle_degrees, 1.0, stick)
+        self._tilt_between_axes(StickReferenceAxis.LEFT, angle_degrees, 1.0, magnitude, stick)
 
-    def right_up(self, angle_degrees: float, *, stick: Button = Button.BUTTON_MAIN) -> None:
+    def right_up(self, angle_degrees: float, *, magnitude: float = 1.0, stick: Button = Button.BUTTON_MAIN) -> None:
         """Tilt from right toward up by an angle from 0 through 90 degrees."""
-        self._tilt_between_axes(StickReferenceAxis.RIGHT, angle_degrees, 1.0, stick)
+        self._tilt_between_axes(StickReferenceAxis.RIGHT, angle_degrees, 1.0, magnitude, stick)
 
-    def right_down(self, angle_degrees: float, *, stick: Button = Button.BUTTON_MAIN) -> None:
+    def right_down(self, angle_degrees: float, *, magnitude: float = 1.0, stick: Button = Button.BUTTON_MAIN) -> None:
         """Tilt from right toward down by an angle from 0 through 90 degrees."""
-        self._tilt_between_axes(StickReferenceAxis.RIGHT, angle_degrees, -1.0, stick)
+        self._tilt_between_axes(StickReferenceAxis.RIGHT, angle_degrees, -1.0, magnitude, stick)
 
     def _tilt_between_axes(
         self,
         reference_axis: StickReferenceAxis,
         angle_degrees: float,
         rotation_sign: float,
+        magnitude: float,
         stick: Button,
     ) -> None:
         if not math.isfinite(angle_degrees) or not 0.0 <= angle_degrees <= 90.0:
             raise ValueError("angle_degrees must be finite and between 0 and 90 inclusive")
-        self.tilt_stick(reference_axis, rotation_sign * angle_degrees, stick=stick)
+        self.tilt_stick(reference_axis, rotation_sign * angle_degrees, magnitude=magnitude, stick=stick)
 
     def press_button(self, button: Button) -> None:
         """Press one digital controller button without changing other inputs.

@@ -655,18 +655,19 @@ class SimpleControlsInputTests(unittest.TestCase):
         player = melee.PlayerState()
         for method_name, reference_axis, sign in cases:
             for angle_degrees in (0.0, 15.0, 90.0):
-                for stick in (melee.Button.BUTTON_MAIN, melee.Button.BUTTON_C):
-                    with self.subTest(method=method_name, angle=angle_degrees, stick=stick):
-                        controls, controller = self.controls(player)
-                        method = getattr(controls, method_name)
+                for magnitude in (0.0, 0.4, 1.0):
+                    for stick in (melee.Button.BUTTON_MAIN, melee.Button.BUTTON_C):
+                        with self.subTest(method=method_name, angle=angle_degrees, magnitude=magnitude, stick=stick):
+                            controls, controller = self.controls(player)
+                            method = getattr(controls, method_name)
 
-                        method(angle_degrees, stick=stick)
+                            method(angle_degrees, magnitude=magnitude, stick=stick)
 
-                        expected = stick_coordinates(reference_axis, sign * angle_degrees)
-                        actual = controller.main_stick if stick is melee.Button.BUTTON_MAIN else controller.c_stick
-                        other = controller.c_stick if stick is melee.Button.BUTTON_MAIN else controller.main_stick
-                        self.assertEqual(actual, expected)
-                        self.assertEqual(other, (0.5, 0.5))
+                            expected = stick_coordinates(reference_axis, sign * angle_degrees, magnitude=magnitude)
+                            actual = controller.main_stick if stick is melee.Button.BUTTON_MAIN else controller.c_stick
+                            other = controller.c_stick if stick is melee.Button.BUTTON_MAIN else controller.main_stick
+                            self.assertEqual(actual, expected)
+                            self.assertEqual(other, (0.5, 0.5))
 
     def test_directional_stick_helpers_reject_angles_outside_quadrant(self) -> None:
         player = melee.PlayerState()
@@ -689,6 +690,11 @@ class SimpleControlsInputTests(unittest.TestCase):
                     ValueError, "between 0 and 90"
                 ):
                     method(angle_degrees)
+            for magnitude in (math.nan, math.inf, -math.inf, -0.0001, 1.0001):
+                with self.subTest(method=method_name, magnitude=magnitude), self.assertRaisesRegex(
+                    ValueError, "magnitude must"
+                ):
+                    method(15.0, magnitude=magnitude)
 
         with self.assertRaisesRegex(ValueError, "Invalid button type"):
             controls.down_right(15.0, stick=melee.Button.BUTTON_A)

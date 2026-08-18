@@ -92,4 +92,5 @@ uv pip install --python .venv/bin/python .
 - `SimpleControls.down_left()` / `down_right()` / `up_left()` / `up_right()` /
   `left_up()` / `left_down()` / `right_up()` / `right_down()` tilt from the first
   named cardinal toward the second. Their angle is inclusive from 0 through 90
-  degrees and they support either the main stick or C-stick.
+  degrees, their magnitude is inclusive from 0 through 1, and they support either
+  the main stick or C-stick.
