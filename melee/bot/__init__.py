@@ -33,12 +33,8 @@ from melee.bot.character_state import (
     neutral_b_is_chargeable,
     z_air_is_supported,
 )
-from melee.bot.input_montage import (
-    AnonymousInputMontage,
-    InputMontage,
-    MontageState,
-    StatefulInputMontage,
-)
+from melee.bot.anonymous_input_montage import AnonymousInputMontage
+from melee.bot.input_montage import InputMontage, MontageState
 from melee.bot.logger import BotLogger, BotLogEntry
 from melee.bot.match_history import (
     MatchHistory,
@@ -56,6 +52,7 @@ from melee.bot.simple_controls import (
     StickReferenceAxis,
     stick_coordinates,
 )
+from melee.bot.stateful_input_montage import StatefulInputMontage
 from melee.bot.techskill import (
     LedgedashMontage,
     MultishineMontage,
