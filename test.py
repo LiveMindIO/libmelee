@@ -1730,6 +1730,72 @@ class TechniqueMontageTests(unittest.TestCase):
 
         self.assertEqual(montage.get_montage_state(), MontageState.Finished)
 
+    def test_multishine_continues_when_later_shines_start_in_air(self):
+        montage = MultishineMontage(shine_count=3)
+
+        self.assertIs(self.tick(montage, melee.Action.STANDING), montage)
+        self.controls.take_calls()
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action.DOWN_B_GROUND_START,
+                action_frame=4,
+            ),
+            montage,
+        )
+        self.controls.take_calls()
+
+        for action_frame in (1, 2, 3):
+            self.assertIs(
+                self.tick(
+                    montage,
+                    melee.Action.KNEE_BEND,
+                    action_frame=action_frame,
+                ),
+                montage,
+            )
+            self.controls.take_calls()
+
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action.DOWN_B_AIR,
+                on_ground=False,
+            ),
+            montage,
+        )
+        self.assertEqual(montage.get_montage_state(), MontageState.Active)
+        self.controls.take_calls()
+        self.assertIs(
+            self.tick(montage, melee.Action.DOWN_B_GROUND),
+            montage,
+        )
+        self.assertIn(
+            ("press_button", melee.Button.BUTTON_Y),
+            self.controls.take_calls(),
+        )
+
+        for action_frame in (1, 2, 3):
+            self.assertIs(
+                self.tick(
+                    montage,
+                    melee.Action.KNEE_BEND,
+                    action_frame=action_frame,
+                ),
+                montage,
+            )
+            self.controls.take_calls()
+
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action.DOWN_B_AIR,
+                on_ground=False,
+            ),
+            True,
+        )
+        self.assertEqual(montage.get_montage_state(), MontageState.Finished)
+
     def test_multishine_retries_shine_while_standing(self):
         montage = MultishineMontage()
         self.tick(montage, melee.Action.STANDING)
