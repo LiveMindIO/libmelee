@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from enum import Enum, auto
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Self
 
 if TYPE_CHECKING:
     from melee.bot.character_state import CharacterState
@@ -32,6 +32,11 @@ class InputMontage(ABC):
     or branch. ``True`` means the sequence completed successfully and ``False``
     means it reached a terminal unsuccessful state.
 
+    Use :meth:`add_branch` to choose a follow-up from the current game state.
+    A successful montage becomes finished, then returns the first eligible
+    branch for the caller to advance on the next game tick. If no configured
+    branch can start, the montage aborts.
+
     ``frame_limit`` counts calls to :meth:`on_tick`, not time spent waiting for
     :meth:`can_start`. The limit is a safety boundary; implementations should
     return ``False`` as soon as their own success conditions become impossible.
@@ -49,6 +54,21 @@ class InputMontage(ABC):
         self._frame_count = 0
         self._cancel_montage = cancel_montage
         self._montage_state = MontageState.Waiting
+        self._branches: list[InputMontage] = []
+
+    def add_branch(self, montage: InputMontage) -> Self:
+        """Append a possible follow-up montage and return this montage.
+
+        Branches are considered in insertion order after this montage's own
+        segment succeeds. The first waiting branch whose :meth:`can_start`
+        returns ``True`` becomes the active continuation.
+        """
+        if not isinstance(montage, InputMontage):
+            raise TypeError("branch must be an InputMontage")
+        if montage is self:
+            raise ValueError("a montage cannot branch to itself")
+        self._branches.append(montage)
+        return self
 
     def get_montage_state(self) -> MontageState:
         """Return this montage's current lifecycle state."""
@@ -64,6 +84,7 @@ class InputMontage(ABC):
         """Advance this montage by at most one active input frame.
 
         Waiting and active montages return a montage for the caller to retain.
+        A montage that succeeds may return an eligible branch for the next call.
         Terminal montages always return ``False`` on later calls and cannot be
         restarted.
         """
@@ -107,8 +128,12 @@ class InputMontage(ABC):
         self._frame_count += 1
 
         if result is True:
-            self._montage_state = MontageState.Finished
-            return True
+            return self._continue_to_branch_or_finish(
+                controls,
+                player_state,
+                opponent_state,
+                state,
+            )
         if result is False:
             controls.release_all()
             self._montage_state = MontageState.Aborted
@@ -120,6 +145,35 @@ class InputMontage(ABC):
         if result is not self:
             self._montage_state = MontageState.Finished
         return result
+
+    def _continue_to_branch_or_finish(
+        self,
+        controls: SimpleControls,
+        player_state: CharacterState,
+        opponent_state: CharacterState,
+        state: GameState,
+    ) -> InputMontage | bool:
+        self._montage_state = MontageState.Finished
+        if not self._branches:
+            return True
+
+        for branch in self._branches:
+            if branch._montage_state is not MontageState.Waiting:
+                continue
+            if not branch.can_start(
+                controls,
+                player_state,
+                opponent_state,
+                state,
+            ):
+                continue
+
+            branch._montage_state = MontageState.Active
+            return branch
+
+        controls.release_all()
+        self._montage_state = MontageState.Aborted
+        return False
 
     def cancel(
         self,

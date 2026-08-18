@@ -879,6 +879,94 @@ class InputMontageTests(unittest.TestCase):
         self.assertIs(self.tick(follow_up), True)
         self.assertEqual(follow_up.get_montage_state(), MontageState.Finished)
 
+    def test_branches_are_checked_in_insertion_order(self):
+        unavailable = RecordingMontage(start_allowed=False, results=(True,))
+        selected = RecordingMontage(results=(True,))
+        ignored = RecordingMontage(results=(True,))
+        montage = RecordingMontage(results=(True,))
+        self.assertIs(
+            montage.add_branch(unavailable)
+            .add_branch(selected)
+            .add_branch(ignored),
+            montage,
+        )
+
+        self.assertIs(self.tick(montage), selected)
+        self.assertEqual(unavailable.can_start_calls, 1)
+        self.assertEqual(selected.can_start_calls, 1)
+        self.assertEqual(ignored.can_start_calls, 0)
+        self.assertEqual(unavailable.get_montage_state(), MontageState.Waiting)
+        self.assertEqual(selected.get_montage_state(), MontageState.Active)
+        self.assertEqual(selected.on_tick_calls, 0)
+        self.assertEqual(ignored.get_montage_state(), MontageState.Waiting)
+        self.assertEqual(montage.get_montage_state(), MontageState.Finished)
+
+        self.assertIs(self.tick(selected), True)
+        self.assertEqual(selected.get_montage_state(), MontageState.Finished)
+
+    def test_completed_montage_returns_branch_without_ticking_it(self):
+        branch = RecordingMontage(results=(True,))
+        montage = RecordingMontage(results=(True,))
+        montage.add_branch(branch)
+
+        self.assertIs(self.tick(montage), branch)
+        self.assertEqual(montage.get_montage_state(), MontageState.Finished)
+        self.assertEqual(branch.get_montage_state(), MontageState.Active)
+        self.assertEqual(branch.on_tick_calls, 0)
+
+        self.assertIs(self.tick(branch), True)
+        self.assertEqual(branch.get_montage_state(), MontageState.Finished)
+        self.assertEqual(montage.get_montage_state(), MontageState.Finished)
+
+    def test_each_segment_finishes_before_returning_its_branch(self):
+        terminal = RecordingMontage(results=(True,))
+        middle = RecordingMontage(results=(True,))
+        middle.add_branch(terminal)
+        montage = RecordingMontage(results=(True,))
+        montage.add_branch(middle)
+
+        self.assertIs(self.tick(montage), middle)
+        self.assertEqual(montage.get_montage_state(), MontageState.Finished)
+        self.assertEqual(middle.get_montage_state(), MontageState.Active)
+
+        self.assertIs(self.tick(middle), terminal)
+        self.assertEqual(middle.get_montage_state(), MontageState.Finished)
+        self.assertEqual(terminal.get_montage_state(), MontageState.Active)
+
+        self.assertIs(self.tick(terminal), True)
+        self.assertEqual(terminal.get_montage_state(), MontageState.Finished)
+
+    def test_completed_segment_aborts_when_no_branch_can_start(self):
+        montage = RecordingMontage(results=(True,))
+        montage.add_branch(RecordingMontage(start_allowed=False))
+        montage.add_branch(RecordingMontage(start_allowed=False))
+
+        self.assertIs(self.tick(montage), False)
+        self.assertEqual(montage.get_montage_state(), MontageState.Aborted)
+        self.assertEqual(self.controls.release_count, 1)
+
+    def test_branch_failure_does_not_change_finished_predecessor(self):
+        branch = RecordingMontage(results=(False,))
+        montage = RecordingMontage(results=(True,))
+        montage.add_branch(branch)
+
+        self.assertIs(self.tick(montage), branch)
+        self.assertEqual(montage.get_montage_state(), MontageState.Finished)
+        self.assertEqual(self.controls.release_count, 0)
+
+        self.assertIs(self.tick(branch), False)
+        self.assertEqual(branch.get_montage_state(), MontageState.Aborted)
+        self.assertEqual(montage.get_montage_state(), MontageState.Finished)
+        self.assertEqual(self.controls.release_count, 1)
+
+    def test_add_branch_rejects_invalid_and_self_references(self):
+        montage = RecordingMontage()
+
+        with self.assertRaisesRegex(TypeError, "InputMontage"):
+            montage.add_branch(object())
+        with self.assertRaisesRegex(ValueError, "itself"):
+            montage.add_branch(montage)
+
     def test_cancel_active_montage_returns_configured_fallback(self):
         fallback = RecordingMontage()
         montage = RecordingMontage(cancel_montage=fallback)
