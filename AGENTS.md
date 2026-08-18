@@ -31,6 +31,12 @@ uv pip install --python .venv/bin/python .
   `Finished` and returns the first branch whose `can_start()` returns true. The
   selected branch starts on the caller's next tick. If branches are configured but
   none can start, the completed segment aborts instead.
+- `StatefulInputMontage[StateT]` stores constructor-supplied initial state and adapts
+  `stateful_on_tick`, `stateful_should_abort`, and `stateful_cancel` to the base
+  lifecycle. Every callback receives the current state; only `stateful_on_tick`
+  replaces it by returning `(next_state, result)`. `AnonymousInputMontage[StateT]`
+  supplies those methods and `can_start` through constructor callables and still
+  requires an explicit `frame_limit`.
 - `False` and `should_abort()` use `Aborted`; exhausting the safety limit uses
   `TimedOut`; cancelling an active montage uses `Cancelled` and may return a
   configured fallback montage. Timeout, abort, explicit failure, malformed return,

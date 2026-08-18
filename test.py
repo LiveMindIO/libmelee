@@ -5,6 +5,7 @@ import unittest
 
 import melee
 from melee.bot import (
+    AnonymousInputMontage,
     AttackType,
     CharacterState,
     Hold,
@@ -15,6 +16,7 @@ from melee.bot import (
     PerfectPivotMontage,
     SDIMontage,
     SimpleControls,
+    StatefulInputMontage,
     StickReferenceAxis,
     WavedashDirection,
     WavedashMontage,
@@ -771,6 +773,61 @@ class RecordingMontage(InputMontage):
         return self
 
 
+class RecordingStatefulMontage(StatefulInputMontage[int]):
+    def __init__(
+        self,
+        initial_state,
+        *,
+        abort=False,
+        fallback=None,
+        results=(),
+    ):
+        super().__init__(3, initial_state)
+        self.abort = abort
+        self.fallback = fallback
+        self.results = list(results)
+        self.on_tick_states = []
+        self.should_abort_states = []
+        self.cancel_states = []
+
+    def can_start(self, controls, player_state, opponent_state, state):
+        return True
+
+    def stateful_on_tick(
+        self,
+        controls,
+        player_state,
+        opponent_state,
+        state,
+        input_state,
+    ):
+        self.on_tick_states.append(input_state)
+        result = self.results.pop(0) if self.results else self
+        return input_state + 1, result
+
+    def stateful_should_abort(
+        self,
+        controls,
+        player_state,
+        opponent_state,
+        state,
+        input_state,
+    ):
+        self.should_abort_states.append(input_state)
+        return self.abort
+
+    def stateful_cancel(
+        self,
+        controls,
+        player_state,
+        opponent_state,
+        state,
+        input_state,
+    ):
+        self.cancel_states.append(input_state)
+        return self.fallback
+
+
 class RecordingMontageControls:
     def __init__(self):
         self.release_count = 0
@@ -966,6 +1023,92 @@ class InputMontageTests(unittest.TestCase):
             montage.add_branch(object())
         with self.assertRaisesRegex(ValueError, "itself"):
             montage.add_branch(montage)
+
+    def test_stateful_montage_replaces_state_between_ticks(self):
+        montage = RecordingStatefulMontage(10)
+        montage.results = [montage, True]
+
+        self.assertIs(self.tick(montage), montage)
+        self.assertIs(self.tick(montage), True)
+        self.assertEqual(montage.should_abort_states, [10, 11])
+        self.assertEqual(montage.on_tick_states, [10, 11])
+        self.assertEqual(montage.get_montage_state(), MontageState.Finished)
+
+    def test_stateful_abort_reads_initial_state_without_ticking(self):
+        montage = RecordingStatefulMontage(4, abort=True)
+
+        self.assertIs(self.tick(montage), False)
+        self.assertEqual(montage.should_abort_states, [4])
+        self.assertEqual(montage.on_tick_states, [])
+        self.assertEqual(montage.get_montage_state(), MontageState.Aborted)
+        self.assertEqual(self.controls.release_count, 1)
+
+    def test_stateful_cancel_receives_latest_state(self):
+        fallback = RecordingMontage()
+        montage = RecordingStatefulMontage(7, fallback=fallback)
+
+        self.assertIsNone(self.cancel(montage))
+        self.assertEqual(montage.cancel_states, [])
+
+        self.assertIs(self.tick(montage), montage)
+        self.assertIs(self.cancel(montage), fallback)
+        self.assertEqual(montage.cancel_states, [8])
+        self.assertEqual(montage.get_montage_state(), MontageState.Cancelled)
+        self.assertEqual(self.controls.release_count, 1)
+
+        self.assertIsNone(self.cancel(montage))
+        self.assertEqual(montage.cancel_states, [8])
+
+    def test_anonymous_montage_delegates_to_supplied_callables(self):
+        calls = []
+        fallback = RecordingMontage()
+        montage = None
+
+        def on_tick(controls, player_state, opponent_state, state, input_state):
+            calls.append(("on_tick", input_state))
+            return input_state + 1, montage
+
+        montage = AnonymousInputMontage(
+            frame_limit=2,
+            initial_state=20,
+            can_start=lambda controls, player_state, opponent_state, state: (
+                calls.append(("can_start", None)) or True
+            ),
+            on_tick=on_tick,
+            should_abort=lambda controls, player_state, opponent_state, state, input_state: (
+                calls.append(("should_abort", input_state)) or False
+            ),
+            cancel=lambda controls, player_state, opponent_state, state, input_state: (
+                calls.append(("cancel", input_state)) or fallback
+            ),
+        )
+
+        self.assertIs(self.tick(montage), montage)
+        self.assertEqual(
+            calls,
+            [
+                ("can_start", None),
+                ("should_abort", 20),
+                ("on_tick", 20),
+            ],
+        )
+
+        self.assertIs(self.cancel(montage), fallback)
+        self.assertEqual(calls[-1], ("cancel", 21))
+
+    def test_anonymous_montage_validates_frame_limit(self):
+        with self.assertRaisesRegex(ValueError, "greater than zero"):
+            AnonymousInputMontage(
+                frame_limit=0,
+                initial_state=None,
+                can_start=lambda controls, player_state, opponent_state, state: True,
+                on_tick=lambda controls, player_state, opponent_state, state, input_state: (
+                    input_state,
+                    True,
+                ),
+                should_abort=lambda controls, player_state, opponent_state, state, input_state: False,
+                cancel=lambda controls, player_state, opponent_state, state, input_state: None,
+            )
 
     def test_cancel_active_montage_returns_configured_fallback(self):
         fallback = RecordingMontage()

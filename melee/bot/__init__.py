@@ -33,7 +33,12 @@ from melee.bot.character_state import (
     neutral_b_is_chargeable,
     z_air_is_supported,
 )
-from melee.bot.input_montage import InputMontage, MontageState
+from melee.bot.input_montage import (
+    AnonymousInputMontage,
+    InputMontage,
+    MontageState,
+    StatefulInputMontage,
+)
 from melee.bot.logger import BotLogger, BotLogEntry
 from melee.bot.match_history import (
     MatchHistory,
@@ -63,6 +68,7 @@ from melee.bot.techskill import (
 __all__ = [
     "AttackFrameData",
     "AttackType",
+    "AnonymousInputMontage",
     "BotLogEntry",
     "BotLogger",
     "CharacterSelection",
@@ -84,6 +90,7 @@ __all__ = [
     "SDIMontage",
     "SimpleControls",
     "StickReferenceAxis",
+    "StatefulInputMontage",
     "WavedashDirection",
     "WavedashMontage",
     "attack_is_holdable",
