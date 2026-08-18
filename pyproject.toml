@@ -43,3 +43,10 @@ melee = ["*.csv", "*.ini"]
 
 [tool.setuptools.dynamic]
 version = {attr = "melee.version.__version__"}
+
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
