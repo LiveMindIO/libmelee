@@ -37,6 +37,11 @@ uv pip install --python .venv/bin/python .
   reused state and helpers in `melee/bot/techskill/common.py`.
   `MultishineMontage` is Fox-only and models one cycle. `WavedashMontage` uses the
   character-specific final jump-squat frame and aborts if that state is missed.
+  `PerfectPivotMontage` requires an onstage grounded `DASHING` state, requests the
+  opposite direction based on current facing, and delegates its `AttackType` only
+  on the resulting one-frame `TURNING` state; a missed turn frame aborts. Use
+  explicit `LSMASH` / `RSMASH` for horizontal pivot smashes, not facing-relative
+  `FSMASH`, because facing has already reversed on that turn frame.
   `LedgedashMontage` uses C-stick-away release and world-space ECB-bottom clearance
   before its down-inward air dodge; confirmed jumps remain confirmed through apex,
   but landing or leaving neutral aerial movement before clearance aborts the route.

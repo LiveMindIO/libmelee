@@ -54,6 +54,7 @@ from melee.bot.simple_controls import (
 from melee.bot.techskill import (
     LedgedashMontage,
     MultishineMontage,
+    PerfectPivotMontage,
     SDIMontage,
     WavedashDirection,
     WavedashMontage,
@@ -78,6 +79,7 @@ __all__ = [
     "MultishineMontage",
     "OtherPlayer",
     "OtherPlayerRelation",
+    "PerfectPivotMontage",
     "PlayerMatchRecord",
     "SDIMontage",
     "SimpleControls",
