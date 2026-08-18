@@ -133,6 +133,25 @@ Also, if you don't press a button, Dolphin will just use whatever you pressed la
 
 which will release all buttons and set all sticks / shoulders to neutral.
 
+### Simple Controls
+
+`melee.bot.SimpleControls.attack` supports facing-relative attacks as well as
+absolute horizontal variants. Use `LTILT`/`RTILT`, `LSMASH`/`RSMASH`,
+and `LSPECIAL`/`RSPECIAL` when a bot should attack toward a screen direction without
+translating through `PlayerState.facing`. Existing `FTILT`, `FSMASH`, and
+`SIDE_B` requests remain facing-relative. Aerials intentionally provide only
+facing-relative `FAIR`/`BAIR`, since their move behavior depends on character
+facing. Directional aerial attacks are issued through the C-stick only while
+retaining matching horizontal main-stick drift. `NAIR` uses `A` with neutral
+sticks because Melee has no neutral C-stick aerial input.
+
+`LEFT_B` and `RIGHT_B` remain deprecated aliases for `LSPECIAL` and `RSPECIAL`.
+
+`CharacterState.can_jump()` (also available as `melee.bot.can_jump`) reports
+actionable ground jumps and remaining aerial jumps. It returns `True` throughout
+shield start, hold, reflect, stun, and release for every character except Yoshi,
+whose shield cannot be jumped out of.
+
 ### Input Montages
 
 `melee.bot.InputMontage` is the base class for short-lived controller sequences

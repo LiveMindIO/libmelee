@@ -5,7 +5,9 @@ import unittest
 
 import melee
 from melee.bot import (
+    AttackType,
     CharacterState,
+    Hold,
     InputMontage,
     LedgedashMontage,
     MontageState,
@@ -15,6 +17,7 @@ from melee.bot import (
     StickReferenceAxis,
     WavedashDirection,
     WavedashMontage,
+    can_jump,
     stick_coordinates,
 )
 from melee.bot.techskill.common import (
@@ -575,6 +578,163 @@ class AngularStickTests(unittest.TestCase):
 
         with self.assertRaisesRegex(ValueError, "Invalid button type"):
             controls.press_button(melee.Button.BUTTON_MAIN)
+
+
+class RecordingSimpleController:
+    def __init__(self) -> None:
+        self.main_stick = (0.5, 0.5)
+        self.c_stick = (0.5, 0.5)
+        self.buttons = set()
+
+    def release_all(self) -> None:
+        self.main_stick = (0.5, 0.5)
+        self.c_stick = (0.5, 0.5)
+        self.buttons.clear()
+
+    def tilt_analog(self, button, x, y) -> None:
+        if button is melee.Button.BUTTON_MAIN:
+            self.main_stick = (x, y)
+        elif button is melee.Button.BUTTON_C:
+            self.c_stick = (x, y)
+
+    def press_button(self, button) -> None:
+        self.buttons.add(button)
+
+
+class SimpleControlsInputTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.frame_data = melee.FrameData()
+
+    def controls(self, player, controller=None, *, frame=0):
+        if controller is None:
+            controller = RecordingSimpleController()
+        game_state = melee.GameState(frame=frame, players={1: player})
+        return SimpleControls(
+            game_state,
+            1,
+            controller,
+            frame_data=self.frame_data,
+        ), controller
+
+    def test_absolute_ground_attacks_ignore_facing(self) -> None:
+        cases = (
+            (AttackType.LTILT, 0.0, melee.Button.BUTTON_A, False),
+            (AttackType.RTILT, 1.0, melee.Button.BUTTON_A, False),
+            (AttackType.LSMASH, 0.0, melee.Button.BUTTON_A, True),
+            (AttackType.RSMASH, 1.0, melee.Button.BUTTON_A, True),
+            (AttackType.LSPECIAL, 0.0, melee.Button.BUTTON_B, False),
+            (AttackType.RSPECIAL, 1.0, melee.Button.BUTTON_B, False),
+        )
+        for facing in (False, True):
+            for attack_type, stick_x, button, charging in cases:
+                with self.subTest(facing=facing, attack_type=attack_type):
+                    player = melee.PlayerState(
+                        character=melee.Character.MARTH,
+                        action=melee.Action.STANDING,
+                        on_ground=True,
+                        facing=facing,
+                    )
+                    controls, controller = self.controls(player)
+                    result = controls.attack(attack_type)
+                    self.assertIsInstance(result, Hold)
+                    self.assertEqual(controller.main_stick, (stick_x, 0.5))
+                    self.assertEqual(controller.buttons, {button})
+                    self.assertEqual(result.charging, charging)
+
+    def test_deprecated_absolute_special_aliases_remain_compatible(self) -> None:
+        self.assertIs(AttackType.LEFT_B, AttackType.LSPECIAL)
+        self.assertIs(AttackType.RIGHT_B, AttackType.RSPECIAL)
+
+    def test_directional_aerials_use_only_c_stick_and_remain_facing_relative(self) -> None:
+        for facing in (False, True):
+            toward = 1.0 if facing else 0.0
+            away = 0.0 if facing else 1.0
+            for attack_type, stick_x in (
+                (AttackType.FAIR, toward),
+                (AttackType.BAIR, away),
+            ):
+                with self.subTest(facing=facing, attack_type=attack_type):
+                    player = melee.PlayerState(
+                        character=melee.Character.MARTH,
+                        action=melee.Action.FALLING,
+                        on_ground=False,
+                        facing=facing,
+                    )
+                    controls, controller = self.controls(player)
+                    result = controls.attack(attack_type)
+                    self.assertIsInstance(result, Hold)
+                    self.assertEqual(controller.main_stick, (stick_x, 0.5))
+                    self.assertEqual(controller.c_stick, (stick_x, 0.5))
+                    self.assertEqual(controller.buttons, set())
+
+    def test_nair_uses_a_with_neutral_sticks(self) -> None:
+        player = melee.PlayerState(
+            character=melee.Character.MARTH,
+            action=melee.Action.FALLING,
+            on_ground=False,
+            facing=True,
+        )
+        controls, controller = self.controls(player)
+
+        result = controls.attack(AttackType.NAIR)
+
+        self.assertIsInstance(result, Hold)
+        self.assertEqual(controller.main_stick, (0.5, 0.5))
+        self.assertEqual(controller.c_stick, (0.5, 0.5))
+        self.assertEqual(controller.buttons, {melee.Button.BUTTON_A})
+
+    def test_can_jump_during_all_shield_phases_except_yoshi(self) -> None:
+        shield_actions = (
+            melee.Action.SHIELD,
+            melee.Action.SHIELD_START,
+            melee.Action.SHIELD_REFLECT,
+            melee.Action.SHIELD_STUN,
+            melee.Action.SHIELD_RELEASE,
+        )
+        for action in shield_actions:
+            for character, expected in (
+                (melee.Character.MARTH, True),
+                (melee.Character.YOSHI, False),
+            ):
+                with self.subTest(action=action, character=character):
+                    player = melee.PlayerState(
+                        character=character,
+                        action=action,
+                        on_ground=True,
+                    )
+                    controls, _ = self.controls(player)
+                    self.assertEqual(can_jump(player, self.frame_data), expected)
+                    self.assertEqual(controls.character_state.can_jump(), expected)
+
+    def test_can_jump_requires_actionable_state_and_remaining_air_jump(self) -> None:
+        standing = melee.PlayerState(
+            character=melee.Character.YOSHI,
+            action=melee.Action.STANDING,
+            on_ground=True,
+        )
+        falling = melee.PlayerState(
+            character=melee.Character.MARTH,
+            action=melee.Action.FALLING,
+            on_ground=False,
+            jumps_left=1,
+        )
+        no_jumps = melee.PlayerState(
+            character=melee.Character.MARTH,
+            action=melee.Action.FALLING,
+            on_ground=False,
+            jumps_left=0,
+        )
+        hitstun = melee.PlayerState(
+            character=melee.Character.MARTH,
+            action=melee.Action.DAMAGE_FLY_HIGH,
+            on_ground=False,
+            hitstun_frames_left=10,
+            jumps_left=1,
+        )
+        self.assertTrue(can_jump(standing, self.frame_data))
+        self.assertTrue(can_jump(falling, self.frame_data))
+        self.assertFalse(can_jump(no_jumps, self.frame_data))
+        self.assertFalse(can_jump(hitstun, self.frame_data))
 
 
 class RecordingMontage(InputMontage):

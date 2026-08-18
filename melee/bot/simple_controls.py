@@ -66,10 +66,12 @@ from melee.bot.character_state import (
     _LEDGE_GETUP_ACTIONS,
     _LEDGE_HANG_ACTIONS,
     _SPECIAL_ATTACKS,
+    _relative_attack_type,
     attack_is_holdable,
     can_air_attack,
     can_attack,
     can_grab,
+    can_jump,
     can_shield,
     can_taunt,
     can_z_air,
@@ -192,9 +194,13 @@ def stick_coordinates(
 _PRIMARY_ACTION: Final[dict[AttackType, Action]] = {
     AttackType.JAB: Action.NEUTRAL_ATTACK_1,
     AttackType.FTILT: Action.FTILT_MID,
+    AttackType.LTILT: Action.FTILT_MID,
+    AttackType.RTILT: Action.FTILT_MID,
     AttackType.UTILT: Action.UPTILT,
     AttackType.DTILT: Action.DOWNTILT,
     AttackType.FSMASH: Action.FSMASH_MID,
+    AttackType.LSMASH: Action.FSMASH_MID,
+    AttackType.RSMASH: Action.FSMASH_MID,
     AttackType.USMASH: Action.UPSMASH,
     AttackType.DSMASH: Action.DOWNSMASH,
     AttackType.DASH_ATTACK: Action.DASH_ATTACK,
@@ -205,6 +211,8 @@ _PRIMARY_ACTION: Final[dict[AttackType, Action]] = {
     AttackType.DAIR: Action.DAIR,
     AttackType.NEUTRAL_B: Action.NEUTRAL_B_ATTACKING,
     AttackType.SIDE_B: Action.SWORD_DANCE_1,
+    AttackType.LSPECIAL: Action.SWORD_DANCE_1,
+    AttackType.RSPECIAL: Action.SWORD_DANCE_1,
     AttackType.UP_B: Action.UP_B_GROUND,
     AttackType.DOWN_B: Action.DOWN_B_GROUND,
     AttackType.GRAB: Action.GRAB,
@@ -326,7 +334,10 @@ def _toward_stage_stick(player: LibPlayerState) -> float:
     return 1.0 if float(player.position.x) < 0 else 0.0
 
 
-def _primary_action(character: Character, attack_type: AttackType) -> Action:
+def _primary_action(
+    character: Character,
+    attack_type: AttackType,
+) -> Action:
     """Return a representative ``Action`` for pre-move ``FrameData`` lookups.
 
     ``character`` is intentionally unused: libmelee's ``Action`` enum labels are
@@ -338,7 +349,7 @@ def _primary_action(character: Character, attack_type: AttackType) -> Action:
     ``_ACTIONS_FOR_TYPE``.
     """
     _ = character
-    return _PRIMARY_ACTION[attack_type]
+    return _PRIMARY_ACTION[_relative_attack_type(attack_type)]
 
 
 def _commit_frame_limit(hold: Hold) -> int:
@@ -724,6 +735,11 @@ class SimpleControls:
         _warn_state_deprecated("can_shield")
         return self._character_state.can_shield()
 
+    def can_jump(self) -> bool:
+        """Deprecated: use :attr:`character_state` :meth:`.can_jump`."""
+        _warn_state_deprecated("can_jump")
+        return self._character_state.can_jump()
+
     def can_grab(self) -> bool:
         """Deprecated: use :attr:`character_state` :meth:`.can_grab`."""
         _warn_state_deprecated("can_grab")
@@ -899,8 +915,9 @@ class SimpleControls:
     def _apply_attack_inputs(self, hold: Hold) -> None:
         """Write stick and button state for ``hold.attack_type`` to the controller.
 
-        Grab uses ``Z``; aerials use main-stick drift plus C-stick + ``A``; specials
-        use main stick + ``B``; everything else uses main stick + ``A``.
+        Grab uses ``Z``; directional aerials use main-stick drift plus C-stick;
+        neutral aerial uses ``A``; specials use main stick + ``B``; everything
+        else uses main stick + ``A``.
         """
         if hold.attack_type in {AttackType.GRAB, AttackType.Z_AIR}:
             self._controller.release_all()
@@ -916,8 +933,14 @@ class SimpleControls:
         if hold.attack_type in _AERIAL_ATTACKS:
             self._controller.release_all()
             self._controller.tilt_analog(Button.BUTTON_MAIN, hold.stick_x, 0.5)
-            self._controller.tilt_analog(Button.BUTTON_C, hold.stick_x, hold.stick_y)
-            self._controller.press_button(Button.BUTTON_A)
+            if hold.attack_type is AttackType.NAIR:
+                self._controller.press_button(Button.BUTTON_A)
+            else:
+                self._controller.tilt_analog(
+                    Button.BUTTON_C,
+                    hold.stick_x,
+                    hold.stick_y,
+                )
             return
 
         if hold.attack_type in _SPECIAL_ATTACKS:
@@ -1056,7 +1079,8 @@ class SimpleControls:
         """
         if not isinstance(player.action, Action):
             return None
-        if player.action not in _ACTIONS_FOR_TYPE[attack_type]:
+        relative_attack_type = _relative_attack_type(attack_type)
+        if player.action not in _ACTIONS_FOR_TYPE[relative_attack_type]:
             return None
         if attack_type in _GRAB_THROW_ATTACKS:
             return player.action
@@ -1084,9 +1108,13 @@ class SimpleControls:
         mapping: dict[AttackType, tuple[float, float]] = {
             AttackType.JAB: (0.5, 0.5),
             AttackType.FTILT: (toward, 0.5),
+            AttackType.LTILT: (0.0, 0.5),
+            AttackType.RTILT: (1.0, 0.5),
             AttackType.UTILT: (0.5, 1.0),
             AttackType.DTILT: (0.5, 0.0),
             AttackType.FSMASH: (toward, 0.5),
+            AttackType.LSMASH: (0.0, 0.5),
+            AttackType.RSMASH: (1.0, 0.5),
             AttackType.USMASH: (0.5, 1.0),
             AttackType.DSMASH: (0.5, 0.0),
             AttackType.DASH_ATTACK: (toward, 0.5),
@@ -1097,6 +1125,8 @@ class SimpleControls:
             AttackType.DAIR: (0.5, 0.0),
             AttackType.NEUTRAL_B: (0.5, 0.5),
             AttackType.SIDE_B: (toward, 0.5),
+            AttackType.LSPECIAL: (0.0, 0.5),
+            AttackType.RSPECIAL: (1.0, 0.5),
             AttackType.UP_B: (0.5, 1.0),
             AttackType.DOWN_B: (0.5, 0.0),
             AttackType.GRAB: (toward, 0.5),
@@ -1118,7 +1148,8 @@ class SimpleControls:
             return False
         if player.action in _SMASH_CHARGE_ACTIONS:
             return False
-        return player.action in _ACTIONS_FOR_TYPE[hold.attack_type]
+        relative_attack_type = _relative_attack_type(hold.attack_type)
+        return player.action in _ACTIONS_FOR_TYPE[relative_attack_type]
 
 
 __all__ = [
@@ -1136,6 +1167,7 @@ __all__ = [
     "can_air_attack",
     "can_attack",
     "can_grab",
+    "can_jump",
     "can_shield",
     "can_taunt",
     "can_z_air",
