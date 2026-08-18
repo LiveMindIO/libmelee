@@ -2,15 +2,24 @@
 
 from __future__ import annotations
 
+from enum import Enum, auto
+
 from melee.bot.character_state import AttackType, CharacterState
 from melee.bot.input_montage import InputMontage
 from melee.bot.simple_controls import SimpleControls, StickReferenceAxis
+from melee.bot.stateful_input_montage import StatefulInputMontage
 from melee.bot.techskill.common import is_interrupted, player
 from melee.enums import Action, Character
 from melee.gamestate import GameState
 
 
-class PerfectPivotMontage(InputMontage):
+class _PerfectPivotPhase(Enum):
+    Initial = auto()
+    TurnRequested = auto()
+    AttackRequested = auto()
+
+
+class PerfectPivotMontage(StatefulInputMontage[_PerfectPivotPhase]):
     """Reverse an initial dash and attack during its one-frame turn state.
 
     Every :class:`AttackType` is accepted and delegated to
@@ -36,12 +45,10 @@ class PerfectPivotMontage(InputMontage):
         frame_limit: int = 4,
         cancel_montage: InputMontage | None = None,
     ) -> None:
-        super().__init__(frame_limit, cancel_montage)
+        super().__init__(frame_limit, _PerfectPivotPhase.Initial, cancel_montage)
         if not isinstance(attack_type, AttackType):
             raise ValueError("attack_type must be an AttackType")
         self._attack_type = attack_type
-        self._turn_requested = False
-        self._attack_requested = False
         self._character: Character | None = None
         self._initial_facing: bool | None = None
 
@@ -65,15 +72,16 @@ class PerfectPivotMontage(InputMontage):
         self._initial_facing = player_state_value.facing
         return True
 
-    def should_abort(
+    def stateful_should_abort(
         self,
         controls: SimpleControls,
         player_state: CharacterState,
         opponent_state: CharacterState,
         state: GameState,
+        input_state: _PerfectPivotPhase,
     ) -> bool:
         del controls, opponent_state, state
-        if self._attack_requested:
+        if input_state is _PerfectPivotPhase.AttackRequested:
             return False
         player_state_value = player(player_state)
         return (
@@ -87,25 +95,26 @@ class PerfectPivotMontage(InputMontage):
             )
         )
 
-    def on_tick(
+    def stateful_on_tick(
         self,
         controls: SimpleControls,
         player_state: CharacterState,
         opponent_state: CharacterState,
         state: GameState,
-    ) -> InputMontage | bool:
+        input_state: _PerfectPivotPhase,
+    ) -> tuple[_PerfectPivotPhase, InputMontage | bool]:
         del opponent_state, state
-        if self._attack_requested:
+        if input_state is _PerfectPivotPhase.AttackRequested:
             controls.release_all()
-            return True
+            return input_state, True
 
         player_state_value = player(player_state)
         if player_state_value is None or self._initial_facing is None:
-            return False
+            return input_state, False
 
-        if not self._turn_requested:
+        if input_state is _PerfectPivotPhase.Initial:
             if player_state_value.action is not Action.DASHING:
-                return False
+                return input_state, False
 
             # DESNOTE(jbarber, 2026-08-18): Controller input is committed on the
             # next Console.step, so reverse during DASHING and attack only after
@@ -120,15 +129,13 @@ class PerfectPivotMontage(InputMontage):
                 else StickReferenceAxis.RIGHT
             )
             controls.tilt_stick(reverse, 0.0)
-            self._turn_requested = True
-            return self
+            return _PerfectPivotPhase.TurnRequested, self
 
         if player_state_value.action is not Action.TURNING:
-            return False
+            return input_state, False
         if controls.attack(self._attack_type) is None:
-            return False
-        self._attack_requested = True
-        return self
+            return input_state, False
+        return _PerfectPivotPhase.AttackRequested, self
 
 
 __all__ = ["PerfectPivotMontage"]

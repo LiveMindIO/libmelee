@@ -19,8 +19,13 @@ StateT = TypeVar("StateT")
 class StatefulInputMontage(InputMontage, Generic[StateT]):
     """An input montage whose frame logic explicitly transforms typed state."""
 
-    def __init__(self, frame_limit: int, initial_state: StateT) -> None:
-        super().__init__(frame_limit)
+    def __init__(
+        self,
+        frame_limit: int,
+        initial_state: StateT,
+        cancel_montage: InputMontage | None = None,
+    ) -> None:
+        super().__init__(frame_limit, cancel_montage)
         self._input_state = initial_state
 
     def on_tick(
@@ -64,14 +69,15 @@ class StatefulInputMontage(InputMontage, Generic[StateT]):
         if self.get_montage_state() is not MontageState.Active:
             return None
 
-        super().cancel(controls, player_state, opponent_state, state)
-        return self.stateful_cancel(
+        fallback = super().cancel(controls, player_state, opponent_state, state)
+        stateful_fallback = self.stateful_cancel(
             controls,
             player_state,
             opponent_state,
             state,
             self._input_state,
         )
+        return fallback if stateful_fallback is None else stateful_fallback
 
     @abstractmethod
     def stateful_on_tick(
@@ -97,7 +103,6 @@ class StatefulInputMontage(InputMontage, Generic[StateT]):
         """Return whether this montage should abort from the current state."""
         raise NotImplementedError
 
-    @abstractmethod
     def stateful_cancel(
         self,
         controls: SimpleControls,
@@ -107,7 +112,7 @@ class StatefulInputMontage(InputMontage, Generic[StateT]):
         input_state: StateT,
     ) -> InputMontage | None:
         """Return the cancellation fallback selected from the current state."""
-        raise NotImplementedError
+        return None
 
 
 __all__ = ["StatefulInputMontage"]
