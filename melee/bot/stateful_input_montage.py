@@ -1,0 +1,101 @@
+"""Typed state adapter for controller-input montages."""
+
+from __future__ import annotations
+
+from abc import abstractmethod
+from typing import TYPE_CHECKING, Generic, TypeVar
+
+from melee.bot.input_montage import InputMontage, MontageState
+
+if TYPE_CHECKING:
+    from melee.bot.character_state import CharacterState
+    from melee.bot.simple_controls import SimpleControls
+    from melee.gamestate import GameState
+
+
+StateT = TypeVar("StateT")
+
+
+class StatefulInputMontage(InputMontage, Generic[StateT]):
+    """An input montage whose frame logic explicitly transforms typed state."""
+
+    def __init__(self, frame_limit: int, initial_state: StateT, cancel_montage: InputMontage | None = None) -> None:
+        super().__init__(frame_limit, cancel_montage)
+        self._input_state = initial_state
+
+    def on_tick(
+        self,
+        controls: SimpleControls,
+        player_state: CharacterState,
+        opponent_state: CharacterState,
+        state: GameState,
+    ) -> InputMontage | bool:
+        self._input_state, result = self.stateful_on_tick(
+            controls,
+            player_state,
+            opponent_state,
+            state,
+            self._input_state,
+        )
+        return result
+
+    def should_abort(
+        self,
+        controls: SimpleControls,
+        player_state: CharacterState,
+        opponent_state: CharacterState,
+        state: GameState,
+    ) -> bool:
+        return self.stateful_should_abort(controls, player_state, opponent_state, state, self._input_state)
+
+    def cancel(
+        self,
+        controls: SimpleControls,
+        player_state: CharacterState,
+        opponent_state: CharacterState,
+        state: GameState,
+    ) -> InputMontage | None:
+        if self.get_montage_state() is not MontageState.Active:
+            return None
+
+        fallback = super().cancel(controls, player_state, opponent_state, state)
+        stateful_fallback = self.stateful_cancel(controls, player_state, opponent_state, state, self._input_state)
+        return fallback if stateful_fallback is None else stateful_fallback
+
+    @abstractmethod
+    def stateful_on_tick(
+        self,
+        controls: SimpleControls,
+        player_state: CharacterState,
+        opponent_state: CharacterState,
+        state: GameState,
+        input_state: StateT,
+    ) -> tuple[StateT, InputMontage | bool]:
+        """Apply one frame and return the next state followed by the result."""
+        raise NotImplementedError
+
+    @abstractmethod
+    def stateful_should_abort(
+        self,
+        controls: SimpleControls,
+        player_state: CharacterState,
+        opponent_state: CharacterState,
+        state: GameState,
+        input_state: StateT,
+    ) -> bool:
+        """Return whether this montage should abort from the current state."""
+        raise NotImplementedError
+
+    def stateful_cancel(
+        self,
+        controls: SimpleControls,
+        player_state: CharacterState,
+        opponent_state: CharacterState,
+        state: GameState,
+        input_state: StateT,
+    ) -> InputMontage | None:
+        """Return the cancellation fallback selected from the current state."""
+        return None
+
+
+__all__ = ["StatefulInputMontage"]

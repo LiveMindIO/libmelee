@@ -277,6 +277,18 @@ _Z_AIR_CHARACTERS: Final = frozenset(
 )
 
 
+class StickReferenceAxis(Enum):
+    """Conventional absolute axis from which a signed angle is measured.
+
+    Right is 0 degrees and positive rotation is counter-clockwise.
+    """
+
+    UP = 90.0
+    RIGHT = 0.0
+    DOWN = 270.0
+    LEFT = 180.0
+
+
 class AttackType(Enum):
     """Logical attack input a bot can request from :class:`SimpleControls`.
 
@@ -783,6 +795,27 @@ class CharacterState:
         """
         return self._game_state.players.get(self._port)
 
+    def forward_axis(self) -> StickReferenceAxis:
+        """Return the absolute horizontal axis the bound player faces.
+
+        Defaults to right when the port is absent, matching
+        :attr:`melee.gamestate.PlayerState.facing`.
+        """
+        target = self.player()
+        if target is None or target.facing:
+            return StickReferenceAxis.RIGHT
+        return StickReferenceAxis.LEFT
+
+    def backward_axis(self) -> StickReferenceAxis:
+        """Return the absolute horizontal axis behind the bound player.
+
+        Defaults to left when the port is absent, opposite the default forward
+        axis.
+        """
+        if self.forward_axis() is StickReferenceAxis.RIGHT:
+            return StickReferenceAxis.LEFT
+        return StickReferenceAxis.RIGHT
+
     def get_state(self) -> CharacterStatus:
         """Return the high-level :class:`CharacterStatus` of the bound port.
 
@@ -1287,6 +1320,7 @@ __all__ = [
     "AttackType",
     "CharacterState",
     "CharacterStatus",
+    "StickReferenceAxis",
     "attack_is_holdable",
     "can_air_attack",
     "can_attack",

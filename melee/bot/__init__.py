@@ -6,6 +6,7 @@ self-contained: a bot file + libmelee is sufficient to develop and type-check
 against.
 """
 
+from melee.bot.anonymous_input_montage import AnonymousInputMontage
 from melee.bot.character_state import (
     AttackType,
     CharacterState,
@@ -27,14 +28,14 @@ from melee.bot.character_state import (
     is_grabbed,
     is_grabbing,
     is_grabbing_ledge,
-    is_shielding,
     is_shield_broken,
+    is_shielding,
     is_taunting,
     neutral_b_is_chargeable,
     z_air_is_supported,
 )
 from melee.bot.input_montage import InputMontage, MontageState
-from melee.bot.logger import BotLogger, BotLogEntry
+from melee.bot.logger import BotLogEntry, BotLogger
 from melee.bot.match_history import (
     MatchHistory,
     MatchRoundOutcome,
@@ -51,6 +52,7 @@ from melee.bot.simple_controls import (
     StickReferenceAxis,
     stick_coordinates,
 )
+from melee.bot.stateful_input_montage import StatefulInputMontage
 from melee.bot.techskill import (
     LedgedashMontage,
     MultishineMontage,
@@ -61,6 +63,7 @@ from melee.bot.techskill import (
 )
 
 __all__ = [
+    "AnonymousInputMontage",
     "AttackFrameData",
     "AttackType",
     "BotLogEntry",
@@ -71,8 +74,8 @@ __all__ = [
     "CrowdControl",
     "Hold",
     "InputMontage",
-    "LedgedashMontage",
     "LedgeRecoveryOption",
+    "LedgedashMontage",
     "MatchHistory",
     "MatchRoundOutcome",
     "MontageState",
@@ -83,6 +86,7 @@ __all__ = [
     "PlayerMatchRecord",
     "SDIMontage",
     "SimpleControls",
+    "StatefulInputMontage",
     "StickReferenceAxis",
     "WavedashDirection",
     "WavedashMontage",
@@ -103,8 +107,8 @@ __all__ = [
     "is_grabbed",
     "is_grabbing",
     "is_grabbing_ledge",
-    "is_shielding",
     "is_shield_broken",
+    "is_shielding",
     "is_taunting",
     "neutral_b_is_chargeable",
     "stick_coordinates",

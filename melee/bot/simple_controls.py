@@ -53,6 +53,7 @@ from melee.bot.character_state import (
     AttackType,
     CharacterState,
     CharacterStatus,
+    StickReferenceAxis,
     _ACTIONS_FOR_TYPE,
     _ACTIONABLE_AIR,
     _ACTIONABLE_GROUND,
@@ -107,18 +108,6 @@ _SMASH_CHARGE_ACTIONS: Final = frozenset(
         Action.NEUTRAL_B_CHARGING_AIR,
     }
 )
-
-
-class StickReferenceAxis(Enum):
-    """Conventional absolute axis from which a signed angle is measured.
-
-    Right is 0 degrees and positive rotation is counter-clockwise.
-    """
-
-    UP = 90.0
-    RIGHT = 0.0
-    DOWN = 270.0
-    LEFT = 180.0
 
 
 _CARDINAL_STICK_COORDINATES: Final[dict[float, tuple[float, float]]] = {
@@ -461,6 +450,50 @@ class SimpleControls:
             magnitude=magnitude,
         )
         self._controller.tilt_analog(stick, x, y)
+
+    def down_left(self, angle_degrees: float, *, magnitude: float = 1.0, stick: Button = Button.BUTTON_MAIN) -> None:
+        """Tilt from down toward left by an angle from 0 through 90 degrees."""
+        self._tilt_between_axes(StickReferenceAxis.DOWN, angle_degrees, -1.0, magnitude, stick)
+
+    def down_right(self, angle_degrees: float, *, magnitude: float = 1.0, stick: Button = Button.BUTTON_MAIN) -> None:
+        """Tilt from down toward right by an angle from 0 through 90 degrees."""
+        self._tilt_between_axes(StickReferenceAxis.DOWN, angle_degrees, 1.0, magnitude, stick)
+
+    def up_left(self, angle_degrees: float, *, magnitude: float = 1.0, stick: Button = Button.BUTTON_MAIN) -> None:
+        """Tilt from up toward left by an angle from 0 through 90 degrees."""
+        self._tilt_between_axes(StickReferenceAxis.UP, angle_degrees, 1.0, magnitude, stick)
+
+    def up_right(self, angle_degrees: float, *, magnitude: float = 1.0, stick: Button = Button.BUTTON_MAIN) -> None:
+        """Tilt from up toward right by an angle from 0 through 90 degrees."""
+        self._tilt_between_axes(StickReferenceAxis.UP, angle_degrees, -1.0, magnitude, stick)
+
+    def left_up(self, angle_degrees: float, *, magnitude: float = 1.0, stick: Button = Button.BUTTON_MAIN) -> None:
+        """Tilt from left toward up by an angle from 0 through 90 degrees."""
+        self._tilt_between_axes(StickReferenceAxis.LEFT, angle_degrees, -1.0, magnitude, stick)
+
+    def left_down(self, angle_degrees: float, *, magnitude: float = 1.0, stick: Button = Button.BUTTON_MAIN) -> None:
+        """Tilt from left toward down by an angle from 0 through 90 degrees."""
+        self._tilt_between_axes(StickReferenceAxis.LEFT, angle_degrees, 1.0, magnitude, stick)
+
+    def right_up(self, angle_degrees: float, *, magnitude: float = 1.0, stick: Button = Button.BUTTON_MAIN) -> None:
+        """Tilt from right toward up by an angle from 0 through 90 degrees."""
+        self._tilt_between_axes(StickReferenceAxis.RIGHT, angle_degrees, 1.0, magnitude, stick)
+
+    def right_down(self, angle_degrees: float, *, magnitude: float = 1.0, stick: Button = Button.BUTTON_MAIN) -> None:
+        """Tilt from right toward down by an angle from 0 through 90 degrees."""
+        self._tilt_between_axes(StickReferenceAxis.RIGHT, angle_degrees, -1.0, magnitude, stick)
+
+    def _tilt_between_axes(
+        self,
+        reference_axis: StickReferenceAxis,
+        angle_degrees: float,
+        rotation_sign: float,
+        magnitude: float,
+        stick: Button,
+    ) -> None:
+        if not math.isfinite(angle_degrees) or not 0.0 <= angle_degrees <= 90.0:
+            raise ValueError("angle_degrees must be finite and between 0 and 90 inclusive")
+        self.tilt_stick(reference_axis, rotation_sign * angle_degrees, magnitude=magnitude, stick=stick)
 
     def press_button(self, button: Button) -> None:
         """Press one digital controller button without changing other inputs.

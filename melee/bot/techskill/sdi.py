@@ -2,16 +2,17 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from enum import Enum, auto
 from typing import Final
 
 from melee.bot.character_state import CharacterState
 from melee.bot.input_montage import InputMontage
 from melee.bot.simple_controls import SimpleControls, StickReferenceAxis
+from melee.bot.stateful_input_montage import StatefulInputMontage
 from melee.bot.techskill.common import DEAD_ACTIONS, player
 from melee.enums import Action, Button, Character
 from melee.gamestate import GameState, PlayerState, UnknownAnimation
-
 
 _SDI_PULSE_ANGLE_DEGREES: Final = 45.0
 _SHIELD_ACTIONS: Final = frozenset(
@@ -23,9 +24,7 @@ _SHIELD_ACTIONS: Final = frozenset(
         Action.SHIELD_REFLECT,
     }
 )
-_HORIZONTAL_DIRECTIONS: Final = frozenset(
-    {StickReferenceAxis.LEFT, StickReferenceAxis.RIGHT}
-)
+_HORIZONTAL_DIRECTIONS: Final = frozenset({StickReferenceAxis.LEFT, StickReferenceAxis.RIGHT})
 
 
 class _SDIKind(Enum):
@@ -33,10 +32,14 @@ class _SDIKind(Enum):
     Shield = auto()
 
 
+@dataclass(frozen=True)
+class _SDIState:
+    positive_pulse: bool = True
+    shield_pulse: bool = True
+
+
 def _is_damage_action(action: Action | UnknownAnimation) -> bool:
-    return isinstance(action, Action) and (
-        Action.DAMAGE_HIGH_1.value <= action.value <= Action.DAMAGE_FLY_ROLL.value
-    )
+    return isinstance(action, Action) and (Action.DAMAGE_HIGH_1.value <= action.value <= Action.DAMAGE_FLY_ROLL.value)
 
 
 def _sdi_kind(player_state: PlayerState) -> _SDIKind | None:
@@ -51,7 +54,7 @@ def _sdi_kind(player_state: PlayerState) -> _SDIKind | None:
     return None
 
 
-class SDIMontage(InputMontage):
+class SDIMontage(StatefulInputMontage[_SDIState]):
     """SDI toward one cardinal direction for the current hitlag window.
 
     During damage hitlag, regular SDI frames alternate full-stick diagonals around
@@ -73,15 +76,13 @@ class SDIMontage(InputMontage):
         frame_limit: int = 32,
         cancel_montage: InputMontage | None = None,
     ) -> None:
-        super().__init__(frame_limit, cancel_montage)
+        super().__init__(frame_limit, _SDIState(), cancel_montage)
         if not isinstance(direction, StickReferenceAxis):
             raise ValueError("direction must be a StickReferenceAxis")
         self._direction = direction
         self._character: Character | None = None
         self._stock: int | None = None
         self._kind: _SDIKind | None = None
-        self._positive_pulse = True
-        self._shield_pulse = True
 
     def can_start(
         self,
@@ -98,10 +99,7 @@ class SDIMontage(InputMontage):
             or player_state_value.hitlag_left <= 0
             or kind is None
             or player_state.is_grabbed()
-            or (
-                kind is _SDIKind.Shield
-                and self._direction not in _HORIZONTAL_DIRECTIONS
-            )
+            or (kind is _SDIKind.Shield and self._direction not in _HORIZONTAL_DIRECTIONS)
         ):
             return False
         self._character = player_state_value.character
@@ -109,14 +107,15 @@ class SDIMontage(InputMontage):
         self._kind = kind
         return True
 
-    def should_abort(
+    def stateful_should_abort(
         self,
         controls: SimpleControls,
         player_state: CharacterState,
         opponent_state: CharacterState,
         state: GameState,
+        input_state: _SDIState,
     ) -> bool:
-        del controls, opponent_state, state
+        del controls, opponent_state, state, input_state
         player_state_value = player(player_state)
         return (
             player_state_value is None
@@ -126,21 +125,22 @@ class SDIMontage(InputMontage):
             or player_state.is_grabbed()
         )
 
-    def on_tick(
+    def stateful_on_tick(
         self,
         controls: SimpleControls,
         player_state: CharacterState,
         opponent_state: CharacterState,
         state: GameState,
-    ) -> InputMontage | bool:
+        input_state: _SDIState,
+    ) -> tuple[_SDIState, InputMontage | bool]:
         del opponent_state, state
         player_state_value = player(player_state)
         if player_state_value is None:
             controls.release_all()
-            return False
+            return input_state, False
         controls.release_all()
         if player_state_value.hitlag_left <= 0:
-            return True
+            return input_state, True
 
         # DESNOTE(jbarber, 2026-08-17): Controller requests are committed by the
         # next Console.step. hitlag_left > 1 therefore queues regular SDI, while
@@ -151,29 +151,23 @@ class SDIMontage(InputMontage):
         # rather than C-stick for its post-hitlag displacement.
         # See https://github.com/doldecomp/melee/blob/master/src/melee/ft/chara/ftCommon/ftCo_Damage.c#L573-L669
         if player_state_value.hitlag_left > 1:
-            if self._kind is _SDIKind.Shield:
-                if self._shield_pulse:
-                    controls.tilt_stick(self._direction, 0.0)
-                self._shield_pulse = not self._shield_pulse
-                return self
-            pulse_angle = (
-                _SDI_PULSE_ANGLE_DEGREES
-                if self._positive_pulse
-                else -_SDI_PULSE_ANGLE_DEGREES
-            )
-            controls.tilt_stick(self._direction, pulse_angle)
-            self._positive_pulse = not self._positive_pulse
-            return self
+            match self._kind, input_state:
+                case _SDIKind.Shield, _SDIState(positive_pulse, shield_pulse):
+                    if shield_pulse:
+                        controls.tilt_stick(self._direction, 0.0)
+                    return _SDIState(positive_pulse=positive_pulse, shield_pulse=not shield_pulse), self
+                case _, _SDIState(positive_pulse, shield_pulse):
+                    pulse_angle = _SDI_PULSE_ANGLE_DEGREES if positive_pulse else -_SDI_PULSE_ANGLE_DEGREES
+                    controls.tilt_stick(self._direction, pulse_angle)
+                    return _SDIState(positive_pulse=not positive_pulse, shield_pulse=shield_pulse), self
 
-        if self._kind is _SDIKind.Shield:
-            controls.tilt_stick(self._direction, 0.0)
-            return self
-        controls.tilt_stick(
-            self._direction,
-            0.0,
-            stick=Button.BUTTON_C,
-        )
-        return self
+        match self._kind:
+            case _SDIKind.Shield:
+                controls.tilt_stick(self._direction, 0.0)
+                return input_state, self
+            case _:
+                controls.tilt_stick(self._direction, 0.0, stick=Button.BUTTON_C)
+                return input_state, self
 
 
 __all__ = ["SDIMontage"]

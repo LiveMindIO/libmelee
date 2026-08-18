@@ -5,6 +5,7 @@ import unittest
 
 import melee
 from melee.bot import (
+    AnonymousInputMontage,
     AttackType,
     CharacterState,
     Hold,
@@ -15,6 +16,7 @@ from melee.bot import (
     PerfectPivotMontage,
     SDIMontage,
     SimpleControls,
+    StatefulInputMontage,
     StickReferenceAxis,
     WavedashDirection,
     WavedashMontage,
@@ -617,6 +619,89 @@ class SimpleControlsInputTests(unittest.TestCase):
             frame_data=self.frame_data,
         ), controller
 
+    def test_character_state_axes_follow_facing(self) -> None:
+        for facing, forward, backward in (
+            (True, StickReferenceAxis.RIGHT, StickReferenceAxis.LEFT),
+            (False, StickReferenceAxis.LEFT, StickReferenceAxis.RIGHT),
+        ):
+            with self.subTest(facing=facing):
+                player = melee.PlayerState(facing=facing)
+                character_state = CharacterState(
+                    melee.GameState(players={1: player}),
+                    1,
+                    frame_data=self.frame_data,
+                )
+
+                self.assertIs(character_state.forward_axis(), forward)
+                self.assertIs(character_state.backward_axis(), backward)
+
+    def test_character_state_axes_use_default_facing_when_port_is_absent(self) -> None:
+        character_state = CharacterState(melee.GameState(), 1, frame_data=self.frame_data)
+
+        self.assertIs(character_state.forward_axis(), StickReferenceAxis.RIGHT)
+        self.assertIs(character_state.backward_axis(), StickReferenceAxis.LEFT)
+
+    def test_directional_stick_helpers_rotate_toward_named_axis(self) -> None:
+        cases = (
+            ("down_left", StickReferenceAxis.DOWN, -1.0),
+            ("down_right", StickReferenceAxis.DOWN, 1.0),
+            ("up_left", StickReferenceAxis.UP, 1.0),
+            ("up_right", StickReferenceAxis.UP, -1.0),
+            ("left_up", StickReferenceAxis.LEFT, -1.0),
+            ("left_down", StickReferenceAxis.LEFT, 1.0),
+            ("right_up", StickReferenceAxis.RIGHT, 1.0),
+            ("right_down", StickReferenceAxis.RIGHT, -1.0),
+        )
+        player = melee.PlayerState()
+        for method_name, reference_axis, sign in cases:
+            for angle_degrees in (0.0, 15.0, 90.0):
+                for magnitude in (0.0, 0.4, 1.0):
+                    for stick in (melee.Button.BUTTON_MAIN, melee.Button.BUTTON_C):
+                        with self.subTest(method=method_name, angle=angle_degrees, magnitude=magnitude, stick=stick):
+                            controls, controller = self.controls(player)
+                            method = getattr(controls, method_name)
+
+                            method(angle_degrees, magnitude=magnitude, stick=stick)
+
+                            expected = stick_coordinates(reference_axis, sign * angle_degrees, magnitude=magnitude)
+                            actual = controller.main_stick if stick is melee.Button.BUTTON_MAIN else controller.c_stick
+                            other = controller.c_stick if stick is melee.Button.BUTTON_MAIN else controller.main_stick
+                            self.assertEqual(actual, expected)
+                            self.assertEqual(other, (0.5, 0.5))
+
+    def test_directional_stick_helpers_reject_angles_outside_quadrant(self) -> None:
+        player = melee.PlayerState()
+        controls, controller = self.controls(player)
+        method_names = (
+            "down_left",
+            "down_right",
+            "up_left",
+            "up_right",
+            "left_up",
+            "left_down",
+            "right_up",
+            "right_down",
+        )
+
+        for method_name in method_names:
+            method = getattr(controls, method_name)
+            for angle_degrees in (math.nan, math.inf, -math.inf, -0.0001, 90.0001):
+                with self.subTest(method=method_name, angle=angle_degrees), self.assertRaisesRegex(
+                    ValueError, "between 0 and 90"
+                ):
+                    method(angle_degrees)
+            for magnitude in (math.nan, math.inf, -math.inf, -0.0001, 1.0001):
+                with self.subTest(method=method_name, magnitude=magnitude), self.assertRaisesRegex(
+                    ValueError, "magnitude must"
+                ):
+                    method(15.0, magnitude=magnitude)
+
+        with self.assertRaisesRegex(ValueError, "Invalid button type"):
+            controls.down_right(15.0, stick=melee.Button.BUTTON_A)
+
+        self.assertEqual(controller.main_stick, (0.5, 0.5))
+        self.assertEqual(controller.c_stick, (0.5, 0.5))
+
     def test_absolute_ground_attacks_ignore_facing(self) -> None:
         cases = (
             (AttackType.LTILT, 0.0, melee.Button.BUTTON_A, False),
@@ -769,6 +854,61 @@ class RecordingMontage(InputMontage):
         if self.results:
             return self.results.pop(0)
         return self
+
+
+class RecordingStatefulMontage(StatefulInputMontage[int]):
+    def __init__(
+        self,
+        initial_state,
+        *,
+        abort=False,
+        fallback=None,
+        results=(),
+    ):
+        super().__init__(3, initial_state)
+        self.abort = abort
+        self.fallback = fallback
+        self.results = list(results)
+        self.on_tick_states = []
+        self.should_abort_states = []
+        self.cancel_states = []
+
+    def can_start(self, controls, player_state, opponent_state, state):
+        return True
+
+    def stateful_on_tick(
+        self,
+        controls,
+        player_state,
+        opponent_state,
+        state,
+        input_state,
+    ):
+        self.on_tick_states.append(input_state)
+        result = self.results.pop(0) if self.results else self
+        return input_state + 1, result
+
+    def stateful_should_abort(
+        self,
+        controls,
+        player_state,
+        opponent_state,
+        state,
+        input_state,
+    ):
+        self.should_abort_states.append(input_state)
+        return self.abort
+
+    def stateful_cancel(
+        self,
+        controls,
+        player_state,
+        opponent_state,
+        state,
+        input_state,
+    ):
+        self.cancel_states.append(input_state)
+        return self.fallback
 
 
 class RecordingMontageControls:
@@ -967,6 +1107,92 @@ class InputMontageTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "itself"):
             montage.add_branch(montage)
 
+    def test_stateful_montage_replaces_state_between_ticks(self):
+        montage = RecordingStatefulMontage(10)
+        montage.results = [montage, True]
+
+        self.assertIs(self.tick(montage), montage)
+        self.assertIs(self.tick(montage), True)
+        self.assertEqual(montage.should_abort_states, [10, 11])
+        self.assertEqual(montage.on_tick_states, [10, 11])
+        self.assertEqual(montage.get_montage_state(), MontageState.Finished)
+
+    def test_stateful_abort_reads_initial_state_without_ticking(self):
+        montage = RecordingStatefulMontage(4, abort=True)
+
+        self.assertIs(self.tick(montage), False)
+        self.assertEqual(montage.should_abort_states, [4])
+        self.assertEqual(montage.on_tick_states, [])
+        self.assertEqual(montage.get_montage_state(), MontageState.Aborted)
+        self.assertEqual(self.controls.release_count, 1)
+
+    def test_stateful_cancel_receives_latest_state(self):
+        fallback = RecordingMontage()
+        montage = RecordingStatefulMontage(7, fallback=fallback)
+
+        self.assertIsNone(self.cancel(montage))
+        self.assertEqual(montage.cancel_states, [])
+
+        self.assertIs(self.tick(montage), montage)
+        self.assertIs(self.cancel(montage), fallback)
+        self.assertEqual(montage.cancel_states, [8])
+        self.assertEqual(montage.get_montage_state(), MontageState.Cancelled)
+        self.assertEqual(self.controls.release_count, 1)
+
+        self.assertIsNone(self.cancel(montage))
+        self.assertEqual(montage.cancel_states, [8])
+
+    def test_anonymous_montage_delegates_to_supplied_callables(self):
+        calls = []
+        fallback = RecordingMontage()
+        montage = None
+
+        def on_tick(controls, player_state, opponent_state, state, input_state):
+            calls.append(("on_tick", input_state))
+            return input_state + 1, montage
+
+        montage = AnonymousInputMontage(
+            frame_limit=2,
+            initial_state=20,
+            can_start=lambda controls, player_state, opponent_state, state: (
+                calls.append(("can_start", None)) or True
+            ),
+            on_tick=on_tick,
+            should_abort=lambda controls, player_state, opponent_state, state, input_state: (
+                calls.append(("should_abort", input_state)) or False
+            ),
+            cancel=lambda controls, player_state, opponent_state, state, input_state: (
+                calls.append(("cancel", input_state)) or fallback
+            ),
+        )
+
+        self.assertIs(self.tick(montage), montage)
+        self.assertEqual(
+            calls,
+            [
+                ("can_start", None),
+                ("should_abort", 20),
+                ("on_tick", 20),
+            ],
+        )
+
+        self.assertIs(self.cancel(montage), fallback)
+        self.assertEqual(calls[-1], ("cancel", 21))
+
+    def test_anonymous_montage_validates_frame_limit(self):
+        with self.assertRaisesRegex(ValueError, "greater than zero"):
+            AnonymousInputMontage(
+                frame_limit=0,
+                initial_state=None,
+                can_start=lambda controls, player_state, opponent_state, state: True,
+                on_tick=lambda controls, player_state, opponent_state, state, input_state: (
+                    input_state,
+                    True,
+                ),
+                should_abort=lambda controls, player_state, opponent_state, state, input_state: False,
+                cancel=lambda controls, player_state, opponent_state, state, input_state: None,
+            )
+
     def test_cancel_active_montage_returns_configured_fallback(self):
         fallback = RecordingMontage()
         montage = RecordingMontage(cancel_montage=fallback)
@@ -1037,6 +1263,19 @@ class TechniqueMontageTests(unittest.TestCase):
     def setUp(self):
         self.controls = RecordingTechniqueControls()
         self.frame = 0
+
+    def test_technique_montages_use_stateful_base(self):
+        montages = (
+            MultishineMontage(),
+            WavedashMontage(WavedashDirection.Right),
+            LedgedashMontage(),
+            SDIMontage(StickReferenceAxis.RIGHT),
+            PerfectPivotMontage(AttackType.JAB),
+        )
+
+        for montage in montages:
+            with self.subTest(montage=type(montage).__name__):
+                self.assertIsInstance(montage, StatefulInputMontage)
 
     def requested_stick_coordinates(
         self,
@@ -1981,6 +2220,7 @@ class TechniqueMontageTests(unittest.TestCase):
                 off_stage=True,
                 jumps_left=1,
                 position_x=70.0,
+                facing=False,
             ),
             montage,
         )
@@ -1993,6 +2233,7 @@ class TechniqueMontageTests(unittest.TestCase):
                 off_stage=True,
                 jumps_left=1,
                 position_x=70.0,
+                facing=False,
             ),
             montage,
         )
@@ -2014,6 +2255,7 @@ class TechniqueMontageTests(unittest.TestCase):
                 off_stage=True,
                 jumps_left=1,
                 position_x=70.0,
+                facing=False,
             ),
             montage,
         )
@@ -2039,6 +2281,7 @@ class TechniqueMontageTests(unittest.TestCase):
                 position_x=69.0,
                 position_y=0.1,
                 ecb_bottom_y=0.0,
+                facing=False,
             ),
             montage,
         )
@@ -2056,6 +2299,7 @@ class TechniqueMontageTests(unittest.TestCase):
                 position_x=68.0,
                 position_y=0.5,
                 ecb_bottom_y=0.0,
+                facing=False,
             ),
             montage,
         )
@@ -2110,6 +2354,7 @@ class TechniqueMontageTests(unittest.TestCase):
             "off_stage": True,
             "jumps_left": 1,
             "position_x": 70.0,
+            "facing": False,
         }
 
         self.assertIs(
@@ -2159,6 +2404,7 @@ class TechniqueMontageTests(unittest.TestCase):
                     "on_ground": False,
                     "off_stage": True,
                     "position_x": 70.0,
+                    "facing": False,
                 }
 
                 self.tick(

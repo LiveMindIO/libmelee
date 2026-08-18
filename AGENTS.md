@@ -31,14 +31,27 @@ uv pip install --python .venv/bin/python .
   `Finished` and returns the first branch whose `can_start()` returns true. The
   selected branch starts on the caller's next tick. If branches are configured but
   none can start, the completed segment aborts instead.
+- `StatefulInputMontage[StateT]` stores constructor-supplied initial state and adapts
+  `stateful_on_tick`, `stateful_should_abort`, and `stateful_cancel` to the base
+  lifecycle. Every callback receives the current state; only `stateful_on_tick`
+  replaces it by returning `(next_state, result)`. `AnonymousInputMontage[StateT]`
+  supplies those methods and `can_start` through constructor callables and still
+  requires an explicit `frame_limit`.
 - `False` and `should_abort()` use `Aborted`; exhausting the safety limit uses
   `TimedOut`; cancelling an active montage uses `Cancelled` and may return a
   configured fallback montage. Timeout, abort, explicit failure, malformed return,
   and active cancellation neutralize pending input before returning.
+- Base `on_tick()` results dispatch through an exhaustive structural match. Keep
+  mutating callbacks such as `can_start()` and `SimpleControls.attack()` out of
+  match guards; pure state predicates such as Wavedash jump eligibility may use
+  guards with an explicit fallback case.
 - Terminal montage instances cannot restart. Instantiate a new montage for every
   attempt.
 - Concrete montages live in separate files under `melee/bot/techskill/`, with
   reused state and helpers in `melee/bot/techskill/common.py`.
+  The shipped Multishine, Wavedash, Ledgedash, SDI, and Perfect Pivot montages
+  model their mutable phases as typed `StatefulInputMontage` values and dispatch
+  phase transitions with structural pattern matching.
   `MultishineMontage` is Fox-only and models one cycle. `WavedashMontage` uses the
   character-specific final jump-squat frame and aborts if that state is missed.
   `PerfectPivotMontage` requires an onstage grounded `DASHING` state, requests the
@@ -73,3 +86,11 @@ uv pip install --python .venv/bin/python .
 - `CharacterState.can_jump()` and the module-level `can_jump()` allow actionable
   ground jumps and remaining aerial jumps. Every shield phase is jumpable for
   all characters except Yoshi, who cannot jump out of shield.
+- `CharacterState.forward_axis()` / `backward_axis()` map the bound player's
+  facing to an absolute `StickReferenceAxis`; use them instead of duplicating
+  left/right conditionals in bot inputs.
+- `SimpleControls.down_left()` / `down_right()` / `up_left()` / `up_right()` /
+  `left_up()` / `left_down()` / `right_up()` / `right_down()` tilt from the first
+  named cardinal toward the second. Their angle is inclusive from 0 through 90
+  degrees, their magnitude is inclusive from 0 through 1, and they support either
+  the main stick or C-stick.
