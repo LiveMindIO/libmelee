@@ -2651,9 +2651,12 @@ class TechniqueMontageTests(unittest.TestCase):
             ),
             montage,
         )
+        calls = self.controls.take_calls()
+        self.assertIn(("release_all",), calls)
+        self.assertNotIn(("press_button", melee.Button.BUTTON_Y), calls)
         self.assertNotIn(
             ("press_button", melee.Button.BUTTON_L),
-            self.controls.take_calls(),
+            calls,
         )
         self.assertIs(
             self.tick(
@@ -2670,6 +2673,7 @@ class TechniqueMontageTests(unittest.TestCase):
             montage,
         )
         calls = self.controls.take_calls()
+        self.assertNotIn(("press_button", melee.Button.BUTTON_Y), calls)
         self.assertIn(("press_button", melee.Button.BUTTON_L), calls)
         self.assertIn(
             (
