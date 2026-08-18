@@ -1181,6 +1181,19 @@ class TechniqueMontageTests(unittest.TestCase):
         self.controls = RecordingTechniqueControls()
         self.frame = 0
 
+    def test_technique_montages_use_stateful_base(self):
+        montages = (
+            MultishineMontage(),
+            WavedashMontage(WavedashDirection.Right),
+            LedgedashMontage(),
+            SDIMontage(StickReferenceAxis.RIGHT),
+            PerfectPivotMontage(AttackType.JAB),
+        )
+
+        for montage in montages:
+            with self.subTest(montage=type(montage).__name__):
+                self.assertIsInstance(montage, StatefulInputMontage)
+
     def requested_stick_coordinates(
         self,
         calls,

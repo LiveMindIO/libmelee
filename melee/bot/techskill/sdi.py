@@ -159,39 +159,49 @@ class SDIMontage(StatefulInputMontage[_SDIState]):
         # rather than C-stick for its post-hitlag displacement.
         # See https://github.com/doldecomp/melee/blob/master/src/melee/ft/chara/ftCommon/ftCo_Damage.c#L573-L669
         if player_state_value.hitlag_left > 1:
-            if self._kind is _SDIKind.Shield:
-                if input_state.shield_pulse:
-                    controls.tilt_stick(self._direction, 0.0)
-                return (
-                    _SDIState(
-                        positive_pulse=input_state.positive_pulse,
-                        shield_pulse=not input_state.shield_pulse,
-                    ),
-                    self,
-                )
-            pulse_angle = (
-                _SDI_PULSE_ANGLE_DEGREES
-                if input_state.positive_pulse
-                else -_SDI_PULSE_ANGLE_DEGREES
-            )
-            controls.tilt_stick(self._direction, pulse_angle)
-            return (
-                _SDIState(
-                    positive_pulse=not input_state.positive_pulse,
-                    shield_pulse=input_state.shield_pulse,
-                ),
-                self,
-            )
+            match self._kind, input_state:
+                case _SDIKind.Shield, _SDIState(
+                    positive_pulse=positive_pulse,
+                    shield_pulse=shield_pulse,
+                ):
+                    if shield_pulse:
+                        controls.tilt_stick(self._direction, 0.0)
+                    return (
+                        _SDIState(
+                            positive_pulse=positive_pulse,
+                            shield_pulse=not shield_pulse,
+                        ),
+                        self,
+                    )
+                case _, _SDIState(
+                    positive_pulse=positive_pulse,
+                    shield_pulse=shield_pulse,
+                ):
+                    pulse_angle = (
+                        _SDI_PULSE_ANGLE_DEGREES
+                        if positive_pulse
+                        else -_SDI_PULSE_ANGLE_DEGREES
+                    )
+                    controls.tilt_stick(self._direction, pulse_angle)
+                    return (
+                        _SDIState(
+                            positive_pulse=not positive_pulse,
+                            shield_pulse=shield_pulse,
+                        ),
+                        self,
+                    )
 
-        if self._kind is _SDIKind.Shield:
-            controls.tilt_stick(self._direction, 0.0)
-            return input_state, self
-        controls.tilt_stick(
-            self._direction,
-            0.0,
-            stick=Button.BUTTON_C,
-        )
-        return input_state, self
+        match self._kind:
+            case _SDIKind.Shield:
+                controls.tilt_stick(self._direction, 0.0)
+                return input_state, self
+            case _:
+                controls.tilt_stick(
+                    self._direction,
+                    0.0,
+                    stick=Button.BUTTON_C,
+                )
+                return input_state, self
 
 
 __all__ = ["SDIMontage"]

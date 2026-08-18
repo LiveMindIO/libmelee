@@ -160,92 +160,98 @@ class LedgedashMontage(StatefulInputMontage[_LedgedashState]):
         if player_state_value is None or self._direction is None:
             controls.release_all()
             return input_state, False
-        if input_state.phase is _LedgedashPhase.Rising and (
-            player_state_value.on_ground
-            or player_state_value.action not in _RISING_ACTIONS
-        ):
-            return input_state, False
+        match input_state:
+            case _LedgedashState(phase=_LedgedashPhase.Rising) if (
+                player_state_value.on_ground
+                or player_state_value.action not in _RISING_ACTIONS
+            ):
+                return input_state, False
 
         controls.release_all()
-        if input_state.phase is _LedgedashPhase.Ledge:
-            if player_state_value.action is Action.EDGE_CATCHING:
-                return input_state, self
-            if player_state_value.action is not Action.EDGE_HANGING:
-                return input_state, False
-            away = (
-                StickReferenceAxis.LEFT
-                if self._direction is WavedashDirection.Right
-                else StickReferenceAxis.RIGHT
-            )
-            controls.tilt_stick(away, 0.0, stick=Button.BUTTON_C)
-            return _LedgedashState(_LedgedashPhase.ReleaseRequested), self
-
-        if input_state.phase is _LedgedashPhase.ReleaseRequested:
-            if player_state_value.action is Action.EDGE_HANGING:
-                return _LedgedashState(_LedgedashPhase.Ledge), self
-            if (
-                player_state_value.action is not Action.FALLING
-                or player_state_value.jumps_left <= 0
-            ):
-                return input_state, False
-            self._apply_inward_drift(controls)
-            controls.press_button(self._jump_button)
-            return (
-                _LedgedashState(
-                    _LedgedashPhase.JumpRequested,
-                    player_state_value.jumps_left,
-                ),
-                self,
-            )
-
-        if input_state.phase is _LedgedashPhase.JumpRequested:
-            jump_confirmed = player_state_value.action in _AERIAL_JUMP_ACTIONS or (
-                input_state.jumps_before_request is not None
-                and player_state_value.jumps_left < input_state.jumps_before_request
-                and player_state_value.speed_y_self > 0.0
-            )
-            if not jump_confirmed:
-                return input_state, False
-            input_state = _LedgedashState(
-                _LedgedashPhase.Rising,
-                input_state.jumps_before_request,
-            )
-
-        if input_state.phase is _LedgedashPhase.Rising:
-            ecb_bottom_y = float(player_state_value.position.y) + float(
-                player_state_value.ecb.bottom.y
-            )
-            if ecb_bottom_y <= self._minimum_ecb_bottom_y:
+        match input_state:
+            case _LedgedashState(phase=_LedgedashPhase.Ledge):
+                if player_state_value.action is Action.EDGE_CATCHING:
+                    return input_state, self
+                if player_state_value.action is not Action.EDGE_HANGING:
+                    return input_state, False
+                away = (
+                    StickReferenceAxis.LEFT
+                    if self._direction is WavedashDirection.Right
+                    else StickReferenceAxis.RIGHT
+                )
+                controls.tilt_stick(away, 0.0, stick=Button.BUTTON_C)
+                return _LedgedashState(_LedgedashPhase.ReleaseRequested), self
+            case _LedgedashState(phase=_LedgedashPhase.ReleaseRequested):
+                if player_state_value.action is Action.EDGE_HANGING:
+                    return _LedgedashState(_LedgedashPhase.Ledge), self
+                if (
+                    player_state_value.action is not Action.FALLING
+                    or player_state_value.jumps_left <= 0
+                ):
+                    return input_state, False
                 self._apply_inward_drift(controls)
-                return input_state, self
-            apply_wavedash_input(
-                controls,
-                self._direction,
-                self._angle_degrees,
-                self._dodge_button,
-            )
-            return _LedgedashState(_LedgedashPhase.AirDodgeRequested), self
-
-        if input_state.phase is _LedgedashPhase.AirDodgeRequested:
-            if (
-                player_state_value.action is Action.LANDING_SPECIAL
-                and player_state_value.on_ground
+                controls.press_button(self._jump_button)
+                return (
+                    _LedgedashState(
+                        _LedgedashPhase.JumpRequested,
+                        player_state_value.jumps_left,
+                    ),
+                    self,
+                )
+            case _LedgedashState(
+                phase=_LedgedashPhase.JumpRequested,
+                jumps_before_request=jumps_before_request,
             ):
-                return _LedgedashState(_LedgedashPhase.LandingLag), self
-            if player_state_value.action is Action.AIRDODGE:
-                return input_state, self
-            return input_state, False
+                jump_confirmed = (
+                    player_state_value.action in _AERIAL_JUMP_ACTIONS
+                    or (
+                        jumps_before_request is not None
+                        and player_state_value.jumps_left < jumps_before_request
+                        and player_state_value.speed_y_self > 0.0
+                    )
+                )
+                if not jump_confirmed:
+                    return input_state, False
+                input_state = _LedgedashState(
+                    _LedgedashPhase.Rising,
+                    jumps_before_request,
+                )
+            case _LedgedashState(phase=_LedgedashPhase.Rising):
+                pass
+            case _LedgedashState(phase=_LedgedashPhase.AirDodgeRequested):
+                if (
+                    player_state_value.action is Action.LANDING_SPECIAL
+                    and player_state_value.on_ground
+                ):
+                    return _LedgedashState(_LedgedashPhase.LandingLag), self
+                if player_state_value.action is Action.AIRDODGE:
+                    return input_state, self
+                return input_state, False
+            case _LedgedashState(phase=_LedgedashPhase.LandingLag):
+                if (
+                    player_state_value.action is Action.LANDING_SPECIAL
+                    and player_state_value.on_ground
+                ):
+                    return input_state, self
+                return (
+                    input_state,
+                    player_state_value.on_ground
+                    and player_state_value.action in GROUND_MOVEMENT_ACTIONS,
+                )
 
-        if (
-            player_state_value.action is Action.LANDING_SPECIAL
-            and player_state_value.on_ground
-        ):
-            return input_state, self
-        return (
-            input_state,
-            player_state_value.on_ground
-            and player_state_value.action in GROUND_MOVEMENT_ACTIONS,
+        ecb_bottom_y = float(player_state_value.position.y) + float(
+            player_state_value.ecb.bottom.y
         )
+        if ecb_bottom_y <= self._minimum_ecb_bottom_y:
+            self._apply_inward_drift(controls)
+            return input_state, self
+        apply_wavedash_input(
+            controls,
+            self._direction,
+            self._angle_degrees,
+            self._dodge_button,
+        )
+        return _LedgedashState(_LedgedashPhase.AirDodgeRequested), self
 
     def _apply_inward_drift(self, controls: SimpleControls) -> None:
         if self._direction is WavedashDirection.Right:

@@ -138,52 +138,52 @@ class WavedashMontage(StatefulInputMontage[_WavedashPhase]):
             return input_state, False
 
         controls.release_all()
-        if input_state is _WavedashPhase.JumpRequested:
-            if player_state_value.action is not Action.KNEE_BEND:
-                can_request_jump = player_state_value.on_ground and (
-                    player_state_value.action in _WAVEDASH_START_ACTIONS
-                    or (
-                        player_state_value.action in SHINE_ACTIONS
-                        and player_state_value.action_frame >= 3
+        match input_state:
+            case _WavedashPhase.JumpRequested:
+                if player_state_value.action is not Action.KNEE_BEND:
+                    can_request_jump = player_state_value.on_ground and (
+                        player_state_value.action in _WAVEDASH_START_ACTIONS
+                        or (
+                            player_state_value.action in SHINE_ACTIONS
+                            and player_state_value.action_frame >= 3
+                        )
                     )
-                )
-                if not can_request_jump:
+                    if not can_request_jump:
+                        return input_state, False
+                    controls.press_button(self._jump_button)
+                    return input_state, self
+                jump_squat_frames = JUMP_SQUAT_FRAMES[self._character]
+                if player_state_value.action_frame < jump_squat_frames:
+                    return input_state, self
+                if player_state_value.action_frame > jump_squat_frames:
                     return input_state, False
-                controls.press_button(self._jump_button)
-                return input_state, self
-            jump_squat_frames = JUMP_SQUAT_FRAMES[self._character]
-            if player_state_value.action_frame < jump_squat_frames:
-                return input_state, self
-            if player_state_value.action_frame > jump_squat_frames:
+                apply_wavedash_input(
+                    controls,
+                    self._direction,
+                    self._angle_degrees,
+                    self._dodge_button,
+                )
+                return _WavedashPhase.AirDodgeRequested, self
+            case _WavedashPhase.AirDodgeRequested:
+                if (
+                    player_state_value.action is Action.LANDING_SPECIAL
+                    and player_state_value.on_ground
+                ):
+                    return _WavedashPhase.LandingLag, self
+                if player_state_value.action is Action.AIRDODGE:
+                    return input_state, self
                 return input_state, False
-            apply_wavedash_input(
-                controls,
-                self._direction,
-                self._angle_degrees,
-                self._dodge_button,
-            )
-            return _WavedashPhase.AirDodgeRequested, self
-
-        if input_state is _WavedashPhase.AirDodgeRequested:
-            if (
-                player_state_value.action is Action.LANDING_SPECIAL
-                and player_state_value.on_ground
-            ):
-                return _WavedashPhase.LandingLag, self
-            if player_state_value.action is Action.AIRDODGE:
-                return input_state, self
-            return input_state, False
-
-        if (
-            player_state_value.action is Action.LANDING_SPECIAL
-            and player_state_value.on_ground
-        ):
-            return input_state, self
-        return (
-            input_state,
-            player_state_value.on_ground
-            and player_state_value.action in GROUND_MOVEMENT_ACTIONS,
-        )
+            case _WavedashPhase.LandingLag:
+                if (
+                    player_state_value.action is Action.LANDING_SPECIAL
+                    and player_state_value.on_ground
+                ):
+                    return input_state, self
+                return (
+                    input_state,
+                    player_state_value.on_ground
+                    and player_state_value.action in GROUND_MOVEMENT_ACTIONS,
+                )
 
 
 __all__ = ["WavedashDirection", "WavedashMontage"]

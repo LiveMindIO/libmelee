@@ -45,6 +45,9 @@ uv pip install --python .venv/bin/python .
   attempt.
 - Concrete montages live in separate files under `melee/bot/techskill/`, with
   reused state and helpers in `melee/bot/techskill/common.py`.
+  The shipped Multishine, Wavedash, Ledgedash, SDI, and Perfect Pivot montages
+  model their mutable phases as typed `StatefulInputMontage` values and dispatch
+  phase transitions with structural pattern matching.
   `MultishineMontage` is Fox-only and models one cycle. `WavedashMontage` uses the
   character-specific final jump-squat frame and aborts if that state is missed.
   `PerfectPivotMontage` requires an onstage grounded `DASHING` state, requests the
