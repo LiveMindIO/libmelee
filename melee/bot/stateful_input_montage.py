@@ -17,7 +17,13 @@ StateT = TypeVar("StateT")
 
 
 class StatefulInputMontage(InputMontage, Generic[StateT]):
-    """An input montage whose frame logic explicitly transforms typed state."""
+    """An input montage whose frame logic explicitly transforms typed state.
+
+    Active cancellation first applies :meth:`InputMontage.cancel`, then calls
+    :meth:`stateful_cancel` with the latest typed state. A non-``None`` result
+    from that hook overrides the fixed ``cancel_montage`` fallback. Waiting and
+    terminal montages do not invoke the hook.
+    """
 
     def __init__(self, frame_limit: int, initial_state: StateT, cancel_montage: InputMontage | None = None) -> None:
         super().__init__(frame_limit, cancel_montage)
@@ -55,6 +61,7 @@ class StatefulInputMontage(InputMontage, Generic[StateT]):
         opponent_state: CharacterState,
         state: GameState,
     ) -> InputMontage | None:
+        """Cancel this active montage and select a state-aware fallback."""
         if self.get_montage_state() is not MontageState.Active:
             return None
 
@@ -94,7 +101,12 @@ class StatefulInputMontage(InputMontage, Generic[StateT]):
         state: GameState,
         input_state: StateT,
     ) -> InputMontage | None:
-        """Return the cancellation fallback selected from the current state."""
+        """Return an optional fallback selected from the latest typed state.
+
+        This hook runs only during active cancellation, after pending input has
+        been neutralized and the montage has entered ``Cancelled``. Returning
+        ``None`` preserves the constructor's ``cancel_montage`` fallback.
+        """
         return None
 
 

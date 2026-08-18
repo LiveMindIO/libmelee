@@ -18,7 +18,12 @@ StateT = TypeVar("StateT")
 
 
 class AnonymousInputMontage(StatefulInputMontage[StateT]):
-    """A stateful montage defined entirely by supplied callables."""
+    """A stateful montage defined entirely by supplied callables.
+
+    The required ``cancel`` callable receives the latest typed state during
+    active cancellation and may return a fallback montage for the caller's next
+    game tick. It is not called for waiting or terminal montages.
+    """
 
     def __init__(
         self,

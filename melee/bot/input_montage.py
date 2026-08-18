@@ -37,6 +37,12 @@ class InputMontage(ABC):
     branch for the caller to advance on the next game tick. If no configured
     branch can start, the montage aborts.
 
+    Call :meth:`cancel` rather than dropping an active montage when its sequence
+    is no longer wanted. Cancellation neutralizes pending controller input,
+    changes the lifecycle state to :attr:`MontageState.Cancelled`, and returns
+    the optional ``cancel_montage`` fallback for the caller to retain and advance
+    on the next game tick. Waiting and terminal montages cannot be cancelled.
+
     ``frame_limit`` counts calls to :meth:`on_tick`, not time spent waiting for
     :meth:`can_start`. The limit is a safety boundary; implementations should
     return ``False`` as soon as their own success conditions become impossible.
@@ -154,6 +160,12 @@ class InputMontage(ABC):
         state: GameState,
     ) -> InputMontage | None:
         """Cancel an active montage and return its configured fallback.
+
+        When active, this neutralizes pending input and changes the lifecycle
+        state to :attr:`MontageState.Cancelled`. The returned fallback is a
+        next-tick handoff; this method does not advance it. If this montage is
+        waiting or terminal, return ``None`` without changing its state or
+        controller input.
 
         The frame arguments let specialized implementations override this method
         and select a state-dependent cancellation sequence. The base method
