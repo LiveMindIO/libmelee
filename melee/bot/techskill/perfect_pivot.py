@@ -6,7 +6,7 @@ from enum import Enum, auto
 
 from melee.bot.character_state import AttackType, CharacterState
 from melee.bot.input_montage import InputMontage
-from melee.bot.simple_controls import SimpleControls, StickReferenceAxis
+from melee.bot.simple_controls import SimpleControls
 from melee.bot.stateful_input_montage import StatefulInputMontage
 from melee.bot.techskill.common import is_interrupted, player
 from melee.enums import Action, Character
@@ -50,7 +50,6 @@ class PerfectPivotMontage(StatefulInputMontage[_PerfectPivotPhase]):
             raise ValueError("attack_type must be an AttackType")
         self._attack_type = attack_type
         self._character: Character | None = None
-        self._initial_facing: bool | None = None
 
     def can_start(
         self,
@@ -69,7 +68,6 @@ class PerfectPivotMontage(StatefulInputMontage[_PerfectPivotPhase]):
         ):
             return False
         self._character = player_state_value.character
-        self._initial_facing = player_state_value.facing
         return True
 
     def stateful_should_abort(
@@ -109,7 +107,7 @@ class PerfectPivotMontage(StatefulInputMontage[_PerfectPivotPhase]):
             return input_state, True
 
         player_state_value = player(player_state)
-        if player_state_value is None or self._initial_facing is None:
+        if player_state_value is None:
             return input_state, False
 
         match input_state, player_state_value.action:
@@ -121,8 +119,7 @@ class PerfectPivotMontage(StatefulInputMontage[_PerfectPivotPhase]):
                 # See https://www.youtube.com/watch?v=GV2yx9I9IN4 and
                 # https://github.com/doldecomp/melee/blob/master/src/melee/ft/chara/ftCommon/ftCo_Turn.c
                 controls.release_all()
-                reverse = StickReferenceAxis.LEFT if self._initial_facing else StickReferenceAxis.RIGHT
-                controls.tilt_stick(reverse, 0.0)
+                controls.tilt_stick(player_state.backward_axis(), 0.0)
                 return _PerfectPivotPhase.TurnRequested, self
             case _PerfectPivotPhase.TurnRequested, Action.TURNING:
                 if controls.attack(self._attack_type) is None:

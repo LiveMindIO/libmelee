@@ -619,6 +619,83 @@ class SimpleControlsInputTests(unittest.TestCase):
             frame_data=self.frame_data,
         ), controller
 
+    def test_character_state_axes_follow_facing(self) -> None:
+        for facing, forward, backward in (
+            (True, StickReferenceAxis.RIGHT, StickReferenceAxis.LEFT),
+            (False, StickReferenceAxis.LEFT, StickReferenceAxis.RIGHT),
+        ):
+            with self.subTest(facing=facing):
+                player = melee.PlayerState(facing=facing)
+                character_state = CharacterState(
+                    melee.GameState(players={1: player}),
+                    1,
+                    frame_data=self.frame_data,
+                )
+
+                self.assertIs(character_state.forward_axis(), forward)
+                self.assertIs(character_state.backward_axis(), backward)
+
+    def test_character_state_axes_use_default_facing_when_port_is_absent(self) -> None:
+        character_state = CharacterState(melee.GameState(), 1, frame_data=self.frame_data)
+
+        self.assertIs(character_state.forward_axis(), StickReferenceAxis.RIGHT)
+        self.assertIs(character_state.backward_axis(), StickReferenceAxis.LEFT)
+
+    def test_directional_stick_helpers_rotate_toward_named_axis(self) -> None:
+        cases = (
+            ("down_left", StickReferenceAxis.DOWN, -1.0),
+            ("down_right", StickReferenceAxis.DOWN, 1.0),
+            ("up_left", StickReferenceAxis.UP, 1.0),
+            ("up_right", StickReferenceAxis.UP, -1.0),
+            ("left_up", StickReferenceAxis.LEFT, -1.0),
+            ("left_down", StickReferenceAxis.LEFT, 1.0),
+            ("right_up", StickReferenceAxis.RIGHT, 1.0),
+            ("right_down", StickReferenceAxis.RIGHT, -1.0),
+        )
+        player = melee.PlayerState()
+        for method_name, reference_axis, sign in cases:
+            for angle_degrees in (0.0, 15.0, 90.0):
+                for stick in (melee.Button.BUTTON_MAIN, melee.Button.BUTTON_C):
+                    with self.subTest(method=method_name, angle=angle_degrees, stick=stick):
+                        controls, controller = self.controls(player)
+                        method = getattr(controls, method_name)
+
+                        method(angle_degrees, stick=stick)
+
+                        expected = stick_coordinates(reference_axis, sign * angle_degrees)
+                        actual = controller.main_stick if stick is melee.Button.BUTTON_MAIN else controller.c_stick
+                        other = controller.c_stick if stick is melee.Button.BUTTON_MAIN else controller.main_stick
+                        self.assertEqual(actual, expected)
+                        self.assertEqual(other, (0.5, 0.5))
+
+    def test_directional_stick_helpers_reject_angles_outside_quadrant(self) -> None:
+        player = melee.PlayerState()
+        controls, controller = self.controls(player)
+        method_names = (
+            "down_left",
+            "down_right",
+            "up_left",
+            "up_right",
+            "left_up",
+            "left_down",
+            "right_up",
+            "right_down",
+        )
+
+        for method_name in method_names:
+            method = getattr(controls, method_name)
+            for angle_degrees in (math.nan, math.inf, -math.inf, -0.0001, 90.0001):
+                with self.subTest(method=method_name, angle=angle_degrees), self.assertRaisesRegex(
+                    ValueError, "between 0 and 90"
+                ):
+                    method(angle_degrees)
+
+        with self.assertRaisesRegex(ValueError, "Invalid button type"):
+            controls.down_right(15.0, stick=melee.Button.BUTTON_A)
+
+        self.assertEqual(controller.main_stick, (0.5, 0.5))
+        self.assertEqual(controller.c_stick, (0.5, 0.5))
+
     def test_absolute_ground_attacks_ignore_facing(self) -> None:
         cases = (
             (AttackType.LTILT, 0.0, melee.Button.BUTTON_A, False),
@@ -2137,6 +2214,7 @@ class TechniqueMontageTests(unittest.TestCase):
                 off_stage=True,
                 jumps_left=1,
                 position_x=70.0,
+                facing=False,
             ),
             montage,
         )
@@ -2149,6 +2227,7 @@ class TechniqueMontageTests(unittest.TestCase):
                 off_stage=True,
                 jumps_left=1,
                 position_x=70.0,
+                facing=False,
             ),
             montage,
         )
@@ -2170,6 +2249,7 @@ class TechniqueMontageTests(unittest.TestCase):
                 off_stage=True,
                 jumps_left=1,
                 position_x=70.0,
+                facing=False,
             ),
             montage,
         )
@@ -2195,6 +2275,7 @@ class TechniqueMontageTests(unittest.TestCase):
                 position_x=69.0,
                 position_y=0.1,
                 ecb_bottom_y=0.0,
+                facing=False,
             ),
             montage,
         )
@@ -2212,6 +2293,7 @@ class TechniqueMontageTests(unittest.TestCase):
                 position_x=68.0,
                 position_y=0.5,
                 ecb_bottom_y=0.0,
+                facing=False,
             ),
             montage,
         )
@@ -2266,6 +2348,7 @@ class TechniqueMontageTests(unittest.TestCase):
             "off_stage": True,
             "jumps_left": 1,
             "position_x": 70.0,
+            "facing": False,
         }
 
         self.assertIs(
@@ -2315,6 +2398,7 @@ class TechniqueMontageTests(unittest.TestCase):
                     "on_ground": False,
                     "off_stage": True,
                     "position_x": 70.0,
+                    "facing": False,
                 }
 
                 self.tick(

@@ -9,7 +9,7 @@ from typing import Final
 
 from melee.bot.character_state import CharacterState
 from melee.bot.input_montage import InputMontage
-from melee.bot.simple_controls import SimpleControls, StickReferenceAxis
+from melee.bot.simple_controls import SimpleControls
 from melee.bot.stateful_input_montage import StatefulInputMontage
 from melee.bot.techskill.common import (
     GROUND_MOVEMENT_ACTIONS,
@@ -157,10 +157,7 @@ class LedgedashMontage(StatefulInputMontage[_LedgedashState]):
             case _LedgedashState(phase=_LedgedashPhase.Ledge), Action.EDGE_CATCHING:
                 return input_state, self
             case _LedgedashState(phase=_LedgedashPhase.Ledge), Action.EDGE_HANGING:
-                away = (
-                    StickReferenceAxis.LEFT if self._direction is WavedashDirection.Right else StickReferenceAxis.RIGHT
-                )
-                controls.tilt_stick(away, 0.0, stick=Button.BUTTON_C)
+                controls.tilt_stick(player_state.backward_axis(), 0.0, stick=Button.BUTTON_C)
                 return _LedgedashState(_LedgedashPhase.ReleaseRequested), self
             case _LedgedashState(phase=_LedgedashPhase.Ledge), _:
                 return input_state, False
@@ -169,7 +166,7 @@ class LedgedashMontage(StatefulInputMontage[_LedgedashState]):
             case _LedgedashState(phase=_LedgedashPhase.ReleaseRequested), Action.FALLING if (
                 player_state_value.jumps_left > 0
             ):
-                self._apply_inward_drift(controls)
+                self._apply_inward_drift(controls, player_state)
                 controls.press_button(self._jump_button)
                 return (
                     _LedgedashState(_LedgedashPhase.JumpRequested, player_state_value.jumps_left),
@@ -213,17 +210,14 @@ class LedgedashMontage(StatefulInputMontage[_LedgedashState]):
 
         ecb_bottom_y = float(player_state_value.position.y) + float(player_state_value.ecb.bottom.y)
         if ecb_bottom_y <= self._minimum_ecb_bottom_y:
-            self._apply_inward_drift(controls)
+            self._apply_inward_drift(controls, player_state)
             return input_state, self
 
         apply_wavedash_input(controls, self._direction, self._angle_degrees, self._dodge_button)
         return _LedgedashState(_LedgedashPhase.AirDodgeRequested), self
 
-    def _apply_inward_drift(self, controls: SimpleControls) -> None:
-        if self._direction is WavedashDirection.Right:
-            controls.tilt_stick(StickReferenceAxis.RIGHT, 0.0)
-        else:
-            controls.tilt_stick(StickReferenceAxis.LEFT, 0.0)
+    def _apply_inward_drift(self, controls: SimpleControls, player_state: CharacterState) -> None:
+        controls.tilt_stick(player_state.forward_axis(), 0.0)
 
 
 __all__ = ["LedgedashMontage"]

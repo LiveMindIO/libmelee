@@ -82,3 +82,10 @@ uv pip install --python .venv/bin/python .
 - `CharacterState.can_jump()` and the module-level `can_jump()` allow actionable
   ground jumps and remaining aerial jumps. Every shield phase is jumpable for
   all characters except Yoshi, who cannot jump out of shield.
+- `CharacterState.forward_axis()` / `backward_axis()` map the bound player's
+  facing to an absolute `StickReferenceAxis`; use them instead of duplicating
+  left/right conditionals in bot inputs.
+- `SimpleControls.down_left()` / `down_right()` / `up_left()` / `up_right()` /
+  `left_up()` / `left_down()` / `right_up()` / `right_down()` tilt from the first
+  named cardinal toward the second. Their angle is inclusive from 0 through 90
+  degrees and they support either the main stick or C-stick.
