@@ -235,11 +235,13 @@ class LedgeRecoveryOption(Enum):
 
 @dataclass(frozen=True, slots=True)
 class AttackFrameData:
-    """Identifies a move that has started and exposes libmelee frame queries.
+    """Carries action metadata for a requested move and libmelee frame queries.
 
-    Returned when :meth:`SimpleControls.attack` recognizes the requested move in
-    the current ``PlayerState``, or when :meth:`SimpleControls.release` completes
-    a charged hold.
+    :meth:`SimpleControls.attack` returns this only after recognizing the requested
+    move in the current ``PlayerState``. :meth:`SimpleControls.release` instead
+    returns it when the release input is accepted and may use the hold's expected
+    action before a later frame reports the move. A release result is therefore
+    not confirmation that the move has started in-game.
 
     Attributes:
         character: Character performing the move.
@@ -377,9 +379,12 @@ class SimpleControls:
       ``PlayerState.action``.
 
     Chargeable moves (smashes; neutral-B on chargeable characters) return a
-    ``Hold`` with ``charging=True``. Call :meth:`release` to drop the charge early
-    or keep calling :meth:`attack` with ``hold=`` until the move starts or
-    :meth:`check_hold` returns ``False``.
+    ``Hold`` with ``charging=True``. Allow the initial charge input to commit on a
+    later ``console.step()`` before calling :meth:`release`; releasing in the same
+    frame neutralizes the still-pending input. A release result acknowledges that
+    command but does not confirm observed move startup. Otherwise keep calling
+    :meth:`attack` with ``hold=`` until the move starts or :meth:`check_hold`
+    returns ``False``.
     """
 
     def __init__(
@@ -689,13 +694,19 @@ class SimpleControls:
 
         Only valid for ``Hold`` values with ``charging=True`` (smashes and
         chargeable neutral-B). Sends ``release_all`` on the controller so the
-        charged attack can proceed.
+        charged attack can proceed. Do not call this in the same frame that
+        created ``hold``: pending attack inputs are not committed until the next
+        ``console.step()``, so same-frame release neutralizes them before the game
+        sees them.
 
         Args:
             hold: Charging hold to release.
 
         Returns:
-            :class:`AttackFrameData` for the move if release succeeded.
+            :class:`AttackFrameData` for the requested move if the release command
+            was accepted. When the current ``PlayerState`` has not reported the
+            move yet, ``action`` is the hold's expected action; this does not
+            confirm that the move started in-game.
             ``None`` if the hold was not charging, already released, or the player
             can no longer release (hitstun, wrong state, etc.).
         """
@@ -709,6 +720,9 @@ class SimpleControls:
         self._controller.release_all()
         action = self._current_attack_action(player, hold.attack_type)
         if action is None:
+            # DESNOTE(jbarber, 2026-08-18): release() acknowledges a controller
+            # command whose result cannot be observed until a later game frame.
+            # Preserve useful metadata without claiming PlayerState confirmation.
             action = hold.action
 
         return AttackFrameData(

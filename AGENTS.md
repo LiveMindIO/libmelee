@@ -52,7 +52,9 @@ uv pip install --python .venv/bin/python .
   The shipped Multishine, Wavedash, Ledgedash, SDI, Perfect Pivot, and Smash Turn
   Jump montages model their mutable phases as typed `StatefulInputMontage` values
   and dispatch phase transitions with structural pattern matching.
-  `MultishineMontage` is Fox-only and models one cycle. `WavedashMontage` uses the
+  `MultishineMontage` is Fox-only and performs a configurable `shine_count` of at
+  least two consecutive shines; its default frame limit scales with that count.
+  `WavedashMontage` uses the
   character-specific final jump-squat frame and aborts if that state is missed.
   `PerfectPivotMontage` requires an onstage grounded `DASHING` state, requests the
   opposite direction based on current facing, and delegates its `AttackType` only
@@ -71,8 +73,8 @@ uv pip install --python .venv/bin/python .
   pulses during damage hitlag, ignores vertical shield windows, uses target-neutral
   pulses for horizontal shield SDI, queues cardinal C-stick ASDI as damage hitlag
   exits, and uses the main stick for shield hitlag's final displacement.
-- The wavedash and ledgedash default angle is a conservative 45 degrees. The
-  accepted shallow boundary is 17.1 degrees; boundary values and one ULP of
+- Wavedash and ledgedash callers must choose the angle explicitly. The accepted
+  shallow boundary is 16.84 degrees; boundary values and one ULP of
   roundoff clamp one representable float inward. Ledgedash's default ECB-bottom
   world-Y threshold is 0.25 for standard main-stage ledges and is intentionally
   configurable.
