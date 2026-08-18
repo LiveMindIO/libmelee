@@ -1028,13 +1028,15 @@ class TechniqueMontageTests(unittest.TestCase):
             game_state,
         )
 
-    def test_perfect_pivot_reverses_then_attacks_for_each_facing_direction(self):
+    def test_perfect_pivot_reverses_attacks_then_releases_for_each_facing_direction(
+        self,
+    ):
         for facing, reverse in (
             (True, StickReferenceAxis.LEFT),
             (False, StickReferenceAxis.RIGHT),
         ):
             with self.subTest(facing=facing):
-                montage = PerfectPivotMontage(AttackType.FTILT)
+                montage = PerfectPivotMontage(AttackType.LSMASH)
 
                 self.assertIs(
                     self.tick(montage, melee.Action.DASHING, facing=facing),
@@ -1056,12 +1058,24 @@ class TechniqueMontageTests(unittest.TestCase):
 
                 self.assertIs(
                     self.tick(montage, melee.Action.TURNING, facing=not facing),
-                    True,
+                    montage,
                 )
                 self.assertEqual(
                     self.controls.take_calls(),
-                    [("attack", AttackType.FTILT, None)],
+                    [("attack", AttackType.LSMASH, None)],
                 )
+                self.assertEqual(montage.get_montage_state(), MontageState.Active)
+
+                self.assertIs(
+                    self.tick(
+                        montage,
+                        melee.Action.FSMASH_MID,
+                        facing=not facing,
+                        hitlag_left=2,
+                    ),
+                    True,
+                )
+                self.assertEqual(self.controls.take_calls(), [("release_all",)])
                 self.assertEqual(montage.get_montage_state(), MontageState.Finished)
 
     def test_perfect_pivot_accepts_every_simple_controls_attack_type(self):
@@ -1075,12 +1089,17 @@ class TechniqueMontageTests(unittest.TestCase):
                 self.controls.take_calls()
                 self.assertIs(
                     self.tick(montage, melee.Action.TURNING, facing=False),
-                    True,
+                    montage,
                 )
                 self.assertEqual(
                     self.controls.take_calls(),
                     [("attack", attack_type, None)],
                 )
+                self.assertIs(
+                    self.tick(montage, melee.Action.STANDING, facing=False),
+                    True,
+                )
+                self.assertEqual(self.controls.take_calls(), [("release_all",)])
 
     def test_perfect_pivot_requires_a_grounded_onstage_dash(self):
         for action, on_ground, off_stage in (

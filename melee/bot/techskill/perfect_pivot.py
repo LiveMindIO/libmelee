@@ -16,6 +16,8 @@ class PerfectPivotMontage(InputMontage):
     Every :class:`AttackType` is accepted and delegated to
     :meth:`SimpleControls.attack`. The montage aborts if that attack cannot begin
     from the grounded turn state, as with state-dependent dash attacks or throws.
+    On the following frame it neutralizes all inputs before reporting success, so
+    chargeable attacks are not held unintentionally.
 
     Use :attr:`AttackType.LSMASH` or :attr:`AttackType.RSMASH` when requesting a
     horizontal smash. The facing-relative :attr:`AttackType.FSMASH` resolves
@@ -39,6 +41,7 @@ class PerfectPivotMontage(InputMontage):
             raise ValueError("attack_type must be an AttackType")
         self._attack_type = attack_type
         self._turn_requested = False
+        self._attack_requested = False
         self._character: Character | None = None
         self._initial_facing: bool | None = None
 
@@ -70,6 +73,8 @@ class PerfectPivotMontage(InputMontage):
         state: GameState,
     ) -> bool:
         del controls, opponent_state, state
+        if self._attack_requested:
+            return False
         player_state_value = player(player_state)
         return (
             player_state_value is None
@@ -90,6 +95,10 @@ class PerfectPivotMontage(InputMontage):
         state: GameState,
     ) -> InputMontage | bool:
         del opponent_state, state
+        if self._attack_requested:
+            controls.release_all()
+            return True
+
         player_state_value = player(player_state)
         if player_state_value is None or self._initial_facing is None:
             return False
@@ -116,7 +125,10 @@ class PerfectPivotMontage(InputMontage):
 
         if player_state_value.action is not Action.TURNING:
             return False
-        return controls.attack(self._attack_type) is not None
+        if controls.attack(self._attack_type) is None:
+            return False
+        self._attack_requested = True
+        return self
 
 
 __all__ = ["PerfectPivotMontage"]
