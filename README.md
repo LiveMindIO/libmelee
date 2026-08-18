@@ -197,9 +197,10 @@ may retain the match's shared `FrameData` when it needs framedata queries.
 
 Libmelee includes concrete technique montages:
 
-- `MultishineMontage` performs one Fox multishine cycle using the same action
-  sequence as the historical `techskill.multishine` helper and succeeds only when
-  the second Shine begins.
+- `MultishineMontage(shine_count=2)` performs the requested number of consecutive
+  Fox shines using the same action sequence as the historical
+  `techskill.multishine` helper. `shine_count` must be at least two; when no
+  explicit `frame_limit` is supplied, its safety budget scales with the count.
 - `WavedashMontage` supports every standard character's jump-squat duration and
   requests the down-diagonal air dodge on the final `KNEE_BEND` frame. Callers
   must choose the angle explicitly; 16.84 degrees is accepted as the ideal

@@ -52,7 +52,9 @@ uv pip install --python .venv/bin/python .
   The shipped Multishine, Wavedash, Ledgedash, SDI, Perfect Pivot, and Smash Turn
   Jump montages model their mutable phases as typed `StatefulInputMontage` values
   and dispatch phase transitions with structural pattern matching.
-  `MultishineMontage` is Fox-only and models one cycle. `WavedashMontage` uses the
+  `MultishineMontage` is Fox-only and performs a configurable `shine_count` of at
+  least two consecutive shines; its default frame limit scales with that count.
+  `WavedashMontage` uses the
   character-specific final jump-squat frame and aborts if that state is missed.
   `PerfectPivotMontage` requires an onstage grounded `DASHING` state, requests the
   opposite direction based on current facing, and delegates its `AttackType` only

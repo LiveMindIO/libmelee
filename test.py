@@ -1685,6 +1685,150 @@ class TechniqueMontageTests(unittest.TestCase):
         )
         self.assertEqual(montage.get_montage_state(), MontageState.Finished)
 
+    def test_multishine_repeats_until_configured_shine_count(self):
+        shine_count = 8
+        montage = MultishineMontage(shine_count=shine_count)
+
+        self.assertIs(self.tick(montage, melee.Action.STANDING), montage)
+        self.controls.take_calls()
+
+        for shine_number in range(1, shine_count + 1):
+            with self.subTest(shine_number=shine_number):
+                result = self.tick(
+                    montage,
+                    melee.Action.DOWN_B_GROUND_START,
+                    action_frame=4,
+                )
+                calls = self.controls.take_calls()
+                if shine_number == shine_count:
+                    self.assertIs(result, True)
+                    self.assertNotIn(
+                        ("press_button", melee.Button.BUTTON_Y),
+                        calls,
+                    )
+                    continue
+
+                self.assertIs(result, montage)
+                self.assertIn(
+                    ("press_button", melee.Button.BUTTON_Y),
+                    calls,
+                )
+                for action_frame in (1, 2, 3):
+                    self.assertIs(
+                        self.tick(
+                            montage,
+                            melee.Action.KNEE_BEND,
+                            action_frame=action_frame,
+                        ),
+                        montage,
+                    )
+                    calls = self.controls.take_calls()
+                    self.assertEqual(
+                        ("press_button", melee.Button.BUTTON_B) in calls,
+                        action_frame == 3,
+                    )
+
+        self.assertEqual(montage.get_montage_state(), MontageState.Finished)
+
+    def test_multishine_retries_shine_while_standing(self):
+        montage = MultishineMontage()
+        self.tick(montage, melee.Action.STANDING)
+        self.controls.take_calls()
+
+        self.assertIs(self.tick(montage, melee.Action.STANDING), montage)
+        self.assertIn(
+            ("press_button", melee.Button.BUTTON_B),
+            self.controls.take_calls(),
+        )
+
+        self.tick(montage, melee.Action.DOWN_B_GROUND)
+        self.controls.take_calls()
+        for action_frame in (1, 2, 3):
+            self.tick(
+                montage,
+                melee.Action.KNEE_BEND,
+                action_frame=action_frame,
+            )
+            self.controls.take_calls()
+
+        self.assertIs(self.tick(montage, melee.Action.STANDING), montage)
+        self.assertIn(
+            ("press_button", melee.Button.BUTTON_B),
+            self.controls.take_calls(),
+        )
+
+    def test_multishine_waits_for_jump_cancelable_shine_start_frame(self):
+        for action in (
+            melee.Action.DOWN_B_STUN,
+            melee.Action.DOWN_B_GROUND_START,
+        ):
+            with self.subTest(action=action):
+                montage = MultishineMontage()
+                self.tick(montage, melee.Action.STANDING)
+                self.controls.take_calls()
+
+                self.assertIs(
+                    self.tick(montage, action, action_frame=3),
+                    montage,
+                )
+                self.assertNotIn(
+                    ("press_button", melee.Button.BUTTON_Y),
+                    self.controls.take_calls(),
+                )
+
+                self.assertIs(
+                    self.tick(montage, action, action_frame=4),
+                    montage,
+                )
+                self.assertIn(
+                    ("press_button", melee.Button.BUTTON_Y),
+                    self.controls.take_calls(),
+                )
+
+    def test_multishine_does_not_jump_cancel_shine_turn(self):
+        montage = MultishineMontage()
+        self.tick(montage, melee.Action.STANDING)
+        self.controls.take_calls()
+
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action.SHINE_TURN,
+                action_frame=4,
+            ),
+            montage,
+        )
+        self.assertNotIn(
+            ("press_button", melee.Button.BUTTON_Y),
+            self.controls.take_calls(),
+        )
+
+    def test_multishine_jumps_from_active_ground_shine_without_ground_flag(self):
+        montage = MultishineMontage()
+        self.tick(montage, melee.Action.STANDING)
+        self.controls.take_calls()
+
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action.DOWN_B_GROUND,
+                on_ground=False,
+            ),
+            montage,
+        )
+        self.assertIn(
+            ("press_button", melee.Button.BUTTON_Y),
+            self.controls.take_calls(),
+        )
+
+    def test_multishine_validates_shine_count(self):
+        for shine_count in (True, 0, 1):
+            with self.subTest(shine_count=shine_count), self.assertRaisesRegex(
+                ValueError,
+                "shine_count",
+            ):
+                MultishineMontage(shine_count=shine_count)
+
     def test_multishine_waits_for_fox_in_standing_state(self):
         montage = MultishineMontage()
 
