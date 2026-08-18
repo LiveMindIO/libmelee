@@ -65,13 +65,7 @@ class AnonymousInputMontage(StatefulInputMontage[StateT]):
         state: GameState,
         input_state: StateT,
     ) -> tuple[StateT, InputMontage | bool]:
-        return self._on_tick(
-            controls,
-            player_state,
-            opponent_state,
-            state,
-            input_state,
-        )
+        return self._on_tick(controls, player_state, opponent_state, state, input_state)
 
     def stateful_should_abort(
         self,
@@ -81,13 +75,7 @@ class AnonymousInputMontage(StatefulInputMontage[StateT]):
         state: GameState,
         input_state: StateT,
     ) -> bool:
-        return self._should_abort(
-            controls,
-            player_state,
-            opponent_state,
-            state,
-            input_state,
-        )
+        return self._should_abort(controls, player_state, opponent_state, state, input_state)
 
     def stateful_cancel(
         self,
@@ -97,13 +85,7 @@ class AnonymousInputMontage(StatefulInputMontage[StateT]):
         state: GameState,
         input_state: StateT,
     ) -> InputMontage | None:
-        return self._cancel(
-            controls,
-            player_state,
-            opponent_state,
-            state,
-            input_state,
-        )
+        return self._cancel(controls, player_state, opponent_state, state, input_state)
 
 
 __all__ = ["AnonymousInputMontage"]

@@ -155,34 +155,18 @@ class SDIMontage(StatefulInputMontage[_SDIState]):
                 case _SDIKind.Shield, _SDIState(positive_pulse, shield_pulse):
                     if shield_pulse:
                         controls.tilt_stick(self._direction, 0.0)
-                    return (
-                        _SDIState(
-                            positive_pulse=positive_pulse,
-                            shield_pulse=not shield_pulse,
-                        ),
-                        self,
-                    )
+                    return _SDIState(positive_pulse=positive_pulse, shield_pulse=not shield_pulse), self
                 case _, _SDIState(positive_pulse, shield_pulse):
                     pulse_angle = _SDI_PULSE_ANGLE_DEGREES if positive_pulse else -_SDI_PULSE_ANGLE_DEGREES
                     controls.tilt_stick(self._direction, pulse_angle)
-                    return (
-                        _SDIState(
-                            positive_pulse=not positive_pulse,
-                            shield_pulse=shield_pulse,
-                        ),
-                        self,
-                    )
+                    return _SDIState(positive_pulse=not positive_pulse, shield_pulse=shield_pulse), self
 
         match self._kind:
             case _SDIKind.Shield:
                 controls.tilt_stick(self._direction, 0.0)
                 return input_state, self
             case _:
-                controls.tilt_stick(
-                    self._direction,
-                    0.0,
-                    stick=Button.BUTTON_C,
-                )
+                controls.tilt_stick(self._direction, 0.0, stick=Button.BUTTON_C)
                 return input_state, self
 
 

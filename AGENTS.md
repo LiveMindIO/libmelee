@@ -41,6 +41,10 @@ uv pip install --python .venv/bin/python .
   `TimedOut`; cancelling an active montage uses `Cancelled` and may return a
   configured fallback montage. Timeout, abort, explicit failure, malformed return,
   and active cancellation neutralize pending input before returning.
+- Base `on_tick()` results dispatch through an exhaustive structural match. Keep
+  mutating callbacks such as `can_start()` and `SimpleControls.attack()` out of
+  match guards; pure state predicates such as Wavedash jump eligibility may use
+  guards with an explicit fallback case.
 - Terminal montage instances cannot restart. Instantiate a new montage for every
   attempt.
 - Concrete montages live in separate files under `melee/bot/techskill/`, with

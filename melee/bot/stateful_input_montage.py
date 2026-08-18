@@ -19,12 +19,7 @@ StateT = TypeVar("StateT")
 class StatefulInputMontage(InputMontage, Generic[StateT]):
     """An input montage whose frame logic explicitly transforms typed state."""
 
-    def __init__(
-        self,
-        frame_limit: int,
-        initial_state: StateT,
-        cancel_montage: InputMontage | None = None,
-    ) -> None:
+    def __init__(self, frame_limit: int, initial_state: StateT, cancel_montage: InputMontage | None = None) -> None:
         super().__init__(frame_limit, cancel_montage)
         self._input_state = initial_state
 
@@ -51,13 +46,7 @@ class StatefulInputMontage(InputMontage, Generic[StateT]):
         opponent_state: CharacterState,
         state: GameState,
     ) -> bool:
-        return self.stateful_should_abort(
-            controls,
-            player_state,
-            opponent_state,
-            state,
-            self._input_state,
-        )
+        return self.stateful_should_abort(controls, player_state, opponent_state, state, self._input_state)
 
     def cancel(
         self,
@@ -70,13 +59,7 @@ class StatefulInputMontage(InputMontage, Generic[StateT]):
             return None
 
         fallback = super().cancel(controls, player_state, opponent_state, state)
-        stateful_fallback = self.stateful_cancel(
-            controls,
-            player_state,
-            opponent_state,
-            state,
-            self._input_state,
-        )
+        stateful_fallback = self.stateful_cancel(controls, player_state, opponent_state, state, self._input_state)
         return fallback if stateful_fallback is None else stateful_fallback
 
     @abstractmethod

@@ -42,11 +42,7 @@ class InputMontage(ABC):
     return ``False`` as soon as their own success conditions become impossible.
     """
 
-    def __init__(
-        self,
-        frame_limit: int,
-        cancel_montage: InputMontage | None = None,
-    ) -> None:
+    def __init__(self, frame_limit: int, cancel_montage: InputMontage | None = None) -> None:
         if frame_limit <= 0:
             raise ValueError("frame_limit must be greater than zero")
 
@@ -88,19 +84,11 @@ class InputMontage(ABC):
         Terminal montages always return ``False`` on later calls and cannot be
         restarted.
         """
-        if self._montage_state not in {
-            MontageState.Waiting,
-            MontageState.Active,
-        }:
+        if self._montage_state not in {MontageState.Waiting, MontageState.Active}:
             return False
 
         if self._montage_state is MontageState.Waiting:
-            if not self.can_start(
-                controls,
-                player_state,
-                opponent_state,
-                state,
-            ):
+            if not self.can_start(controls, player_state, opponent_state, state):
                 return self
             self._montage_state = MontageState.Active
 
@@ -109,42 +97,30 @@ class InputMontage(ABC):
             self._montage_state = MontageState.TimedOut
             return False
 
-        if self.should_abort(
-            controls,
-            player_state,
-            opponent_state,
-            state,
-        ):
+        if self.should_abort(controls, player_state, opponent_state, state):
             controls.release_all()
             self._montage_state = MontageState.Aborted
             return False
 
-        result = self.on_tick(
-            controls,
-            player_state,
-            opponent_state,
-            state,
-        )
+        result = self.on_tick(controls, player_state, opponent_state, state)
         self._frame_count += 1
 
-        if result is True:
-            return self._continue_to_branch_or_finish(
-                controls,
-                player_state,
-                opponent_state,
-                state,
-            )
-        if result is False:
-            controls.release_all()
-            self._montage_state = MontageState.Aborted
-            return False
-        if not isinstance(result, InputMontage):
-            controls.release_all()
-            self._montage_state = MontageState.Aborted
-            raise TypeError("on_tick must return an InputMontage or bool")
-        if result is not self:
-            self._montage_state = MontageState.Finished
-        return result
+        match result:
+            case True:
+                return self._continue_to_branch_or_finish(controls, player_state, opponent_state, state)
+            case False:
+                controls.release_all()
+                self._montage_state = MontageState.Aborted
+                return False
+            case InputMontage() as next_montage if next_montage is not self:
+                self._montage_state = MontageState.Finished
+                return next_montage
+            case InputMontage() as next_montage:
+                return next_montage
+            case _:
+                controls.release_all()
+                self._montage_state = MontageState.Aborted
+                raise TypeError("on_tick must return an InputMontage or bool")
 
     def _continue_to_branch_or_finish(
         self,
@@ -160,12 +136,7 @@ class InputMontage(ABC):
         for branch in self._branches:
             if branch._montage_state is not MontageState.Waiting:
                 continue
-            if not branch.can_start(
-                controls,
-                player_state,
-                opponent_state,
-                state,
-            ):
+            if not branch.can_start(controls, player_state, opponent_state, state):
                 continue
 
             branch._montage_state = MontageState.Active

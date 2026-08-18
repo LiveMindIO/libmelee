@@ -103,44 +103,22 @@ JUMP_SQUAT_FRAMES: Final[dict[Character, int]] = {
 # montage's accepted interval. See https://www.ssbwiki.com/Wavedash#Lengths
 WAVEDASH_MIN_ANGLE_DEGREES: Final = 17.1
 WAVEDASH_MAX_ANGLE_DEGREES: Final = 90.0
-_WAVEDASH_MIN_SAFE_ANGLE_DEGREES: Final = math.nextafter(
-    WAVEDASH_MIN_ANGLE_DEGREES,
-    WAVEDASH_MAX_ANGLE_DEGREES,
-)
-_WAVEDASH_MAX_SAFE_ANGLE_DEGREES: Final = math.nextafter(
-    WAVEDASH_MAX_ANGLE_DEGREES,
-    WAVEDASH_MIN_ANGLE_DEGREES,
-)
-_WAVEDASH_MIN_ROUNDOFF_ANGLE_DEGREES: Final = math.nextafter(
-    WAVEDASH_MIN_ANGLE_DEGREES,
-    -math.inf,
-)
-_WAVEDASH_MAX_ROUNDOFF_ANGLE_DEGREES: Final = math.nextafter(
-    WAVEDASH_MAX_ANGLE_DEGREES,
-    math.inf,
-)
+_WAVEDASH_MIN_SAFE_ANGLE_DEGREES: Final = math.nextafter(WAVEDASH_MIN_ANGLE_DEGREES, WAVEDASH_MAX_ANGLE_DEGREES)
+_WAVEDASH_MAX_SAFE_ANGLE_DEGREES: Final = math.nextafter(WAVEDASH_MAX_ANGLE_DEGREES, WAVEDASH_MIN_ANGLE_DEGREES)
+_WAVEDASH_MIN_ROUNDOFF_ANGLE_DEGREES: Final = math.nextafter(WAVEDASH_MIN_ANGLE_DEGREES, -math.inf)
+_WAVEDASH_MAX_ROUNDOFF_ANGLE_DEGREES: Final = math.nextafter(WAVEDASH_MAX_ANGLE_DEGREES, math.inf)
 
 
 def player(player_state: CharacterState) -> PlayerState | None:
     return player_state.player()
 
 
-def is_interrupted(
-    player_state: CharacterState,
-    player_state_value: PlayerState,
-    *,
-    include_hitlag: bool,
-) -> bool:
+def is_interrupted(player_state: CharacterState, player_state_value: PlayerState, *, include_hitlag: bool) -> bool:
     status = player_state.get_state()
     return (
         player_state_value.action in DEAD_ACTIONS
         or (include_hitlag and status is CharacterStatus.HitLag)
-        or status
-        in {
-            CharacterStatus.Hitstun,
-            CharacterStatus.GrabbedByEnemy,
-            CharacterStatus.ShieldBroken,
-        }
+        or status in {CharacterStatus.Hitstun, CharacterStatus.GrabbedByEnemy, CharacterStatus.ShieldBroken}
     )
 
 
@@ -153,16 +131,9 @@ def validate_button(button: Button, allowed: frozenset[Button], name: str) -> No
 def clamp_wavedash_angle(angle_degrees: float) -> float:
     if not math.isfinite(angle_degrees):
         raise ValueError("angle_degrees must be finite")
-    if not (
-        _WAVEDASH_MIN_ROUNDOFF_ANGLE_DEGREES
-        <= angle_degrees
-        <= _WAVEDASH_MAX_ROUNDOFF_ANGLE_DEGREES
-    ):
+    if not (_WAVEDASH_MIN_ROUNDOFF_ANGLE_DEGREES <= angle_degrees <= _WAVEDASH_MAX_ROUNDOFF_ANGLE_DEGREES):
         raise ValueError("angle_degrees must be between 17.1 and 90")
-    return min(
-        _WAVEDASH_MAX_SAFE_ANGLE_DEGREES,
-        max(_WAVEDASH_MIN_SAFE_ANGLE_DEGREES, angle_degrees),
-    )
+    return min(_WAVEDASH_MAX_SAFE_ANGLE_DEGREES, max(_WAVEDASH_MIN_SAFE_ANGLE_DEGREES, angle_degrees))
 
 
 def apply_wavedash_input(

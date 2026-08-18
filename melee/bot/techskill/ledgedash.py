@@ -39,12 +39,7 @@ class _LedgedashState:
     jumps_before_request: int | None = None
 
 
-_AERIAL_JUMP_ACTIONS: Final = frozenset(
-    {
-        Action.JUMPING_ARIAL_FORWARD,
-        Action.JUMPING_ARIAL_BACKWARD,
-    }
-)
+_AERIAL_JUMP_ACTIONS: Final = frozenset({Action.JUMPING_ARIAL_FORWARD, Action.JUMPING_ARIAL_BACKWARD})
 _RISING_ACTIONS: Final = _AERIAL_JUMP_ACTIONS | {
     Action.FALLING,
     Action.FALLING_FORWARD,
@@ -80,16 +75,8 @@ class LedgedashMontage(StatefulInputMontage[_LedgedashState]):
         safe_angle_degrees = clamp_wavedash_angle(angle_degrees)
         if not math.isfinite(minimum_ecb_bottom_y):
             raise ValueError("minimum_ecb_bottom_y must be finite")
-        validate_button(
-            jump_button,
-            frozenset({Button.BUTTON_X, Button.BUTTON_Y}),
-            "jump_button",
-        )
-        validate_button(
-            dodge_button,
-            frozenset({Button.BUTTON_L, Button.BUTTON_R}),
-            "dodge_button",
-        )
+        validate_button(jump_button, frozenset({Button.BUTTON_X, Button.BUTTON_Y}), "jump_button")
+        validate_button(dodge_button, frozenset({Button.BUTTON_L, Button.BUTTON_R}), "dodge_button")
         self._angle_degrees = safe_angle_degrees
         self._minimum_ecb_bottom_y = minimum_ecb_bottom_y
         self._jump_button = jump_button
@@ -168,10 +155,7 @@ class LedgedashMontage(StatefulInputMontage[_LedgedashState]):
             ):
                 self._apply_inward_drift(controls, player_state)
                 controls.press_button(self._jump_button)
-                return (
-                    _LedgedashState(_LedgedashPhase.JumpRequested, player_state_value.jumps_left),
-                    self,
-                )
+                return _LedgedashState(_LedgedashPhase.JumpRequested, player_state_value.jumps_left), self
             case _LedgedashState(phase=_LedgedashPhase.ReleaseRequested), _:
                 return input_state, False
             case _LedgedashState(
@@ -182,10 +166,7 @@ class LedgedashMontage(StatefulInputMontage[_LedgedashState]):
                 and player_state_value.jumps_left < jumps_before_request
                 and player_state_value.speed_y_self > 0.0
             ):
-                input_state = _LedgedashState(
-                    _LedgedashPhase.Rising,
-                    jumps_before_request,
-                )
+                input_state = _LedgedashState(_LedgedashPhase.Rising, jumps_before_request)
             case _LedgedashState(phase=_LedgedashPhase.JumpRequested), _:
                 return input_state, False
             case _LedgedashState(phase=_LedgedashPhase.Rising), _:
@@ -203,10 +184,7 @@ class LedgedashMontage(StatefulInputMontage[_LedgedashState]):
             ):
                 return input_state, self
             case _LedgedashState(phase=_LedgedashPhase.LandingLag), action:
-                return (
-                    input_state,
-                    player_state_value.on_ground and action in GROUND_MOVEMENT_ACTIONS,
-                )
+                return input_state, player_state_value.on_ground and action in GROUND_MOVEMENT_ACTIONS
 
         ecb_bottom_y = float(player_state_value.position.y) + float(player_state_value.ecb.bottom.y)
         if ecb_bottom_y <= self._minimum_ecb_bottom_y:

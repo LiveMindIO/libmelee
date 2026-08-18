@@ -61,16 +61,8 @@ class WavedashMontage(StatefulInputMontage[_WavedashPhase]):
         if not isinstance(direction, WavedashDirection):
             raise ValueError("direction must be a WavedashDirection")
         safe_angle_degrees = clamp_wavedash_angle(angle_degrees)
-        validate_button(
-            jump_button,
-            frozenset({Button.BUTTON_X, Button.BUTTON_Y}),
-            "jump_button",
-        )
-        validate_button(
-            dodge_button,
-            frozenset({Button.BUTTON_L, Button.BUTTON_R}),
-            "dodge_button",
-        )
+        validate_button(jump_button, frozenset({Button.BUTTON_X, Button.BUTTON_Y}), "jump_button")
+        validate_button(dodge_button, frozenset({Button.BUTTON_L, Button.BUTTON_R}), "dodge_button")
         self._direction = direction
         self._angle_degrees = safe_angle_degrees
         self._jump_button = jump_button
@@ -115,11 +107,7 @@ class WavedashMontage(StatefulInputMontage[_WavedashPhase]):
             player_state_value is None
             or player_state_value.character is not self._character
             or player_state_value.off_stage
-            or is_interrupted(
-                player_state,
-                player_state_value,
-                include_hitlag=True,
-            )
+            or is_interrupted(player_state, player_state_value, include_hitlag=True)
         )
 
     def stateful_on_tick(
@@ -144,22 +132,15 @@ class WavedashMontage(StatefulInputMontage[_WavedashPhase]):
                     return input_state, self
                 if player_state_value.action_frame > jump_squat_frames:
                     return input_state, False
-                apply_wavedash_input(
-                    controls,
-                    self._direction,
-                    self._angle_degrees,
-                    self._dodge_button,
-                )
+                apply_wavedash_input(controls, self._direction, self._angle_degrees, self._dodge_button)
                 return _WavedashPhase.AirDodgeRequested, self
-            case _WavedashPhase.JumpRequested, action:
-                can_request_jump = player_state_value.on_ground and (
-                    action in _WAVEDASH_START_ACTIONS
-                    or (action in SHINE_ACTIONS and player_state_value.action_frame >= 3)
-                )
-                if not can_request_jump:
-                    return input_state, False
+            case _WavedashPhase.JumpRequested, action if player_state_value.on_ground and (
+                action in _WAVEDASH_START_ACTIONS or (action in SHINE_ACTIONS and player_state_value.action_frame >= 3)
+            ):
                 controls.press_button(self._jump_button)
                 return input_state, self
+            case _WavedashPhase.JumpRequested, _:
+                return input_state, False
             case _WavedashPhase.AirDodgeRequested, Action.LANDING_SPECIAL if player_state_value.on_ground:
                 return _WavedashPhase.LandingLag, self
             case _WavedashPhase.AirDodgeRequested, Action.AIRDODGE:
@@ -169,10 +150,7 @@ class WavedashMontage(StatefulInputMontage[_WavedashPhase]):
             case _WavedashPhase.LandingLag, Action.LANDING_SPECIAL if player_state_value.on_ground:
                 return input_state, self
             case _WavedashPhase.LandingLag, action:
-                return (
-                    input_state,
-                    player_state_value.on_ground and action in GROUND_MOVEMENT_ACTIONS,
-                )
+                return input_state, player_state_value.on_ground and action in GROUND_MOVEMENT_ACTIONS
 
 
 __all__ = ["WavedashDirection", "WavedashMontage"]
