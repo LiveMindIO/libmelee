@@ -41,16 +41,8 @@ class MultishineMontage(StatefulInputMontage[_MultishinePhase]):
         *,
         jump_button: Button = Button.BUTTON_Y,
     ) -> None:
-        super().__init__(
-            frame_limit,
-            _MultishinePhase.FirstShineRequested,
-            cancel_montage,
-        )
-        validate_button(
-            jump_button,
-            frozenset({Button.BUTTON_X, Button.BUTTON_Y}),
-            "jump_button",
-        )
+        super().__init__(frame_limit, _MultishinePhase.FirstShineRequested, cancel_montage)
+        validate_button(jump_button, frozenset({Button.BUTTON_X, Button.BUTTON_Y}), "jump_button")
         self._jump_button = jump_button
 
     def can_start(
@@ -84,11 +76,7 @@ class MultishineMontage(StatefulInputMontage[_MultishinePhase]):
             player_state_value is None
             or player_state_value.character is not Character.FOX
             or player_state_value.off_stage
-            or is_interrupted(
-                player_state,
-                player_state_value,
-                include_hitlag=False,
-            )
+            or is_interrupted(player_state, player_state_value, include_hitlag=False)
         )
 
     def stateful_on_tick(

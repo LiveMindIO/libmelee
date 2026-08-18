@@ -76,11 +76,7 @@ class LedgedashMontage(StatefulInputMontage[_LedgedashState]):
         jump_button: Button = Button.BUTTON_Y,
         dodge_button: Button = Button.BUTTON_L,
     ) -> None:
-        super().__init__(
-            frame_limit,
-            _LedgedashState(_LedgedashPhase.Ledge),
-            cancel_montage,
-        )
+        super().__init__(frame_limit, _LedgedashState(_LedgedashPhase.Ledge), cancel_montage)
         safe_angle_degrees = clamp_wavedash_angle(angle_degrees)
         if not math.isfinite(minimum_ecb_bottom_y):
             raise ValueError("minimum_ecb_bottom_y must be finite")
@@ -113,11 +109,7 @@ class LedgedashMontage(StatefulInputMontage[_LedgedashState]):
         if (
             player_state_value is None
             or player_state_value.jumps_left <= 0
-            or player_state_value.action
-            not in {
-                Action.EDGE_CATCHING,
-                Action.EDGE_HANGING,
-            }
+            or player_state_value.action not in {Action.EDGE_CATCHING, Action.EDGE_HANGING}
         ):
             return False
         self._character = player_state_value.character
@@ -139,11 +131,7 @@ class LedgedashMontage(StatefulInputMontage[_LedgedashState]):
         return (
             player_state_value is None
             or player_state_value.character is not self._character
-            or is_interrupted(
-                player_state,
-                player_state_value,
-                include_hitlag=True,
-            )
+            or is_interrupted(player_state, player_state_value, include_hitlag=True)
         )
 
     def stateful_on_tick(
@@ -184,10 +172,7 @@ class LedgedashMontage(StatefulInputMontage[_LedgedashState]):
                 self._apply_inward_drift(controls)
                 controls.press_button(self._jump_button)
                 return (
-                    _LedgedashState(
-                        _LedgedashPhase.JumpRequested,
-                        player_state_value.jumps_left,
-                    ),
+                    _LedgedashState(_LedgedashPhase.JumpRequested, player_state_value.jumps_left),
                     self,
                 )
             case _LedgedashState(phase=_LedgedashPhase.ReleaseRequested), _:
@@ -230,12 +215,8 @@ class LedgedashMontage(StatefulInputMontage[_LedgedashState]):
         if ecb_bottom_y <= self._minimum_ecb_bottom_y:
             self._apply_inward_drift(controls)
             return input_state, self
-        apply_wavedash_input(
-            controls,
-            self._direction,
-            self._angle_degrees,
-            self._dodge_button,
-        )
+
+        apply_wavedash_input(controls, self._direction, self._angle_degrees, self._dodge_button)
         return _LedgedashState(_LedgedashPhase.AirDodgeRequested), self
 
     def _apply_inward_drift(self, controls: SimpleControls) -> None:
