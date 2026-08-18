@@ -141,8 +141,9 @@ and `LSPECIAL`/`RSPECIAL` when a bot should attack toward a screen direction wit
 translating through `PlayerState.facing`. Existing `FTILT`, `FSMASH`, and
 `SIDE_B` requests remain facing-relative. Aerials intentionally provide only
 facing-relative `FAIR`/`BAIR`, since their move behavior depends on character
-facing. Aerial attacks are issued through the C-stick only while retaining
-matching horizontal main-stick drift.
+facing. Directional aerial attacks are issued through the C-stick only while
+retaining matching horizontal main-stick drift. `NAIR` uses `A` with neutral
+sticks because Melee has no neutral C-stick aerial input.
 
 `LEFT_B` and `RIGHT_B` remain deprecated aliases for `LSPECIAL` and `RSPECIAL`.
 

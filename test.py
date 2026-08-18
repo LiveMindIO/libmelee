@@ -645,7 +645,7 @@ class SimpleControlsInputTests(unittest.TestCase):
         self.assertIs(AttackType.LEFT_B, AttackType.LSPECIAL)
         self.assertIs(AttackType.RIGHT_B, AttackType.RSPECIAL)
 
-    def test_aerials_use_only_c_stick_and_remain_facing_relative(self) -> None:
+    def test_directional_aerials_use_only_c_stick_and_remain_facing_relative(self) -> None:
         for facing in (False, True):
             toward = 1.0 if facing else 0.0
             away = 0.0 if facing else 1.0
@@ -666,6 +666,22 @@ class SimpleControlsInputTests(unittest.TestCase):
                     self.assertEqual(controller.main_stick, (stick_x, 0.5))
                     self.assertEqual(controller.c_stick, (stick_x, 0.5))
                     self.assertEqual(controller.buttons, set())
+
+    def test_nair_uses_a_with_neutral_sticks(self) -> None:
+        player = melee.PlayerState(
+            character=melee.Character.MARTH,
+            action=melee.Action.FALLING,
+            on_ground=False,
+            facing=True,
+        )
+        controls, controller = self.controls(player)
+
+        result = controls.attack(AttackType.NAIR)
+
+        self.assertIsInstance(result, Hold)
+        self.assertEqual(controller.main_stick, (0.5, 0.5))
+        self.assertEqual(controller.c_stick, (0.5, 0.5))
+        self.assertEqual(controller.buttons, {melee.Button.BUTTON_A})
 
     def test_can_jump_during_all_shield_phases_except_yoshi(self) -> None:
         shield_actions = (

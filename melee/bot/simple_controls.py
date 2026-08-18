@@ -915,8 +915,9 @@ class SimpleControls:
     def _apply_attack_inputs(self, hold: Hold) -> None:
         """Write stick and button state for ``hold.attack_type`` to the controller.
 
-        Grab uses ``Z``; aerials use main-stick drift plus C-stick; specials
-        use main stick + ``B``; everything else uses main stick + ``A``.
+        Grab uses ``Z``; directional aerials use main-stick drift plus C-stick;
+        neutral aerial uses ``A``; specials use main stick + ``B``; everything
+        else uses main stick + ``A``.
         """
         if hold.attack_type in {AttackType.GRAB, AttackType.Z_AIR}:
             self._controller.release_all()
@@ -932,7 +933,14 @@ class SimpleControls:
         if hold.attack_type in _AERIAL_ATTACKS:
             self._controller.release_all()
             self._controller.tilt_analog(Button.BUTTON_MAIN, hold.stick_x, 0.5)
-            self._controller.tilt_analog(Button.BUTTON_C, hold.stick_x, hold.stick_y)
+            if hold.attack_type is AttackType.NAIR:
+                self._controller.press_button(Button.BUTTON_A)
+            else:
+                self._controller.tilt_analog(
+                    Button.BUTTON_C,
+                    hold.stick_x,
+                    hold.stick_y,
+                )
             return
 
         if hold.attack_type in _SPECIAL_ATTACKS:

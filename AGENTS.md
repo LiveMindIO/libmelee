@@ -58,8 +58,9 @@ uv pip install --python .venv/bin/python .
   is character-relative; there are no left/right aerial helpers.
 - `LEFT_B`/`RIGHT_B` are deprecated aliases for `LSPECIAL`/`RSPECIAL`; new bots
   must use the canonical special names.
-- Aerial attacks use the C-stick without also pressing `A`; horizontal aerials
-  retain matching main-stick drift.
+- Directional aerials use the C-stick without also pressing `A` and horizontal
+  aerials retain matching main-stick drift. `NAIR` necessarily uses `A` because
+  Melee has no neutral C-stick aerial input.
 - `CharacterState.can_jump()` and the module-level `can_jump()` allow actionable
   ground jumps and remaining aerial jumps. Every shield phase is jumpable for
   all characters except Yoshi, who cannot jump out of shield.

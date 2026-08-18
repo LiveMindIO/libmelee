@@ -281,10 +281,10 @@ class AttackType(Enum):
     """Logical attack input a bot can request from :class:`SimpleControls`.
 
     Values map to Melee stick and button combinations (main stick + ``A`` for
-    ground tilts and smashes, C-stick for aerials, main stick + ``B`` for
-    specials, ``Z`` for grab). Directional attacks use the controlled port's
-    ``PlayerState.facing`` to pick left vs right unless an explicit left/right
-    variant is requested.
+    ground tilts and smashes, C-stick for directional aerials, ``A`` for neutral
+    aerial, main stick + ``B`` for specials, ``Z`` for grab). Directional attacks
+    use the controlled port's ``PlayerState.facing`` to pick left vs right unless
+    an explicit left/right variant is requested.
 
     Ground-only: ``JAB``, ``FTILT``, ``LTILT``, ``RTILT``, ``UTILT``, ``DTILT``,
     ``FSMASH``, ``LSMASH``, ``RSMASH``, ``USMASH``, ``DSMASH``, ``GRAB``.
