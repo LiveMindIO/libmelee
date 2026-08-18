@@ -296,8 +296,9 @@ class AttackType(Enum):
     Air-only (or grounded jump startup): ``NAIR``, ``FAIR``, ``BAIR``, ``UAIR``,
     ``DAIR``.
 
-    Specials (ground or air): ``NEUTRAL_B``, ``SIDE_B``, ``LEFT_B``, ``RIGHT_B``,
-    ``UP_B``, ``DOWN_B``.
+    Specials (ground or air): ``NEUTRAL_B``, ``SIDE_B``, ``LSPECIAL``, ``RSPECIAL``,
+    ``UP_B``, ``DOWN_B``. ``LEFT_B`` and ``RIGHT_B`` are deprecated aliases for
+    ``LSPECIAL`` and ``RSPECIAL``.
 
     Grab throws (requires ``GRAB_WAIT`` / ``GRAB_PUMMEL``): ``FTHROW``, ``BTHROW``,
     ``UTHROW``, ``DTHROW``. Throws are stick-only; ``A`` pummels during a grab.
@@ -327,8 +328,10 @@ class AttackType(Enum):
     DAIR = auto()
     NEUTRAL_B = auto()
     SIDE_B = auto()
-    LEFT_B = auto()
-    RIGHT_B = auto()
+    LSPECIAL = auto()
+    RSPECIAL = auto()
+    LEFT_B = LSPECIAL
+    RIGHT_B = RSPECIAL
     UP_B = auto()
     DOWN_B = auto()
     GRAB = auto()
@@ -519,8 +522,8 @@ _SPECIAL_ATTACKS: Final = frozenset(
     {
         AttackType.NEUTRAL_B,
         AttackType.SIDE_B,
-        AttackType.LEFT_B,
-        AttackType.RIGHT_B,
+        AttackType.LSPECIAL,
+        AttackType.RSPECIAL,
         AttackType.UP_B,
         AttackType.DOWN_B,
     }
@@ -547,7 +550,7 @@ def _relative_attack_type(attack_type: AttackType) -> AttackType:
         return AttackType.FTILT
     if attack_type in {AttackType.LSMASH, AttackType.RSMASH}:
         return AttackType.FSMASH
-    if attack_type in {AttackType.LEFT_B, AttackType.RIGHT_B}:
+    if attack_type in {AttackType.LSPECIAL, AttackType.RSPECIAL}:
         return AttackType.SIDE_B
     return attack_type
 

@@ -622,8 +622,8 @@ class SimpleControlsInputTests(unittest.TestCase):
             (AttackType.RTILT, 1.0, melee.Button.BUTTON_A, False),
             (AttackType.LSMASH, 0.0, melee.Button.BUTTON_A, True),
             (AttackType.RSMASH, 1.0, melee.Button.BUTTON_A, True),
-            (AttackType.LEFT_B, 0.0, melee.Button.BUTTON_B, False),
-            (AttackType.RIGHT_B, 1.0, melee.Button.BUTTON_B, False),
+            (AttackType.LSPECIAL, 0.0, melee.Button.BUTTON_B, False),
+            (AttackType.RSPECIAL, 1.0, melee.Button.BUTTON_B, False),
         )
         for facing in (False, True):
             for attack_type, stick_x, button, charging in cases:
@@ -640,6 +640,10 @@ class SimpleControlsInputTests(unittest.TestCase):
                     self.assertEqual(controller.main_stick, (stick_x, 0.5))
                     self.assertEqual(controller.buttons, {button})
                     self.assertEqual(result.charging, charging)
+
+    def test_deprecated_absolute_special_aliases_remain_compatible(self) -> None:
+        self.assertIs(AttackType.LEFT_B, AttackType.LSPECIAL)
+        self.assertIs(AttackType.RIGHT_B, AttackType.RSPECIAL)
 
     def test_aerials_use_only_c_stick_and_remain_facing_relative(self) -> None:
         for facing in (False, True):
