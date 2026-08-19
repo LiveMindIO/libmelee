@@ -70,8 +70,9 @@ uv pip install --python .venv/bin/python .
   It finishes after confirming `KNEE_BEND` and deliberately leaves X/Y held; the
   caller or an `add_branch()` continuation owns short-hop/full-hop release timing.
   `LedgedashMontage` uses C-stick-away release and world-space ECB-bottom clearance
-  before its down-inward air dodge; confirmed jumps remain confirmed through apex,
-  but landing or leaving neutral aerial movement before clearance aborts the route.
+  before its down-inward air dodge. It presses jump for exactly one input frame and
+  leaves X/Y neutral throughout the rise; confirmed jumps remain confirmed through
+  apex, but landing or leaving neutral aerial movement before clearance aborts the route.
   `SDIMontage` excludes attacker and grab hitlag, alternates diagonal main-stick
   pulses during damage hitlag, ignores vertical shield windows, uses target-neutral
   pulses for horizontal shield SDI, queues cardinal C-stick ASDI as damage hitlag

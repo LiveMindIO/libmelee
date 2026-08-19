@@ -53,9 +53,10 @@ _RISING_ACTIONS: Final = _AERIAL_JUMP_ACTIONS | {
 class LedgedashMontage(StatefulInputMontage[_LedgedashState]):
     """Release ledge, double jump inward, and waveland onto the main stage.
 
-    The montage releases with the C-stick away to avoid fastfall, jumps inward on
-    the first falling frame, and waits until the player's world-space ECB bottom
-    exceeds ``minimum_ecb_bottom_y`` before air dodging down and inward. The
+    The montage releases with the C-stick away to avoid fastfall, requests the
+    inward double jump for one input frame, and waits until the player's
+    world-space ECB bottom exceeds ``minimum_ecb_bottom_y`` before air dodging
+    down and inward. The jump button remains neutral throughout the rise. The
     default ``0.25`` threshold is a conservative standard-stage heuristic and may
     be overridden for other stage geometry or character-specific routing. Callers
     choose the air-dodge angle explicitly; its boundaries use the same inward
