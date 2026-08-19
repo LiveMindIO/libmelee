@@ -207,6 +207,13 @@ may retain the match's shared `FrameData` when it needs framedata queries.
 
 Libmelee includes concrete technique montages:
 
+- `InitiateDashMontage(direction)` starts while grounded and on stage. It
+  requests a neutral reset frame only when already moving in the requested
+  direction; stationary or opposite-direction movement goes directly to one
+  maximum left or right main-stick frame. After observing `DASHING`, it succeeds
+  with that direction still held. The caller or an `add_branch()` continuation
+  must reset the stick once the player reaches the desired location. Direction is
+  an absolute `StickReferenceAxis.LEFT` or `StickReferenceAxis.RIGHT`.
 - `MultishineMontage(shine_count=2)` performs the requested number of consecutive
   Fox shines using the same action sequence as the historical
   `techskill.multishine` helper. `shine_count` must be at least two; when no
@@ -219,8 +226,8 @@ Libmelee includes concrete technique montages:
   sequence can retry or complete.
 - `WavedashMontage` supports every standard character's jump-squat duration and
   requests the down-diagonal air dodge on the final `KNEE_BEND` frame. Callers
-  must choose the angle explicitly; 16.84 degrees is accepted as the ideal
-  maximum-distance boundary. Boundary values and one adjacent float of roundoff
+  must choose the angle explicitly; 17.1 degrees is the shallow boundary.
+  Boundary values and one adjacent float of roundoff
   are clamped one representable value inside the accepted interval. It succeeds
   only after `LANDING_SPECIAL` ends in an actionable grounded state and aborts if
   the observed state skips past jump squat before the air-dodge request.

@@ -54,6 +54,7 @@ from melee.bot.simple_controls import (
 )
 from melee.bot.stateful_input_montage import StatefulInputMontage
 from melee.bot.techskill import (
+    InitiateDashMontage,
     LedgedashMontage,
     MultishineMontage,
     PerfectPivotMontage,
@@ -73,6 +74,7 @@ __all__ = [
     "CharacterState",
     "CharacterStatus",
     "CrowdControl",
+    "InitiateDashMontage",
     "Hold",
     "InputMontage",
     "LedgeRecoveryOption",

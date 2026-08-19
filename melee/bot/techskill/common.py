@@ -98,11 +98,11 @@ JUMP_SQUAT_FRAMES: Final[dict[Character, int]] = {
     Character.BOWSER: 8,
 }
 
-# DESNOTE(jbarber, 2026-08-18): 16.84 degrees is the ideal shallow request-space
-# angle. Keep hardware/game integer-stick quantization outside this API, but clamp
-# one representable float inward so trigonometric roundoff cannot cross the
+# DESNOTE(jbarber, 2026-08-19): 17.1 degrees is the supported shallow request-space
+# boundary. Keep hardware/game integer-stick quantization outside this API, but
+# clamp one representable float inward so trigonometric roundoff cannot cross the
 # montage's accepted interval. See https://www.ssbwiki.com/Wavedash#Lengths
-WAVEDASH_MIN_ANGLE_DEGREES: Final = 16.84
+WAVEDASH_MIN_ANGLE_DEGREES: Final = 17.1
 WAVEDASH_MAX_ANGLE_DEGREES: Final = 90.0
 _WAVEDASH_MIN_SAFE_ANGLE_DEGREES: Final = math.nextafter(WAVEDASH_MIN_ANGLE_DEGREES, WAVEDASH_MAX_ANGLE_DEGREES)
 _WAVEDASH_MAX_SAFE_ANGLE_DEGREES: Final = math.nextafter(WAVEDASH_MAX_ANGLE_DEGREES, WAVEDASH_MIN_ANGLE_DEGREES)
@@ -133,7 +133,7 @@ def clamp_wavedash_angle(angle_degrees: float) -> float:
     if not math.isfinite(angle_degrees):
         raise ValueError("angle_degrees must be finite")
     if not (_WAVEDASH_MIN_ROUNDOFF_ANGLE_DEGREES <= angle_degrees <= _WAVEDASH_MAX_ROUNDOFF_ANGLE_DEGREES):
-        raise ValueError("angle_degrees must be between 16.84 and 90")
+        raise ValueError("angle_degrees must be between 17.1 and 90")
     return min(_WAVEDASH_MAX_SAFE_ANGLE_DEGREES, max(_WAVEDASH_MIN_SAFE_ANGLE_DEGREES, angle_degrees))
 
 
