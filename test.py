@@ -1759,7 +1759,7 @@ class TechniqueMontageTests(unittest.TestCase):
         self.assertIs(
             self.tick(
                 montage,
-                melee.Action.DOWN_B_AIR,
+                melee.Action.DOWN_B_AIR_START,
                 on_ground=False,
             ),
             montage,
@@ -1789,7 +1789,7 @@ class TechniqueMontageTests(unittest.TestCase):
         self.assertIs(
             self.tick(
                 montage,
-                melee.Action.DOWN_B_AIR,
+                melee.Action.DOWN_B_AIR_START,
                 on_ground=False,
             ),
             True,
@@ -1824,32 +1824,46 @@ class TechniqueMontageTests(unittest.TestCase):
         )
 
     def test_multishine_waits_for_jump_cancelable_shine_start_frame(self):
-        for action in (
-            melee.Action.DOWN_B_STUN,
-            melee.Action.DOWN_B_GROUND_START,
-        ):
-            with self.subTest(action=action):
-                montage = MultishineMontage()
-                self.tick(montage, melee.Action.STANDING)
-                self.controls.take_calls()
+        montage = MultishineMontage()
+        self.tick(montage, melee.Action.STANDING)
+        self.controls.take_calls()
 
-                self.assertIs(
-                    self.tick(montage, action, action_frame=3),
-                    montage,
-                )
-                self.assertNotIn(
-                    ("press_button", melee.Button.BUTTON_Y),
-                    self.controls.take_calls(),
-                )
+        self.assertIs(
+            self.tick(montage, melee.Action.DOWN_B_GROUND_START, action_frame=3),
+            montage,
+        )
+        self.assertNotIn(
+            ("press_button", melee.Button.BUTTON_Y),
+            self.controls.take_calls(),
+        )
 
-                self.assertIs(
-                    self.tick(montage, action, action_frame=4),
-                    montage,
-                )
-                self.assertIn(
-                    ("press_button", melee.Button.BUTTON_Y),
-                    self.controls.take_calls(),
-                )
+        self.assertIs(
+            self.tick(montage, melee.Action.DOWN_B_GROUND_START, action_frame=4),
+            montage,
+        )
+        self.assertIn(
+            ("press_button", melee.Button.BUTTON_Y),
+            self.controls.take_calls(),
+        )
+
+    def test_multishine_does_not_jump_cancel_aerial_shine_start(self):
+        montage = MultishineMontage()
+        self.tick(montage, melee.Action.STANDING)
+        self.controls.take_calls()
+
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action.DOWN_B_AIR_START,
+                action_frame=4,
+                on_ground=False,
+            ),
+            montage,
+        )
+        self.assertNotIn(
+            ("press_button", melee.Button.BUTTON_Y),
+            self.controls.take_calls(),
+        )
 
     def test_multishine_does_not_jump_cancel_shine_turn(self):
         montage = MultishineMontage()
@@ -1914,11 +1928,40 @@ class TechniqueMontageTests(unittest.TestCase):
         self.tick(montage, melee.Action.STANDING)
         self.controls.take_calls()
 
+        for hitlag_left in range(4, 0, -1):
+            self.assertIs(
+                self.tick(
+                    montage,
+                    melee.Action.DOWN_B_GROUND_START,
+                    action_frame=1,
+                    hitlag_left=hitlag_left,
+                ),
+                montage,
+            )
+            self.assertNotIn(
+                ("press_button", melee.Button.BUTTON_Y),
+                self.controls.take_calls(),
+            )
+
+        for action_frame in (2, 3):
+            self.assertIs(
+                self.tick(
+                    montage,
+                    melee.Action.DOWN_B_GROUND_START,
+                    action_frame=action_frame,
+                ),
+                montage,
+            )
+            self.assertNotIn(
+                ("press_button", melee.Button.BUTTON_Y),
+                self.controls.take_calls(),
+            )
+
         self.assertIs(
             self.tick(
                 montage,
-                melee.Action.DOWN_B_GROUND,
-                hitlag_left=2,
+                melee.Action.DOWN_B_GROUND_START,
+                action_frame=4,
             ),
             montage,
         )
@@ -1926,6 +1969,122 @@ class TechniqueMontageTests(unittest.TestCase):
             ("press_button", melee.Button.BUTTON_Y),
             self.controls.take_calls(),
         )
+
+    def test_multishine_default_budget_tolerates_maximum_hitlag(self):
+        montage = MultishineMontage(shine_count=3)
+        self.tick(montage, melee.Action.STANDING)
+        self.controls.take_calls()
+
+        for hitlag_left in range(20, 0, -1):
+            self.assertIs(
+                self.tick(
+                    montage,
+                    melee.Action.DOWN_B_GROUND_START,
+                    action_frame=1,
+                    hitlag_left=hitlag_left,
+                ),
+                montage,
+            )
+            self.controls.take_calls()
+        for action_frame in (2, 3, 4):
+            self.assertIs(
+                self.tick(
+                    montage,
+                    melee.Action.DOWN_B_GROUND_START,
+                    action_frame=action_frame,
+                ),
+                montage,
+            )
+            self.controls.take_calls()
+        for action_frame in (1, 2, 3):
+            self.assertIs(
+                self.tick(montage, melee.Action.KNEE_BEND, action_frame=action_frame),
+                montage,
+            )
+            self.controls.take_calls()
+
+        for hitlag_left in range(20, 0, -1):
+            self.assertIs(
+                self.tick(
+                    montage,
+                    melee.Action.DOWN_B_AIR_START,
+                    action_frame=1,
+                    on_ground=False,
+                    hitlag_left=hitlag_left,
+                ),
+                montage,
+            )
+            self.controls.take_calls()
+        for action_frame in (2, 3):
+            self.assertIs(
+                self.tick(
+                    montage,
+                    melee.Action.DOWN_B_AIR_START,
+                    action_frame=action_frame,
+                    on_ground=False,
+                ),
+                montage,
+            )
+            self.controls.take_calls()
+        self.assertIs(self.tick(montage, melee.Action.DOWN_B_GROUND), montage)
+        self.controls.take_calls()
+        for action_frame in (1, 2, 3):
+            self.assertIs(
+                self.tick(montage, melee.Action.KNEE_BEND, action_frame=action_frame),
+                montage,
+            )
+            self.controls.take_calls()
+
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action.DOWN_B_AIR_START,
+                on_ground=False,
+                hitlag_left=20,
+            ),
+            True,
+        )
+        self.assertEqual(montage.get_montage_state(), MontageState.Finished)
+
+    def test_multishine_waits_through_reflector_hit_and_end_states(self):
+        for action, on_ground in (
+            (melee.Action.REFLECTOR_HIT_GROUND, True),
+            (melee.Action.REFLECTOR_END_GROUND, True),
+            (melee.Action.REFLECTOR_HIT_AIR, False),
+            (melee.Action.REFLECTOR_END_AIR, False),
+        ):
+            with self.subTest(action=action):
+                montage = MultishineMontage()
+                self.tick(montage, melee.Action.STANDING)
+                self.controls.take_calls()
+
+                self.assertIs(
+                    self.tick(montage, action, on_ground=on_ground),
+                    montage,
+                )
+                self.assertEqual(montage.get_montage_state(), MontageState.Active)
+                self.assertEqual(self.controls.take_calls(), [("release_all",)])
+
+    def test_multishine_finishes_after_final_reflector_hit_animation_resolves(self):
+        montage = MultishineMontage()
+        self.tick(montage, melee.Action.STANDING)
+        self.controls.take_calls()
+        self.tick(montage, melee.Action.DOWN_B_GROUND_START, action_frame=4)
+        self.controls.take_calls()
+        for action_frame in (1, 2, 3):
+            self.tick(montage, melee.Action.KNEE_BEND, action_frame=action_frame)
+            self.controls.take_calls()
+
+        for action in (
+            melee.Action.REFLECTOR_HIT_GROUND,
+            melee.Action.REFLECTOR_END_GROUND,
+        ):
+            self.assertIs(self.tick(montage, action), montage)
+            self.assertEqual(self.controls.take_calls(), [("release_all",)])
+
+        self.assertIs(self.tick(montage, melee.Action.STANDING), True)
+        self.assertEqual(montage.get_montage_state(), MontageState.Finished)
+        self.assertEqual(self.controls.take_calls(), [("release_all",)])
 
     def test_sdi_alternates_diagonals_then_uses_c_stick_asdi(self):
         montage = SDIMontage(StickReferenceAxis.RIGHT)

@@ -1173,23 +1173,30 @@ Down-B startup on the ground (Fox/Falco shine deploy). Alias of
 first-defined member - ``DOWN_B_GROUND_START`` here)."""
     DOWN_B_GROUND = 0x169
     """Down-B active on the ground (charge loop / sustained). Alias of
-``SWORD_DANCE_3_HIGH_AIR``."""
+    ``SWORD_DANCE_3_HIGH_AIR``."""
+    REFLECTOR_HIT_GROUND = 0x16A
+    """Fox/Falco grounded Reflector animation after reflecting a projectile."""
+    REFLECTOR_END_GROUND = 0x16B
+    """Fox/Falco grounded Reflector release animation."""
     SHINE_TURN = 0x16c
     """Shine turn (Fox/Falco shine while turning - the body reorients). Alias
-of ``SWORD_DANCE_4_HIGH_AIR``."""
+    of ``SWORD_DANCE_4_HIGH_AIR``."""
     DOWN_B_STUN = 0x16d
-    """Down-B stun (Fox/Falco shine-specific endlag frames). Alias of
-``SWORD_DANCE_4_MID_AIR``.
-Fox is stunned in these frames"""
+    """Legacy name for Fox/Falco's aerial Reflector startup state."""
+    DOWN_B_AIR_START = 0x16D
+    """Alias of ``DOWN_B_STUN`` retained as the accurate Fox/Falco state name."""
     DOWN_B_AIR = 0x16e
     """Down-B active in the air. Alias of ``SWORD_DANCE_4_LOW_AIR``."""
     # --- Up-B (recovery special) ---
     UP_B_GROUND = 0x16f
-    """Up-B on the ground (grounded startup of Up-B; e.g. Marth dolphin slash).
-Not to be confused with ``UP_B_AIR`` (alias of SHINE_RELEASE_AIR above)."""
+    """Character-relative action ID used by grounded Up-B animations."""
+    REFLECTOR_HIT_AIR = 0x16F
+    """Alias of ``UP_B_GROUND`` for Fox/Falco's aerial projectile-reflect animation."""
     SHINE_RELEASE_AIR = 0x170
     """Shine release in the air (Fox/Falco air-shine out frames). Canonical for
 value 0x170 (UP_B_AIR is an alias of this member)."""
+    REFLECTOR_END_AIR = 0x170
+    """Alias of ``SHINE_RELEASE_AIR`` for Fox/Falco's aerial Reflector release."""
     SWORD_DANCE_1 = 0x15d
     """--- Side-B (Marth/Roy dancing blade; shared with Zelda/Sheik side-B
 and the character-specific side-B variants listed below) ---
@@ -1228,13 +1235,13 @@ reuse these raw IDs (see the side-B action set)."""
     SWORD_DANCE_3_HIGH_AIR = 0x169
     """Alias of ``DOWN_B_GROUND`` (0x169). See that member for use."""
     SWORD_DANCE_3_MID_AIR = 0x16a
-    """Side-B airborne third hit, mid. Canonical for 0x16a (no alias)."""
+    """Alias of ``REFLECTOR_HIT_GROUND`` (0x16a)."""
     SWORD_DANCE_3_LOW_AIR = 0x16b
-    """Side-B airborne third hit, low. Canonical for 0x16b (no alias)."""
+    """Alias of ``REFLECTOR_END_GROUND`` (0x16b)."""
     SWORD_DANCE_4_HIGH_AIR = 0x16c
     """Alias of ``SHINE_TURN`` (0x16c). See that member for use."""
     SWORD_DANCE_4_MID_AIR = 0x16d
-    """Alias of ``DOWN_B_STUN`` (0x16d). See that member for use."""
+    """Alias of ``DOWN_B_STUN`` / ``DOWN_B_AIR_START`` (0x16d)."""
     SWORD_DANCE_4_LOW_AIR = 0x16e
     """Alias of ``DOWN_B_AIR`` (0x16e). See that member for use."""
     # --- Fox/Falco-specific side-B / up-B variants (aliases of SWORD_DANCE) ---
