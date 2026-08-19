@@ -1865,6 +1865,25 @@ class TechniqueMontageTests(unittest.TestCase):
             self.controls.take_calls(),
         )
 
+    def test_multishine_jump_cancels_landed_aerial_shine_start(self):
+        montage = MultishineMontage()
+        self.tick(montage, melee.Action.STANDING)
+        self.controls.take_calls()
+
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action.DOWN_B_AIR_START,
+                action_frame=4,
+                on_ground=True,
+            ),
+            montage,
+        )
+        self.assertIn(
+            ("press_button", melee.Button.BUTTON_Y),
+            self.controls.take_calls(),
+        )
+
     def test_multishine_does_not_jump_cancel_shine_turn(self):
         montage = MultishineMontage()
         self.tick(montage, melee.Action.STANDING)

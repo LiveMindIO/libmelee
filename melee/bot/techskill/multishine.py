@@ -68,8 +68,14 @@ def _apply_jump_cancel_input(
     on_ground: bool,
 ) -> None:
     controls.release_all()
+    # DESNOTE(jbarber, 2026-08-19): Preserve libmelee's historical on-ground
+    # handling for action 0x16D. It tolerates a landed aerial-start packet while
+    # the on_ground guard prevents an actual aerial jump request.
+    # See https://github.com/altf4/libmelee/blob/master/melee/techskill.py
     can_jump_cancel = action is Action.DOWN_B_GROUND or (
-        action is Action.DOWN_B_GROUND_START and action_frame >= 4 and on_ground
+        action in {Action.DOWN_B_GROUND_START, Action.DOWN_B_AIR_START}
+        and action_frame >= 4
+        and on_ground
     )
     if can_jump_cancel:
         controls.press_button(jump_button)
