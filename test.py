@@ -1166,6 +1166,25 @@ class InputMontageTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "itself"):
             montage.add_branch(montage)
 
+    def test_pre_tick_result_combines_by_precedence(self):
+        for left, right, expected in (
+            (PreTickResult.CONTINUE, PreTickResult.CONTINUE, PreTickResult.CONTINUE),
+            (PreTickResult.CONTINUE, PreTickResult.EARLY_COMPLETION, PreTickResult.EARLY_COMPLETION),
+            (PreTickResult.CONTINUE, PreTickResult.ABORTED, PreTickResult.ABORTED),
+            (PreTickResult.EARLY_COMPLETION, PreTickResult.CONTINUE, PreTickResult.EARLY_COMPLETION),
+            (
+                PreTickResult.EARLY_COMPLETION,
+                PreTickResult.EARLY_COMPLETION,
+                PreTickResult.EARLY_COMPLETION,
+            ),
+            (PreTickResult.EARLY_COMPLETION, PreTickResult.ABORTED, PreTickResult.ABORTED),
+            (PreTickResult.ABORTED, PreTickResult.CONTINUE, PreTickResult.ABORTED),
+            (PreTickResult.ABORTED, PreTickResult.EARLY_COMPLETION, PreTickResult.ABORTED),
+            (PreTickResult.ABORTED, PreTickResult.ABORTED, PreTickResult.ABORTED),
+        ):
+            with self.subTest(left=left, right=right):
+                self.assertIs(left.combine(right), expected)
+
     def test_pre_tick_continue_listeners_run_in_insertion_order_before_tick(self):
         calls = []
         montage = RecordingMontage(results=(True,))
@@ -1238,20 +1257,6 @@ class InputMontageTests(unittest.TestCase):
         self.assertEqual(montage.on_tick_calls, 0)
         self.assertEqual(self.controls.release_count, 0)
 
-    def test_invalid_pre_tick_listener_and_result_are_rejected(self):
-        montage = RecordingMontage()
-        with self.assertRaisesRegex(TypeError, "callable"):
-            montage.add_pre_tick_listener(object())
-
-        montage.add_pre_tick_listener(
-            lambda controls, player_state, opponent_state, state: None
-        )
-        with self.assertRaisesRegex(TypeError, "PreTickResult"):
-            self.tick(montage)
-        self.assertEqual(montage.get_montage_state(), MontageState.Aborted)
-        self.assertEqual(montage.on_tick_calls, 0)
-        self.assertEqual(self.controls.release_count, 1)
-
     def test_stateful_montage_replaces_state_between_ticks(self):
         montage = RecordingStatefulMontage(10)
         montage.results = [montage, True]
@@ -1303,12 +1308,6 @@ class InputMontageTests(unittest.TestCase):
         )
         self.assertEqual(montage.on_tick_states, [10])
         self.assertEqual(montage.get_montage_state(), MontageState.Finished)
-
-    def test_stateful_pre_tick_listener_rejects_non_callable(self):
-        montage = RecordingStatefulMontage(0)
-
-        with self.assertRaisesRegex(TypeError, "callable"):
-            montage.add_stateful_pre_tick_listener(object())
 
     def test_stateful_abort_reads_initial_state_without_ticking(self):
         montage = RecordingStatefulMontage(4, abort=True)

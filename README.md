@@ -190,7 +190,8 @@ game_state)` every tick, and retains the returned montage while work continues.
   return `PreTickResult.CONTINUE`, `EARLY_COMPLETION`, or `ABORTED`. Every listener
   runs; precedence is abort, early completion, then continue. Abort neutralizes
   input and skips `on_tick`; early completion skips `on_tick` and follows the
-  normal successful branch-selection path.
+  normal successful branch-selection path. `PreTickResult.combine()` exposes the
+  same pairwise precedence used to aggregate listener results.
 - `frame_limit` counts active `on_tick` calls only. It is a safety boundary, not a
   substitute for an implementation detecting failure and returning `False`.
 - `cancel(...)` only cancels an active montage and returns its configured fallback,

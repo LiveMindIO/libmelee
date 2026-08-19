@@ -38,9 +38,6 @@ class StatefulInputMontage(InputMontage, Generic[StateT]):
         ],
     ) -> Self:
         """Append a pre-tick listener that also receives the current typed state."""
-        if not callable(listener):
-            raise TypeError("stateful pre-tick listener must be callable")
-
         def adapted_listener(
             controls: SimpleControls,
             player_state: CharacterState,

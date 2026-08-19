@@ -37,7 +37,7 @@ uv pip install --python .venv/bin/python .
   `EARLY_COMPLETION` over `CONTINUE`. Abort neutralizes input and skips `on_tick`;
   early completion skips `on_tick` and uses normal successful branch selection.
   Neither terminal result consumes active frame budget because `on_tick` did not
-  run. Invalid listener results abort and raise `TypeError`.
+  run. `PreTickResult.combine()` applies the same precedence pairwise.
 - `StatefulInputMontage[StateT]` stores constructor-supplied initial state and adapts
   `stateful_on_tick`, `stateful_should_abort`, and `stateful_cancel` to the base
   lifecycle. Every callback receives the current state; only `stateful_on_tick`

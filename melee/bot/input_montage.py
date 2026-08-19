@@ -25,11 +25,26 @@ class MontageState(Enum):
 
 
 class PreTickResult(Enum):
-    """Control-flow decision returned by an input montage pre-tick listener."""
+    """Pre-tick control flow with abort-over-completion-over-continue precedence."""
 
     CONTINUE = auto()
+    """Run the montage's normal input tick."""
+
     EARLY_COMPLETION = auto()
+    """Skip the input tick and continue through successful branch selection."""
+
     ABORTED = auto()
+    """Skip the input tick, neutralize input, and abort the montage."""
+
+    def combine(self, other: PreTickResult) -> PreTickResult:
+        """Return the higher-precedence result from two listeners."""
+        match self, other:
+            case (PreTickResult.ABORTED, _) | (_, PreTickResult.ABORTED):
+                return PreTickResult.ABORTED
+            case (PreTickResult.EARLY_COMPLETION, _) | (_, PreTickResult.EARLY_COMPLETION):
+                return PreTickResult.EARLY_COMPLETION
+            case PreTickResult.CONTINUE, PreTickResult.CONTINUE:
+                return PreTickResult.CONTINUE
 
 
 class InputMontage(ABC):
@@ -88,15 +103,7 @@ class InputMontage(ABC):
         self,
         listener: Callable[[SimpleControls, CharacterState, CharacterState, GameState], PreTickResult],
     ) -> Self:
-        """Append a listener evaluated immediately before each active input tick.
-
-        Listeners run in insertion order. Their combined precedence is
-        :attr:`PreTickResult.ABORTED`, then
-        :attr:`PreTickResult.EARLY_COMPLETION`, then
-        :attr:`PreTickResult.CONTINUE`.
-        """
-        if not callable(listener):
-            raise TypeError("pre-tick listener must be callable")
+        """Append a listener that may continue, complete, or abort before the input tick."""
         self._pre_tick_listeners.append(listener)
         return self
 
@@ -139,17 +146,7 @@ class InputMontage(ABC):
         pre_tick_result = PreTickResult.CONTINUE
         for listener in self._pre_tick_listeners:
             listener_result = listener(controls, player_state, opponent_state, state)
-            if not isinstance(listener_result, PreTickResult):
-                controls.release_all()
-                self._montage_state = MontageState.Aborted
-                raise TypeError("pre-tick listener must return PreTickResult")
-            if listener_result is PreTickResult.ABORTED:
-                pre_tick_result = PreTickResult.ABORTED
-            elif (
-                listener_result is PreTickResult.EARLY_COMPLETION
-                and pre_tick_result is PreTickResult.CONTINUE
-            ):
-                pre_tick_result = PreTickResult.EARLY_COMPLETION
+            pre_tick_result = pre_tick_result.combine(listener_result)
 
         if pre_tick_result is PreTickResult.ABORTED:
             controls.release_all()
