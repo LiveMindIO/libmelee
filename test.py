@@ -15,6 +15,7 @@ from melee.bot import (
     MontageState,
     MultishineMontage,
     PerfectPivotMontage,
+    PreTickResult,
     SDIMontage,
     SimpleControls,
     SmashTurnJumpMontage,
@@ -1031,6 +1032,20 @@ class InputMontageTests(unittest.TestCase):
         self.assertEqual(montage.on_tick_calls, 0)
         self.assertEqual(self.controls.release_count, 1)
 
+    def test_should_abort_prevents_pre_tick_listeners(self):
+        calls = []
+        montage = RecordingMontage(abort=True)
+        montage.add_pre_tick_listener(
+            lambda controls, player_state, opponent_state, state: (
+                calls.append("listener") or PreTickResult.CONTINUE
+            )
+        )
+
+        self.assertIs(self.tick(montage), False)
+        self.assertEqual(calls, [])
+        self.assertEqual(montage.on_tick_calls, 0)
+        self.assertEqual(montage.get_montage_state(), MontageState.Aborted)
+
     def test_invalid_tick_result_aborts_and_raises(self):
         montage = RecordingMontage(results=(None,))
 
@@ -1151,6 +1166,97 @@ class InputMontageTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "itself"):
             montage.add_branch(montage)
 
+    def test_pre_tick_result_combines_by_precedence(self):
+        for left, right, expected in (
+            (PreTickResult.CONTINUE, PreTickResult.CONTINUE, PreTickResult.CONTINUE),
+            (PreTickResult.CONTINUE, PreTickResult.EARLY_COMPLETION, PreTickResult.EARLY_COMPLETION),
+            (PreTickResult.CONTINUE, PreTickResult.ABORTED, PreTickResult.ABORTED),
+            (PreTickResult.EARLY_COMPLETION, PreTickResult.CONTINUE, PreTickResult.EARLY_COMPLETION),
+            (
+                PreTickResult.EARLY_COMPLETION,
+                PreTickResult.EARLY_COMPLETION,
+                PreTickResult.EARLY_COMPLETION,
+            ),
+            (PreTickResult.EARLY_COMPLETION, PreTickResult.ABORTED, PreTickResult.ABORTED),
+            (PreTickResult.ABORTED, PreTickResult.CONTINUE, PreTickResult.ABORTED),
+            (PreTickResult.ABORTED, PreTickResult.EARLY_COMPLETION, PreTickResult.ABORTED),
+            (PreTickResult.ABORTED, PreTickResult.ABORTED, PreTickResult.ABORTED),
+        ):
+            with self.subTest(left=left, right=right):
+                self.assertIs(left.combine(right), expected)
+
+    def test_pre_tick_continue_listeners_run_in_insertion_order_before_tick(self):
+        calls = []
+        montage = RecordingMontage(results=(True,))
+
+        def listener(name):
+            def run(controls, player_state, opponent_state, state):
+                self.assertIs(controls, self.controls)
+                self.assertIs(player_state, self.player_state)
+                self.assertIs(opponent_state, self.opponent_state)
+                self.assertIs(state, self.game_state)
+                calls.append(name)
+                return PreTickResult.CONTINUE
+
+            return run
+
+        self.assertIs(
+            montage.add_pre_tick_listener(listener("first")).add_pre_tick_listener(listener("second")),
+            montage,
+        )
+
+        self.assertIs(self.tick(montage), True)
+        self.assertEqual(calls, ["first", "second"])
+        self.assertEqual(montage.on_tick_calls, 1)
+        self.assertEqual(montage.get_montage_state(), MontageState.Finished)
+
+    def test_pre_tick_early_completion_selects_branch_without_ticking(self):
+        branch = RecordingMontage(results=(True,))
+        montage = RecordingMontage()
+        montage.add_branch(branch).add_pre_tick_listener(
+            lambda controls, player_state, opponent_state, state: PreTickResult.EARLY_COMPLETION
+        )
+
+        self.assertIs(self.tick(montage), branch)
+        self.assertEqual(montage.get_montage_state(), MontageState.Finished)
+        self.assertEqual(montage.on_tick_calls, 0)
+        self.assertEqual(branch.get_montage_state(), MontageState.Active)
+        self.assertEqual(branch.on_tick_calls, 0)
+
+    def test_pre_tick_abort_overrides_early_completion_after_all_listeners_run(self):
+        calls = []
+        montage = RecordingMontage(results=(True,))
+        for name, result in (
+            ("continue", PreTickResult.CONTINUE),
+            ("complete", PreTickResult.EARLY_COMPLETION),
+            ("abort", PreTickResult.ABORTED),
+            ("after-abort", PreTickResult.CONTINUE),
+        ):
+            montage.add_pre_tick_listener(
+                lambda controls, player_state, opponent_state, state, name=name, result=result: (
+                    calls.append(name) or result
+                )
+            )
+
+        self.assertIs(self.tick(montage), False)
+        self.assertEqual(calls, ["continue", "complete", "abort", "after-abort"])
+        self.assertEqual(montage.get_montage_state(), MontageState.Aborted)
+        self.assertEqual(montage.on_tick_calls, 0)
+        self.assertEqual(self.controls.release_count, 1)
+
+    def test_pre_tick_early_completion_overrides_continue(self):
+        montage = RecordingMontage(results=(False,))
+        montage.add_pre_tick_listener(
+            lambda controls, player_state, opponent_state, state: PreTickResult.EARLY_COMPLETION
+        ).add_pre_tick_listener(
+            lambda controls, player_state, opponent_state, state: PreTickResult.CONTINUE
+        )
+
+        self.assertIs(self.tick(montage), True)
+        self.assertEqual(montage.get_montage_state(), MontageState.Finished)
+        self.assertEqual(montage.on_tick_calls, 0)
+        self.assertEqual(self.controls.release_count, 0)
+
     def test_stateful_montage_replaces_state_between_ticks(self):
         montage = RecordingStatefulMontage(10)
         montage.results = [montage, True]
@@ -1159,6 +1265,48 @@ class InputMontageTests(unittest.TestCase):
         self.assertIs(self.tick(montage), True)
         self.assertEqual(montage.should_abort_states, [10, 11])
         self.assertEqual(montage.on_tick_states, [10, 11])
+        self.assertEqual(montage.get_montage_state(), MontageState.Finished)
+
+    def test_stateful_pre_tick_listeners_receive_current_state_in_shared_order(self):
+        calls = []
+        montage = RecordingStatefulMontage(10)
+        montage.results = [montage, montage]
+
+        def base_listener(controls, player_state, opponent_state, state):
+            calls.append(("base", None))
+            return PreTickResult.CONTINUE
+
+        def stateful_listener(controls, player_state, opponent_state, state, input_state):
+            calls.append(("stateful", input_state))
+            if input_state == 11:
+                return PreTickResult.EARLY_COMPLETION
+            return PreTickResult.CONTINUE
+
+        self.assertIs(
+            montage.add_pre_tick_listener(base_listener)
+            .add_stateful_pre_tick_listener(stateful_listener)
+            .add_pre_tick_listener(
+                lambda controls, player_state, opponent_state, state: (
+                    calls.append(("last", None)) or PreTickResult.CONTINUE
+                )
+            ),
+            montage,
+        )
+
+        self.assertIs(self.tick(montage), montage)
+        self.assertIs(self.tick(montage), True)
+        self.assertEqual(
+            calls,
+            [
+                ("base", None),
+                ("stateful", 10),
+                ("last", None),
+                ("base", None),
+                ("stateful", 11),
+                ("last", None),
+            ],
+        )
+        self.assertEqual(montage.on_tick_states, [10])
         self.assertEqual(montage.get_montage_state(), MontageState.Finished)
 
     def test_stateful_abort_reads_initial_state_without_ticking(self):

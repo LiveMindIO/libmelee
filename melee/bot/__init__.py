@@ -34,7 +34,7 @@ from melee.bot.character_state import (
     neutral_b_is_chargeable,
     z_air_is_supported,
 )
-from melee.bot.input_montage import InputMontage, MontageState
+from melee.bot.input_montage import InputMontage, MontageState, PreTickResult
 from melee.bot.logger import BotLogEntry, BotLogger
 from melee.bot.match_history import (
     MatchHistory,
@@ -85,6 +85,7 @@ __all__ = [
     "OtherPlayerRelation",
     "PerfectPivotMontage",
     "PlayerMatchRecord",
+    "PreTickResult",
     "SDIMontage",
     "SimpleControls",
     "SmashTurnJumpMontage",
