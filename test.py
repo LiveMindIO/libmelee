@@ -2065,11 +2065,32 @@ class TechniqueMontageTests(unittest.TestCase):
         )
         self.assertEqual(montage.get_montage_state(), MontageState.Finished)
 
-    def test_multishine_waits_through_reflector_hit_and_end_states(self):
+    def test_multishine_holds_reflector_through_nonfinal_hit_states(self):
         for action, on_ground in (
             (melee.Action.REFLECTOR_HIT_GROUND, True),
-            (melee.Action.REFLECTOR_END_GROUND, True),
             (melee.Action.REFLECTOR_HIT_AIR, False),
+        ):
+            with self.subTest(action=action):
+                montage = MultishineMontage()
+                self.tick(montage, melee.Action.STANDING)
+                self.controls.take_calls()
+
+                self.assertIs(
+                    self.tick(montage, action, on_ground=on_ground),
+                    montage,
+                )
+                self.assertEqual(montage.get_montage_state(), MontageState.Active)
+                self.assertEqual(
+                    self.controls.take_calls(),
+                    [
+                        ("release_all",),
+                        ("press_button", melee.Button.BUTTON_B),
+                    ],
+                )
+
+    def test_multishine_waits_neutrally_through_reflector_end_states(self):
+        for action, on_ground in (
+            (melee.Action.REFLECTOR_END_GROUND, True),
             (melee.Action.REFLECTOR_END_AIR, False),
         ):
             with self.subTest(action=action):
@@ -2083,6 +2104,37 @@ class TechniqueMontageTests(unittest.TestCase):
                 )
                 self.assertEqual(montage.get_montage_state(), MontageState.Active)
                 self.assertEqual(self.controls.take_calls(), [("release_all",)])
+
+    def test_multishine_holds_reflector_after_nonfinal_followup_shine(self):
+        montage = MultishineMontage(shine_count=3)
+        self.tick(montage, melee.Action.STANDING)
+        self.controls.take_calls()
+        self.tick(montage, melee.Action.DOWN_B_GROUND_START, action_frame=4)
+        self.controls.take_calls()
+        for action_frame in (1, 2, 3):
+            self.tick(montage, melee.Action.KNEE_BEND, action_frame=action_frame)
+            self.controls.take_calls()
+
+        self.assertIs(
+            self.tick(montage, melee.Action.REFLECTOR_HIT_GROUND),
+            montage,
+        )
+        self.assertEqual(
+            self.controls.take_calls(),
+            [
+                ("release_all",),
+                ("press_button", melee.Button.BUTTON_B),
+            ],
+        )
+
+        self.assertIs(
+            self.tick(montage, melee.Action.DOWN_B_GROUND),
+            montage,
+        )
+        self.assertIn(
+            ("press_button", melee.Button.BUTTON_Y),
+            self.controls.take_calls(),
+        )
 
     def test_multishine_finishes_after_final_reflector_hit_animation_resolves(self):
         montage = MultishineMontage()

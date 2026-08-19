@@ -57,8 +57,9 @@ uv pip install --python .venv/bin/python .
   hitlag cap plus the normal 8-frame cycle and transition slack for every shine.
   Later shines begin as `Action.DOWN_B_AIR_START` after the jump-cancel, then
   become a grounded shine on landing. Projectile reflections enter separate
-  ground/air hit and release states with no jump-cancel IASA; the montage waits
-  neutrally through those states and retries or completes after they resolve.
+  ground/air hit and release states with no jump-cancel IASA. It holds B through
+  non-final hit states so they return to the jump-cancelable Reflector loop;
+  release and final states remain neutral until they resolve.
   `WavedashMontage` uses the
   character-specific final jump-squat frame and aborts if that state is missed.
   `PerfectPivotMontage` requires an onstage grounded `DASHING` state, requests the

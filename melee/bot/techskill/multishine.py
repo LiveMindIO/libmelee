@@ -35,17 +35,23 @@ class _MultishineState:
 
 
 # DESNOTE(jbarber, 2026-08-19): Reflecting a projectile enters dedicated hit
-# states whose IASA callbacks accept no jump. Wait through hit/release instead
-# of treating these character-relative action IDs as ordinary shine frames.
+# states whose IASA callbacks accept no jump. The hit animation latches a
+# release when B is not held, so non-final shines must hold B until the loop
+# returns; the end states are already committed to releasing the Reflector.
 # See https://github.com/doldecomp/melee/blob/master/src/melee/ft/chara/ftFox/ftFx_SpecialLw.c
-_REFLECTOR_WAIT_ACTIONS: Final = frozenset(
+_REFLECTOR_HIT_ACTIONS: Final = frozenset(
     {
         Action.REFLECTOR_HIT_GROUND,
-        Action.REFLECTOR_END_GROUND,
         Action.REFLECTOR_HIT_AIR,
+    }
+)
+_REFLECTOR_END_ACTIONS: Final = frozenset(
+    {
+        Action.REFLECTOR_END_GROUND,
         Action.REFLECTOR_END_AIR,
     }
 )
+_REFLECTOR_WAIT_ACTIONS: Final = _REFLECTOR_HIT_ACTIONS | _REFLECTOR_END_ACTIONS
 # DESNOTE(jbarber, 2026-08-19): Melee caps hitlag at 20 frames, while Fox's
 # frame-perfect multishine cycle takes 8 frames without freeze frames. Preserve
 # four frames of transition slack per shine beyond that combined upper bound.
@@ -58,6 +64,11 @@ def _apply_down_input(controls: SimpleControls, button: Button) -> None:
     controls.release_all()
     controls.tilt_stick(StickReferenceAxis.DOWN, 0.0)
     controls.press_button(button)
+
+
+def _hold_reflector_input(controls: SimpleControls) -> None:
+    controls.release_all()
+    controls.press_button(Button.BUTTON_B)
 
 
 def _apply_jump_cancel_input(
@@ -160,7 +171,10 @@ class MultishineMontage(StatefulInputMontage[_MultishineState]):
             case _MultishinePhase.JumpRequested, Action.STANDING:
                 _apply_down_input(controls, Button.BUTTON_B)
                 return input_state, self
-            case _MultishinePhase.JumpRequested, action if action in _REFLECTOR_WAIT_ACTIONS:
+            case _MultishinePhase.JumpRequested, action if action in _REFLECTOR_HIT_ACTIONS:
+                _hold_reflector_input(controls)
+                return input_state, self
+            case _MultishinePhase.JumpRequested, action if action in _REFLECTOR_END_ACTIONS:
                 controls.release_all()
                 return input_state, self
             case _MultishinePhase.JumpRequested, action if action in SHINE_ACTIONS:
@@ -186,7 +200,19 @@ class MultishineMontage(StatefulInputMontage[_MultishineState]):
                         self,
                     )
                 return input_state, False
-            case _MultishinePhase.NextShineRequested, action if action in _REFLECTOR_WAIT_ACTIONS:
+            case _MultishinePhase.NextShineRequested, action if action in _REFLECTOR_HIT_ACTIONS:
+                if input_state.shines_requested >= self._shine_count:
+                    controls.release_all()
+                    return (
+                        _MultishineState(
+                            _MultishinePhase.FinalShineObserved,
+                            input_state.shines_requested,
+                        ),
+                        self,
+                    )
+                _hold_reflector_input(controls)
+                return input_state, self
+            case _MultishinePhase.NextShineRequested, action if action in _REFLECTOR_END_ACTIONS:
                 controls.release_all()
                 if input_state.shines_requested >= self._shine_count:
                     return (
