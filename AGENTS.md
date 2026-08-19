@@ -53,8 +53,10 @@ uv pip install --python .venv/bin/python .
   Jump montages model their mutable phases as typed `StatefulInputMontage` values
   and dispatch phase transitions with structural pattern matching.
   `MultishineMontage` is Fox-only and performs a configurable `shine_count` of at
-  least two consecutive shines. Its default frame limit allows Melee's 20-frame
-  hitlag cap plus the normal 8-frame cycle and transition slack for every shine.
+  least two consecutive shines. Its baseline frame limit allows the normal
+  eight-frame cycle plus four transition frames per shine. A rise in observed
+  shine attacker hitlag adds four frames to the active budget once for that hit;
+  decreasing `hitlag_left` packets do not repeatedly extend the limit.
   Later shines begin as `Action.DOWN_B_AIR_START` after the jump-cancel, then
   become a grounded shine on landing. Projectile reflections enter separate
   ground/air hit and release states with no jump-cancel IASA. It holds B through

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from enum import Enum, auto
 from typing import Final
 
@@ -32,6 +32,7 @@ class _MultishinePhase(Enum):
 class _MultishineState:
     phase: _MultishinePhase
     shines_requested: int
+    shine_hitlag_left: int = 0
 
 
 # DESNOTE(jbarber, 2026-08-19): Reflecting a projectile enters dedicated hit
@@ -52,12 +53,14 @@ _REFLECTOR_END_ACTIONS: Final = frozenset(
     }
 )
 _REFLECTOR_WAIT_ACTIONS: Final = _REFLECTOR_HIT_ACTIONS | _REFLECTOR_END_ACTIONS
-# DESNOTE(jbarber, 2026-08-19): Melee caps hitlag at 20 frames, while Fox's
-# frame-perfect multishine cycle takes 8 frames without freeze frames. Preserve
-# four frames of transition slack per shine beyond that combined upper bound.
-# See https://www.ssbwiki.com/Hitlag and
+# DESNOTE(jbarber, 2026-08-19): Fox's fresh 5% shine produces a stored attacker
+# hitlag counter of four. Keep the normal eight-frame cycle plus four frames of
+# transition slack as the baseline, then add four frames only when shine hitlag
+# rises. This avoids charging every requested shine for a hit that may not occur.
+# See https://github.com/doldecomp/melee/blob/master/src/melee/ft/ftcommon.c and
 # https://www.ssbwiki.com/Reflector_(Fox)#Multi_shine
-_DEFAULT_FRAMES_PER_SHINE: Final = 32
+_DEFAULT_FRAMES_PER_SHINE: Final = 12
+_SHINE_HITLAG_FRAMES: Final = 4
 
 
 def _apply_down_input(controls: SimpleControls, button: Button) -> None:
@@ -164,10 +167,17 @@ class MultishineMontage(StatefulInputMontage[_MultishineState]):
             controls.release_all()
             return input_state, False
 
+        shine_hitlag_left = (
+            player_state_value.hitlag_left if player_state_value.action in SHINE_ACTIONS else 0
+        )
+        if shine_hitlag_left > input_state.shine_hitlag_left:
+            self._frame_limit += _SHINE_HITLAG_FRAMES
+        input_state = replace(input_state, shine_hitlag_left=shine_hitlag_left)
+
         match input_state.phase, player_state_value.action:
             case _MultishinePhase.FirstShineRequested, _:
                 _apply_down_input(controls, Button.BUTTON_B)
-                return _MultishineState(_MultishinePhase.JumpRequested, 1), self
+                return replace(input_state, phase=_MultishinePhase.JumpRequested, shines_requested=1), self
             case _MultishinePhase.JumpRequested, Action.STANDING:
                 _apply_down_input(controls, Button.BUTTON_B)
                 return input_state, self
@@ -193,9 +203,10 @@ class MultishineMontage(StatefulInputMontage[_MultishineState]):
                 if player_state_value.action_frame == JUMP_SQUAT_FRAMES[Character.FOX]:
                     _apply_down_input(controls, Button.BUTTON_B)
                     return (
-                        _MultishineState(
-                            _MultishinePhase.NextShineRequested,
-                            input_state.shines_requested + 1,
+                        replace(
+                            input_state,
+                            phase=_MultishinePhase.NextShineRequested,
+                            shines_requested=input_state.shines_requested + 1,
                         ),
                         self,
                     )
@@ -204,10 +215,7 @@ class MultishineMontage(StatefulInputMontage[_MultishineState]):
                 if input_state.shines_requested >= self._shine_count:
                     controls.release_all()
                     return (
-                        _MultishineState(
-                            _MultishinePhase.FinalShineObserved,
-                            input_state.shines_requested,
-                        ),
+                        replace(input_state, phase=_MultishinePhase.FinalShineObserved),
                         self,
                     )
                 _hold_reflector_input(controls)
@@ -216,10 +224,7 @@ class MultishineMontage(StatefulInputMontage[_MultishineState]):
                 controls.release_all()
                 if input_state.shines_requested >= self._shine_count:
                     return (
-                        _MultishineState(
-                            _MultishinePhase.FinalShineObserved,
-                            input_state.shines_requested,
-                        ),
+                        replace(input_state, phase=_MultishinePhase.FinalShineObserved),
                         self,
                     )
                 return input_state, self
@@ -235,10 +240,7 @@ class MultishineMontage(StatefulInputMontage[_MultishineState]):
                     player_state_value.on_ground,
                 )
                 return (
-                    _MultishineState(
-                        _MultishinePhase.JumpRequested,
-                        input_state.shines_requested,
-                    ),
+                    replace(input_state, phase=_MultishinePhase.JumpRequested),
                     self,
                 )
             case _MultishinePhase.NextShineRequested, Action.STANDING:

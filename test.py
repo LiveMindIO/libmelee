@@ -1989,12 +1989,12 @@ class TechniqueMontageTests(unittest.TestCase):
             self.controls.take_calls(),
         )
 
-    def test_multishine_default_budget_tolerates_maximum_hitlag(self):
-        montage = MultishineMontage(shine_count=3)
+    def test_multishine_extends_budget_for_each_observed_hit(self):
+        montage = MultishineMontage(frame_limit=18, shine_count=3)
         self.tick(montage, melee.Action.STANDING)
         self.controls.take_calls()
 
-        for hitlag_left in range(20, 0, -1):
+        for hitlag_left in range(4, 0, -1):
             self.assertIs(
                 self.tick(
                     montage,
@@ -2022,7 +2022,7 @@ class TechniqueMontageTests(unittest.TestCase):
             )
             self.controls.take_calls()
 
-        for hitlag_left in range(20, 0, -1):
+        for hitlag_left in range(4, 0, -1):
             self.assertIs(
                 self.tick(
                     montage,
@@ -2059,11 +2059,40 @@ class TechniqueMontageTests(unittest.TestCase):
                 montage,
                 melee.Action.DOWN_B_AIR_START,
                 on_ground=False,
-                hitlag_left=20,
+                hitlag_left=4,
             ),
             True,
         )
         self.assertEqual(montage.get_montage_state(), MontageState.Finished)
+
+    def test_multishine_extends_budget_once_per_hitlag_rise(self):
+        montage = MultishineMontage(frame_limit=2)
+        self.tick(montage, melee.Action.STANDING)
+        self.controls.take_calls()
+
+        for hitlag_left in range(4, 0, -1):
+            self.assertIs(
+                self.tick(
+                    montage,
+                    melee.Action.DOWN_B_GROUND_START,
+                    action_frame=1,
+                    hitlag_left=hitlag_left,
+                ),
+                montage,
+            )
+            self.controls.take_calls()
+
+        self.assertIs(
+            self.tick(montage, melee.Action.DOWN_B_GROUND_START, action_frame=2),
+            montage,
+        )
+        self.controls.take_calls()
+        self.assertIs(
+            self.tick(montage, melee.Action.DOWN_B_GROUND_START, action_frame=3),
+            False,
+        )
+        self.assertEqual(montage.get_montage_state(), MontageState.TimedOut)
+        self.assertEqual(self.controls.take_calls(), [("release_all",)])
 
     def test_multishine_holds_reflector_through_nonfinal_hit_states(self):
         for action, on_ground in (
