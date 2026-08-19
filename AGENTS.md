@@ -53,10 +53,15 @@ uv pip install --python .venv/bin/python .
   Jump montages model their mutable phases as typed `StatefulInputMontage` values
   and dispatch phase transitions with structural pattern matching.
   `MultishineMontage` is Fox-only and performs a configurable `shine_count` of at
-  least two consecutive shines; its default frame limit scales with that count.
-  Later shines begin as `Action.DOWN_B_AIR` after the jump-cancel, then become a
-  grounded shine on landing. Keep the aerial action in the shared shine states;
-  treating it as an interruption aborts immediately after the second shine.
+  least two consecutive shines. Its baseline frame limit allows the normal
+  eight-frame cycle plus four transition frames per shine. A rise in observed
+  shine attacker hitlag adds four frames to the active budget once for that hit;
+  decreasing `hitlag_left` packets do not repeatedly extend the limit.
+  Later shines begin as `Action.DOWN_B_AIR_START` after the jump-cancel, then
+  become a grounded shine on landing. Projectile reflections enter separate
+  ground/air hit and release states with no jump-cancel IASA. It holds B through
+  non-final hit states so they return to the jump-cancelable Reflector loop;
+  release and final states remain neutral until they resolve.
   `WavedashMontage` uses the
   character-specific final jump-squat frame and aborts if that state is missed.
   `PerfectPivotMontage` requires an onstage grounded `DASHING` state, requests the
