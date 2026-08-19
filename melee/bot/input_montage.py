@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from collections.abc import Callable
 from enum import Enum, auto
 from typing import TYPE_CHECKING, Self
 
@@ -21,6 +22,14 @@ class MontageState(Enum):
     Cancelled = auto()
     Aborted = auto()
     Finished = auto()
+
+
+class PreTickResult(Enum):
+    """Control-flow decision returned by an input montage pre-tick listener."""
+
+    CONTINUE = auto()
+    EARLY_COMPLETION = auto()
+    ABORTED = auto()
 
 
 class InputMontage(ABC):
@@ -57,6 +66,9 @@ class InputMontage(ABC):
         self._cancel_montage = cancel_montage
         self._montage_state = MontageState.Waiting
         self._branches: list[InputMontage] = []
+        self._pre_tick_listeners: list[
+            Callable[[SimpleControls, CharacterState, CharacterState, GameState], PreTickResult]
+        ] = []
 
     def add_branch(self, montage: InputMontage) -> Self:
         """Append a possible follow-up montage and return this montage.
@@ -70,6 +82,22 @@ class InputMontage(ABC):
         if montage is self:
             raise ValueError("a montage cannot branch to itself")
         self._branches.append(montage)
+        return self
+
+    def add_pre_tick_listener(
+        self,
+        listener: Callable[[SimpleControls, CharacterState, CharacterState, GameState], PreTickResult],
+    ) -> Self:
+        """Append a listener evaluated immediately before each active input tick.
+
+        Listeners run in insertion order. Their combined precedence is
+        :attr:`PreTickResult.ABORTED`, then
+        :attr:`PreTickResult.EARLY_COMPLETION`, then
+        :attr:`PreTickResult.CONTINUE`.
+        """
+        if not callable(listener):
+            raise TypeError("pre-tick listener must be callable")
+        self._pre_tick_listeners.append(listener)
         return self
 
     def get_montage_state(self) -> MontageState:
@@ -107,6 +135,28 @@ class InputMontage(ABC):
             controls.release_all()
             self._montage_state = MontageState.Aborted
             return False
+
+        pre_tick_result = PreTickResult.CONTINUE
+        for listener in self._pre_tick_listeners:
+            listener_result = listener(controls, player_state, opponent_state, state)
+            if not isinstance(listener_result, PreTickResult):
+                controls.release_all()
+                self._montage_state = MontageState.Aborted
+                raise TypeError("pre-tick listener must return PreTickResult")
+            if listener_result is PreTickResult.ABORTED:
+                pre_tick_result = PreTickResult.ABORTED
+            elif (
+                listener_result is PreTickResult.EARLY_COMPLETION
+                and pre_tick_result is PreTickResult.CONTINUE
+            ):
+                pre_tick_result = PreTickResult.EARLY_COMPLETION
+
+        if pre_tick_result is PreTickResult.ABORTED:
+            controls.release_all()
+            self._montage_state = MontageState.Aborted
+            return False
+        if pre_tick_result is PreTickResult.EARLY_COMPLETION:
+            return self._continue_to_branch_or_finish(controls, player_state, opponent_state, state)
 
         result = self.on_tick(controls, player_state, opponent_state, state)
         self._frame_count += 1
@@ -222,4 +272,4 @@ class InputMontage(ABC):
         raise NotImplementedError
 
 
-__all__ = ["InputMontage", "MontageState"]
+__all__ = ["InputMontage", "MontageState", "PreTickResult"]

@@ -185,11 +185,20 @@ game_state)` every tick, and retains the returned montage while work continues.
   a follow-up or branch.
 - Returning `True` finishes successfully; returning `False`, aborting, cancelling,
   or timing out makes that montage instance terminal.
+- `add_pre_tick_listener(listener)` appends an observer with the same four inputs
+  as `on_tick`. Listeners run in insertion order immediately before `on_tick` and
+  return `PreTickResult.CONTINUE`, `EARLY_COMPLETION`, or `ABORTED`. Every listener
+  runs; precedence is abort, early completion, then continue. Abort neutralizes
+  input and skips `on_tick`; early completion skips `on_tick` and follows the
+  normal successful branch-selection path.
 - `frame_limit` counts active `on_tick` calls only. It is a safety boundary, not a
   substitute for an implementation detecting failure and returning `False`.
 - `cancel(...)` only cancels an active montage and returns its configured fallback,
   if any. It neutralizes pending input before handoff; implementations may override
   it to choose a state-dependent cancellation montage.
+- `StatefulInputMontage.add_stateful_pre_tick_listener(listener)` preserves the
+  same ordering and precedence while adding the current typed state as the fifth
+  callback argument.
 
 Montages are intentionally single-use and should model relatively short sequences
 such as a multishine cycle, charge cancel, or one link in a combo. An implementation
