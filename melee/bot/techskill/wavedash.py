@@ -42,8 +42,8 @@ class WavedashMontage(StatefulInputMontage[_WavedashPhase]):
     """Jump, air dodge down-diagonally, and finish when grounded actionable.
 
     The air dodge is requested on the character's final jump-squat frame. The
-    Callers choose the air-dodge angle explicitly; 16.84 degrees is the ideal
-    maximum-distance boundary. Boundary requests and one-ULP roundoff are clamped
+    Callers choose the air-dodge angle explicitly; 17.1 degrees is the shallow
+    boundary. Boundary requests and one-ULP roundoff are clamped
     to a representable float strictly inside the accepted interval.
     """
 

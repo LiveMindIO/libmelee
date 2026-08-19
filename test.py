@@ -9,6 +9,7 @@ from melee.bot import (
     AttackFrameData,
     AttackType,
     CharacterState,
+    InitiateDashMontage,
     Hold,
     InputMontage,
     LedgedashMontage,
@@ -1461,6 +1462,7 @@ class TechniqueMontageTests(unittest.TestCase):
 
     def test_technique_montages_use_stateful_base(self):
         montages = (
+            InitiateDashMontage(StickReferenceAxis.RIGHT),
             MultishineMontage(),
             WavedashMontage(WavedashDirection.Right, angle_degrees=45.0),
             LedgedashMontage(angle_degrees=45.0),
@@ -1502,6 +1504,7 @@ class TechniqueMontageTests(unittest.TestCase):
         position_y=0.0,
         ecb_bottom_y=0.0,
         speed_y_self=0.0,
+        speed_ground_x_self=0.0,
         hitlag_left=0,
         hitstun_frames_left=0,
         is_powershield=False,
@@ -1518,6 +1521,7 @@ class TechniqueMontageTests(unittest.TestCase):
             off_stage=off_stage,
             jumps_left=jumps_left,
             speed_y_self=speed_y_self,
+            speed_ground_x_self=speed_ground_x_self,
             hitlag_left=hitlag_left,
             hitstun_frames_left=hitstun_frames_left,
             is_powershield=is_powershield,
@@ -1550,6 +1554,160 @@ class TechniqueMontageTests(unittest.TestCase):
             opponent_state,
             game_state,
         )
+
+    def test_initiate_dash_neutralizes_before_smashing_in_current_movement_direction(self):
+        for direction, speed_ground_x_self in (
+            (StickReferenceAxis.LEFT, -1.0),
+            (StickReferenceAxis.RIGHT, 1.0),
+        ):
+            with self.subTest(direction=direction):
+                montage = InitiateDashMontage(direction)
+
+                self.assertIs(
+                    self.tick(
+                        montage,
+                        melee.Action.RUNNING,
+                        speed_ground_x_self=speed_ground_x_self,
+                    ),
+                    montage,
+                )
+                self.assertEqual(self.controls.take_calls(), [("release_all",)])
+
+                self.assertIs(
+                    self.tick(
+                        montage,
+                        melee.Action.RUN_BRAKE,
+                        speed_ground_x_self=0.0,
+                    ),
+                    montage,
+                )
+                self.assertEqual(
+                    self.controls.take_calls(),
+                    [
+                        ("release_all",),
+                        (
+                            "tilt_stick",
+                            direction,
+                            0.0,
+                            1.0,
+                            melee.Button.BUTTON_MAIN,
+                        ),
+                    ],
+                )
+
+                self.assertIs(self.tick(montage, melee.Action.DASHING), True)
+                self.assertEqual(self.controls.take_calls(), [])
+                self.assertEqual(montage.get_montage_state(), MontageState.Finished)
+
+    def test_initiate_dash_skips_neutral_when_stationary_or_moving_opposite_direction(self):
+        for direction, speed_ground_x_self in (
+            (StickReferenceAxis.LEFT, 0.0),
+            (StickReferenceAxis.LEFT, 1.0),
+            (StickReferenceAxis.RIGHT, 0.0),
+            (StickReferenceAxis.RIGHT, -1.0),
+        ):
+            with self.subTest(direction=direction, speed_ground_x_self=speed_ground_x_self):
+                montage = InitiateDashMontage(direction)
+
+                self.assertIs(
+                    self.tick(
+                        montage,
+                        melee.Action.STANDING,
+                        speed_ground_x_self=speed_ground_x_self,
+                    ),
+                    montage,
+                )
+                self.assertEqual(
+                    self.controls.take_calls(),
+                    [
+                        ("release_all",),
+                        (
+                            "tilt_stick",
+                            direction,
+                            0.0,
+                            1.0,
+                            melee.Button.BUTTON_MAIN,
+                        ),
+                    ],
+                )
+
+                self.assertIs(self.tick(montage, melee.Action.DASHING), True)
+                self.assertEqual(self.controls.take_calls(), [])
+                self.assertEqual(montage.get_montage_state(), MontageState.Finished)
+
+    def test_initiate_dash_accepts_only_horizontal_directions(self):
+        for direction in (StickReferenceAxis.UP, StickReferenceAxis.DOWN, "right"):
+            with self.subTest(direction=direction):
+                with self.assertRaisesRegex(ValueError, "LEFT or StickReferenceAxis.RIGHT"):
+                    InitiateDashMontage(direction)
+
+    def test_initiate_dash_handoff_leaves_stick_held_for_continuation(self):
+        continuation = RecordingMontage()
+        montage = InitiateDashMontage(StickReferenceAxis.RIGHT).add_branch(continuation)
+
+        self.assertIs(self.tick(montage, melee.Action.STANDING), montage)
+        self.controls.take_calls()
+
+        self.assertIs(self.tick(montage, melee.Action.DASHING), continuation)
+        self.assertEqual(self.controls.take_calls(), [])
+        self.assertEqual(montage.get_montage_state(), MontageState.Finished)
+        self.assertEqual(continuation.get_montage_state(), MontageState.Active)
+        self.assertEqual(continuation.on_tick_calls, 0)
+
+    def test_initiate_dash_waits_until_grounded(self):
+        montage = InitiateDashMontage(StickReferenceAxis.RIGHT)
+
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action.FALLING,
+                on_ground=False,
+            ),
+            montage,
+        )
+        self.assertEqual(self.controls.take_calls(), [])
+        self.assertEqual(montage.get_montage_state(), MontageState.Waiting)
+
+        self.assertIs(self.tick(montage, melee.Action.STANDING), montage)
+        self.assertEqual(
+            self.controls.take_calls(),
+            [
+                ("release_all",),
+                (
+                    "tilt_stick",
+                    StickReferenceAxis.RIGHT,
+                    0.0,
+                    1.0,
+                    melee.Button.BUTTON_MAIN,
+                ),
+            ],
+        )
+        self.assertEqual(montage.get_montage_state(), MontageState.Active)
+
+    def test_initiate_dash_aborts_and_neutralizes_if_player_leaves_ground(self):
+        montage = InitiateDashMontage(StickReferenceAxis.LEFT)
+        self.assertIs(self.tick(montage, melee.Action.STANDING), montage)
+        self.controls.take_calls()
+
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action.FALLING,
+                on_ground=False,
+            ),
+            False,
+        )
+        self.assertEqual(self.controls.take_calls(), [("release_all",)])
+        self.assertEqual(montage.get_montage_state(), MontageState.Aborted)
+
+    def test_initiate_dash_aborts_if_horizontal_smash_does_not_start_dash(self):
+        montage = InitiateDashMontage(StickReferenceAxis.RIGHT)
+        self.assertIs(self.tick(montage, melee.Action.STANDING), montage)
+        self.controls.take_calls()
+
+        self.assertIs(self.tick(montage, melee.Action.STANDING), False)
+        self.assertEqual(self.controls.take_calls(), [("release_all",)])
+        self.assertEqual(montage.get_montage_state(), MontageState.Aborted)
 
     def test_perfect_pivot_reverses_attacks_then_releases_for_each_facing_direction(
         self,
@@ -2862,7 +3020,7 @@ class TechniqueMontageTests(unittest.TestCase):
             WavedashMontage(WavedashDirection.Right)
         with self.assertRaisesRegex(ValueError, "direction"):
             WavedashMontage("right", angle_degrees=45.0)
-        for angle in (math.nan, 16.8, 90.1):
+        for angle in (math.nan, 16.84, 90.1):
             with self.subTest(angle=angle):
                 with self.assertRaises(ValueError):
                     WavedashMontage(
@@ -2883,7 +3041,7 @@ class TechniqueMontageTests(unittest.TestCase):
             )
 
     def test_wavedash_clamps_boundary_roundoff_inward(self):
-        self.assertEqual(WAVEDASH_MIN_ANGLE_DEGREES, 16.84)
+        self.assertEqual(WAVEDASH_MIN_ANGLE_DEGREES, 17.1)
         minimum_safe = math.nextafter(
             WAVEDASH_MIN_ANGLE_DEGREES,
             WAVEDASH_MAX_ANGLE_DEGREES,
@@ -2912,7 +3070,7 @@ class TechniqueMontageTests(unittest.TestCase):
         above_roundoff = math.nextafter(maximum_roundoff, math.inf)
         for requested in (below_roundoff, above_roundoff):
             with self.subTest(requested=requested):
-                with self.assertRaisesRegex(ValueError, "between 16.84 and 90"):
+                with self.assertRaisesRegex(ValueError, "between 17.1 and 90"):
                     clamp_wavedash_angle(requested)
 
     def test_wavedash_uses_clamped_minimum_angle(self):

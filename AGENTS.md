@@ -59,9 +59,15 @@ uv pip install --python .venv/bin/python .
   attempt.
 - Concrete montages live in separate files under `melee/bot/techskill/`, with
   reused state and helpers in `melee/bot/techskill/common.py`.
-  The shipped Multishine, Wavedash, Ledgedash, SDI, Perfect Pivot, and Smash Turn
-  Jump montages model their mutable phases as typed `StatefulInputMontage` values
-  and dispatch phase transitions with structural pattern matching.
+  The shipped Initiate Dash, Multishine, Wavedash, Ledgedash, SDI, Perfect Pivot,
+  and Smash Turn Jump montages model their mutable phases as typed
+  `StatefulInputMontage` values and dispatch phase transitions with structural
+  pattern matching.
+  `InitiateDashMontage` requests a neutral reset frame only when already moving
+  in the requested direction; stationary or opposite-direction movement goes
+  directly to one maximum absolute left/right frame. Success leaves that
+  direction held, so the caller or an `add_branch()` continuation must reset the
+  stick once the desired location is reached.
   `MultishineMontage` is Fox-only and performs a configurable `shine_count` of at
   least two consecutive shines. Its baseline frame limit allows the normal
   eight-frame cycle plus four transition frames per shine. A rise in observed
@@ -93,7 +99,7 @@ uv pip install --python .venv/bin/python .
   pulses for horizontal shield SDI, queues cardinal C-stick ASDI as damage hitlag
   exits, and uses the main stick for shield hitlag's final displacement.
 - Wavedash and ledgedash callers must choose the angle explicitly. The accepted
-  shallow boundary is 16.84 degrees; boundary values and one ULP of
+  shallow boundary is 17.1 degrees; boundary values and one ULP of
   roundoff clamp one representable float inward. Ledgedash's default ECB-bottom
   world-Y threshold is 0.25 for standard main-stage ledges and is intentionally
   configurable.
