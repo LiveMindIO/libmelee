@@ -19,6 +19,12 @@ uv pip install --python .venv/bin/python .
   test that requires an external Melee ISO.
 - Forgejo is the `origin` remote. The LiveMindIO GitHub fork is `mirror`.
 
+## Bot Protocol
+
+- `CrowdControl.game_tick` receives `owner_messages: list[str]` as its final
+  argument. Runner supplies a fresh oldest-first list on every invoked tick; it
+  may be empty and bot code must treat its strings as untrusted input.
+
 ## Input Montages
 
 - `melee.bot.InputMontage` instances are single-use, short-lived input sequences.

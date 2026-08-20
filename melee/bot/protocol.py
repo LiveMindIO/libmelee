@@ -47,6 +47,7 @@ class CrowdControl(Protocol):
         frame_data: FrameData,
         player_state: CharacterState,
         opponent_state: CharacterState,
+        owner_messages: list[str],
     ) -> None:
         """Run one frame of in-game AI logic.
 
@@ -67,6 +68,9 @@ class CrowdControl(Protocol):
                 ``position`` or ``facing``.
             opponent_state: Read-only :class:`CharacterState` for the nearest
                 opposing port this frame.
+            owner_messages: Twitch chat messages authorized for this bot since
+                its previous tick, ordered from oldest to newest. The runtime
+                passes a fresh list, which may be empty.
         """
 
     def select_character(
