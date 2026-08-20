@@ -21,9 +21,9 @@ uv pip install --python .venv/bin/python .
 
 ## Bot Protocol
 
-- `CrowdControl.game_tick` receives `owner_messages: list[str]` as its final
-  argument. Runner supplies a fresh oldest-first list on every invoked tick; it
-  may be empty and bot code must treat its strings as untrusted input.
+- `CrowdControl[A].game_tick` receives `custom: A` as its final argument. The
+  embedding application owns that payload's type and semantics; libmelee does
+  not interpret it.
 
 ## Input Montages
 

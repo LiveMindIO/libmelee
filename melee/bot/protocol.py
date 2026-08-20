@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Protocol, runtime_checkable
+from typing import Protocol, TypeVar, runtime_checkable
 
 from melee.controller import Controller
 from melee.enums import Character
@@ -14,6 +14,8 @@ from melee.bot.character_state import CharacterState
 from melee.bot.logger import BotLogger
 from melee.bot.match_history import MatchHistory
 from melee.bot.simple_controls import SimpleControls
+
+A = TypeVar("A", contravariant=True)
 
 
 @dataclass(frozen=True)
@@ -26,7 +28,7 @@ class CharacterSelection:
 
 
 @runtime_checkable
-class CrowdControl(Protocol):
+class CrowdControl(Protocol[A]):
     """Interface implemented by Python bots controlled through libmelee."""
 
     def set_logger(self, logger: BotLogger) -> None:
@@ -47,7 +49,7 @@ class CrowdControl(Protocol):
         frame_data: FrameData,
         player_state: CharacterState,
         opponent_state: CharacterState,
-        owner_messages: list[str],
+        custom: A,
     ) -> None:
         """Run one frame of in-game AI logic.
 
@@ -68,9 +70,8 @@ class CrowdControl(Protocol):
                 ``position`` or ``facing``.
             opponent_state: Read-only :class:`CharacterState` for the nearest
                 opposing port this frame.
-            owner_messages: Twitch chat messages authorized for this bot since
-                its previous tick, ordered from oldest to newest. The runtime
-                passes a fresh list, which may be empty.
+            custom: Runtime-defined per-frame data. The embedding application
+                selects its type and semantics when specializing this protocol.
         """
 
     def select_character(
