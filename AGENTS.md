@@ -71,8 +71,8 @@ uv pip install --python .venv/bin/python .
   same arguments as `on_tick`. A repeated identifier replaces the existing listener
   without changing its position. `get_pre_tick_listeners()` returns the collection.
   They all run in insertion order after the timeout and `should_abort()` checks but
-  before `on_tick`. Listeners may return `Abort(reason)`; the first abort reason
-  wins while every listener still runs. Abort takes precedence over
+  before `on_tick`. Listeners return `PreTickResult.Aborted(reason)`; the first
+  abort reason wins while every listener still runs. Abort takes precedence over
   `EARLY_COMPLETION`, which takes precedence over `CONTINUE`. Legacy
   `PreTickResult.ABORTED` receives a framework-generated reason.
 - `StatefulInputMontage[StateT]` stores constructor-supplied initial state and adapts

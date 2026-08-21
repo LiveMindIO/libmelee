@@ -46,7 +46,12 @@ class PreTickResult(Enum):
     """Skip the input tick and continue through successful branch selection."""
 
     ABORTED = auto()
-    """Skip the input tick, neutralize input, and abort the montage."""
+    """Legacy reasonless abort retained for compatibility."""
+
+    @staticmethod
+    def Aborted(reason: str) -> Abort:
+        """Create an abort result carrying ``reason``."""
+        return Abort(reason)
 
     def combine(self, other: PreTickResult) -> PreTickResult:
         """Return the higher-precedence result from two listeners."""

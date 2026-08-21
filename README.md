@@ -212,11 +212,12 @@ game_state)` every tick, and retains the returned montage while work continues.
   distinct terminal state.
 - `add_pre_tick_listener(listener)` adds an observer with the same four inputs
   as `on_tick`. Listeners run in insertion order immediately before `on_tick` and
-  return `PreTickResult.CONTINUE`, `EARLY_COMPLETION`, or `Abort(reason)`. Every
-  listener runs; precedence is abort, early completion, then continue. The first
-  abort reason wins, neutralizes input, and skips `on_tick`; early completion skips
-  `on_tick` and follows the normal successful branch-selection path. Legacy
-  `PreTickResult.ABORTED` remains accepted with a framework-generated reason.
+  return `PreTickResult.CONTINUE`, `EARLY_COMPLETION`, or
+  `PreTickResult.Aborted(reason)`. Every listener runs; precedence is abort, early
+  completion, then continue. The first abort reason wins, neutralizes input, and
+  skips `on_tick`; early completion skips `on_tick` and follows the normal
+  successful branch-selection path. Legacy `PreTickResult.ABORTED` remains
+  accepted with a framework-generated reason.
   `PreTickResult.combine()` exposes enum-only pairwise precedence.
   Named listeners replace an existing callback with the same identifier at its
   original position; plain callables remain supported with generated IDs.

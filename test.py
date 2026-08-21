@@ -1559,6 +1559,12 @@ class InputMontageTests(unittest.TestCase):
             with self.subTest(left=left, right=right):
                 self.assertIs(left.combine(right), expected)
 
+    def test_pre_tick_aborted_creates_reasoned_abort(self):
+        self.assertEqual(
+            PreTickResult.Aborted("opponent left range"),
+            Abort("opponent left range"),
+        )
+
     def test_pre_tick_continue_listeners_run_in_insertion_order_before_tick(self):
         calls = []
         montage = RecordingMontage(results=(True,))
@@ -1641,12 +1647,12 @@ class InputMontageTests(unittest.TestCase):
 
     def test_reasoned_pre_tick_abort_uses_first_reason_and_runs_all_listeners(self):
         calls = []
-        first_abort = Abort("opponent left range")
+        first_abort = PreTickResult.Aborted("opponent left range")
         montage = RecordingMontage(results=(True,))
         for name, result in (
             ("first", first_abort),
             ("complete", PreTickResult.EARLY_COMPLETION),
-            ("second", Abort("later reason")),
+            ("second", PreTickResult.Aborted("later reason")),
         ):
             montage.add_pre_tick_listener(
                 lambda controls, player_state, opponent_state, state, name=name, result=result: (
