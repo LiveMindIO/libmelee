@@ -23,12 +23,19 @@ A = TypeVar("A")
 class BaseBot(BotProtocol[A], ABC, Generic[A]):
     """Base implementation for logger, strategy, and montage state.
 
+    Construction starts with no active strategy or montage. Subclasses that need
+    an initial strategy must call ``super().__init__()`` first and then pass the
+    strategy to :meth:`set_active_strategy`. That setter immediately mirrors the
+    strategy's current montage and propagates later strategy montage changes.
+    Assigning ``_active_strategy`` directly bypasses this synchronization.
+
     Change listeners run in subscription order after the active value is updated.
     Each listener receives ``(previous, current)``. Assigning the same object by
     identity is a no-op.
     """
 
     def __init__(self) -> None:
+        """Initialize empty bot state and install strategy-montage propagation."""
         self._bot_logger: BotLogger | None = None
         self._active_strategy: Strategy[A] | None = None
         self._active_montage: InputMontage | None = None
@@ -66,7 +73,14 @@ class BaseBot(BotProtocol[A], ABC, Generic[A]):
         return self._strategy_changed_listeners
 
     def set_active_strategy(self, strategy: Strategy[A] | None) -> None:
-        """Set the active strategy and notify listeners after an identity change."""
+        """Set the strategy, synchronize its montage, and notify listeners.
+
+        The previous strategy's montage listener is removed before the new
+        strategy is observed. The new strategy's current montage is copied to
+        this bot before later strategy-change listeners run. Passing ``None``
+        clears the bot's active montage. Use this method instead of assigning
+        ``_active_strategy`` directly.
+        """
         previous = self._active_strategy
         if previous is strategy:
             return
