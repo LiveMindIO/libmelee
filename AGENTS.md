@@ -19,6 +19,12 @@ uv pip install --python .venv/bin/python .
   test that requires an external Melee ISO.
 - Forgejo is the `origin` remote. The LiveMindIO GitHub fork is `mirror`.
 
+## Bot Protocol
+
+- `CrowdControl[A].game_tick` receives `custom: A` as its final argument. The
+  embedding application owns that payload's type and semantics; libmelee does
+  not interpret it.
+
 ## Input Montages
 
 - `melee.bot.InputMontage` instances are single-use, short-lived input sequences.
