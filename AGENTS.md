@@ -73,8 +73,9 @@ uv pip install --python .venv/bin/python .
   They all run in insertion order after the timeout and `should_abort()` checks but
   before `on_tick`. Listeners return `PreTickResult.Aborted(reason)`; the first
   abort reason wins while every listener still runs. Abort takes precedence over
-  `EARLY_COMPLETION`, which takes precedence over `CONTINUE`. Legacy
-  `PreTickResult.ABORTED` receives a framework-generated reason.
+  `EARLY_COMPLETION`, which takes precedence over `CONTINUE`. Deprecated
+  `PreTickResult.ABORTED` remains compatible, emits `DeprecationWarning`, and
+  receives a framework-generated reason.
 - `StatefulInputMontage[StateT]` stores constructor-supplied initial state and adapts
   `stateful_on_tick`, `stateful_should_abort`, and `stateful_cancel` to the base
   lifecycle. Every callback receives the current state; only `stateful_on_tick`
@@ -86,10 +87,12 @@ uv pip install --python .venv/bin/python .
   one insertion order and the same aggregate precedence; named identifiers survive
   the adapter so replacement works across stateful registrations.
 - `on_tick()` returns `Abort(reason)` for failure and `should_abort()` returns an
-  `Abort` or `None`; legacy `False`/`True` values receive framework-generated
-  reasons. Exhausting the safety limit uses `TimedOut`; cancelling an active
-  montage uses `Cancelled` and may return a configured fallback montage. Timeout,
-  abort, malformed return, and active cancellation neutralize pending input.
+  `Abort` or `None`. Deprecated `on_tick() -> False` and boolean `should_abort()`
+  results remain compatible, emit `DeprecationWarning`, and receive
+  framework-generated reasons where applicable. `on_tick() -> True` remains the
+  normal success result. Exhausting the safety limit uses `TimedOut`; cancelling
+  an active montage uses `Cancelled` and may return a configured fallback montage.
+  Timeout, abort, malformed return, and active cancellation neutralize pending input.
 - Base `on_tick()` results dispatch through an exhaustive structural match. Keep
   mutating callbacks such as `can_start()` and `SimpleControls.attack()` out of
   match guards; pure state predicates such as Wavedash jump eligibility may use

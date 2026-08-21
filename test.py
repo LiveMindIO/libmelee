@@ -1217,7 +1217,7 @@ class RecordingMontage(InputMontage):
         cancel_montage=None,
         *,
         start_allowed=True,
-        abort=False,
+        abort=None,
         results=(),
         name=None,
     ):
@@ -1249,7 +1249,7 @@ class RecordingStatefulMontage(StatefulInputMontage[int]):
         self,
         initial_state,
         *,
-        abort=False,
+        abort=None,
         fallback=None,
         results=(),
         name=None,
@@ -1367,7 +1367,11 @@ class InputMontageTests(unittest.TestCase):
     def test_false_aborts_montage(self):
         montage = RecordingMontage(results=(False,))
 
-        self.assertEqual(self.tick(montage), Abort("on_tick returned False"))
+        with self.assertWarnsRegex(
+            DeprecationWarning,
+            r"Returning False from InputMontage\.on_tick\(\) is deprecated",
+        ):
+            self.assertEqual(self.tick(montage), Abort("on_tick returned False"))
         self.assertEqual(montage.get_montage_state(), MontageState.Aborted)
         self.assertIs(self.tick(montage), False)
         self.assertEqual(montage.on_tick_calls, 1)
@@ -1415,10 +1419,23 @@ class InputMontageTests(unittest.TestCase):
             )
         )
 
-        self.assertEqual(self.tick(montage), Abort("should_abort returned True"))
+        with self.assertWarnsRegex(
+            DeprecationWarning,
+            r"Returning bool from InputMontage\.should_abort\(\) is deprecated",
+        ):
+            self.assertEqual(self.tick(montage), Abort("should_abort returned True"))
         self.assertEqual(calls, [])
         self.assertEqual(montage.on_tick_calls, 0)
         self.assertEqual(montage.get_montage_state(), MontageState.Aborted)
+
+    def test_false_should_abort_result_is_deprecated_but_continues(self):
+        montage = RecordingMontage(abort=False, results=(True,))
+
+        with self.assertWarnsRegex(
+            DeprecationWarning,
+            r"Returning bool from InputMontage\.should_abort\(\) is deprecated",
+        ):
+            self.assertIs(self.tick(montage), True)
 
     def test_invalid_tick_result_aborts_and_raises(self):
         montage = RecordingMontage(results=(None,))
@@ -1519,7 +1536,8 @@ class InputMontageTests(unittest.TestCase):
         self.assertEqual(self.controls.release_count, 1)
 
     def test_branch_failure_does_not_change_finished_predecessor(self):
-        branch = RecordingMontage(results=(False,))
+        abort = Abort("branch failed")
+        branch = RecordingMontage(results=(abort,))
         montage = RecordingMontage(results=(True,))
         montage.add_branch(branch)
 
@@ -1527,7 +1545,7 @@ class InputMontageTests(unittest.TestCase):
         self.assertEqual(montage.get_montage_state(), MontageState.Finished)
         self.assertEqual(self.controls.release_count, 0)
 
-        self.assertEqual(self.tick(branch), Abort("on_tick returned False"))
+        self.assertIs(self.tick(branch), abort)
         self.assertEqual(branch.get_montage_state(), MontageState.Aborted)
         self.assertEqual(montage.get_montage_state(), MontageState.Finished)
         self.assertEqual(self.controls.release_count, 1)
@@ -1636,10 +1654,14 @@ class InputMontageTests(unittest.TestCase):
                 )
             )
 
-        self.assertEqual(
-            self.tick(montage),
-            Abort("pre-tick listener returned ABORTED"),
-        )
+        with self.assertWarnsRegex(
+            DeprecationWarning,
+            r"PreTickResult\.ABORTED is deprecated",
+        ):
+            self.assertEqual(
+                self.tick(montage),
+                Abort("pre-tick listener returned ABORTED"),
+            )
         self.assertEqual(calls, ["continue", "complete", "abort", "after-abort"])
         self.assertEqual(montage.get_montage_state(), MontageState.Aborted)
         self.assertEqual(montage.on_tick_calls, 0)

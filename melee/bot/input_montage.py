@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import warnings
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from enum import Enum, auto
@@ -16,6 +17,11 @@ if TYPE_CHECKING:
     from melee.bot.character_state import CharacterState
     from melee.bot.simple_controls import SimpleControls
     from melee.gamestate import GameState
+
+
+def _warn_legacy_result(message: str) -> None:
+    """Warn when a montage uses a compatibility-only result form."""
+    warnings.warn(message, DeprecationWarning, stacklevel=3)
 
 
 @dataclass(frozen=True)
@@ -184,6 +190,11 @@ class InputMontage(ABC):
         should_abort = self.should_abort(controls, player_state, opponent_state, state)
         if isinstance(should_abort, Abort):
             return self._abort(controls, should_abort)
+        if isinstance(should_abort, bool):
+            _warn_legacy_result(
+                "Returning bool from InputMontage.should_abort() is deprecated; "
+                "return Abort(reason) or None instead."
+            )
         if should_abort:
             return self._abort(controls, Abort("should_abort returned True"))
 
@@ -195,6 +206,11 @@ class InputMontage(ABC):
                 if pre_tick_abort is None:
                     pre_tick_abort = listener_result
             else:
+                if listener_result is PreTickResult.ABORTED:
+                    _warn_legacy_result(
+                        "PreTickResult.ABORTED is deprecated; return "
+                        "PreTickResult.Aborted(reason) instead."
+                    )
                 pre_tick_result = pre_tick_result.combine(listener_result)
 
         if pre_tick_abort is not None:
@@ -213,6 +229,10 @@ class InputMontage(ABC):
             case True:
                 return self._continue_to_branch_or_finish(controls, player_state, opponent_state, state)
             case False:
+                _warn_legacy_result(
+                    "Returning False from InputMontage.on_tick() is deprecated; "
+                    "return Abort(reason) instead."
+                )
                 return self._abort(controls, Abort("on_tick returned False"))
             case InputMontage() as next_montage if next_montage is not self:
                 self._montage_state = MontageState.Finished
@@ -294,8 +314,8 @@ class InputMontage(ABC):
 
         Return ``self`` to continue this montage on the next game tick, another
         montage to hand off control, ``True`` on success, or :class:`Abort` on
-        failure. ``False`` remains accepted as a compatibility abort without a
-        custom reason.
+        failure. ``False`` remains accepted as a deprecated compatibility abort
+        without a custom reason.
         """
         raise NotImplementedError
 
@@ -311,8 +331,8 @@ class InputMontage(ABC):
 
         Examples include an aerial-attack montage whose character is no longer
         airborne, a jump montage when no jump is available, or any sequence that
-        was interrupted because the character was hit. ``True`` remains accepted
-        as a compatibility abort without a custom reason.
+        was interrupted because the character was hit. Boolean results remain
+        accepted as deprecated compatibility values; return ``None`` to continue.
         """
         raise NotImplementedError
 

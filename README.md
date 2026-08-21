@@ -209,15 +209,18 @@ game_state)` every tick, and retains the returned montage while work continues.
   a follow-up or branch.
 - Returning `True` finishes successfully. Returning `Abort(reason)` aborts and
   returns the same value to the caller; cancelling or timing out uses its own
-  distinct terminal state.
+  distinct terminal state. Returning `False` from `on_tick()` is deprecated but
+  remains compatible with a framework-generated abort reason. Boolean
+  `should_abort()` results are likewise deprecated; return `Abort(reason)` or
+  `None` instead. Deprecated result forms emit `DeprecationWarning`.
 - `add_pre_tick_listener(listener)` adds an observer with the same four inputs
   as `on_tick`. Listeners run in insertion order immediately before `on_tick` and
   return `PreTickResult.CONTINUE`, `EARLY_COMPLETION`, or
   `PreTickResult.Aborted(reason)`. Every listener runs; precedence is abort, early
   completion, then continue. The first abort reason wins, neutralizes input, and
   skips `on_tick`; early completion skips `on_tick` and follows the normal
-  successful branch-selection path. Legacy `PreTickResult.ABORTED` remains
-  accepted with a framework-generated reason.
+  successful branch-selection path. Legacy `PreTickResult.ABORTED` is deprecated
+  but remains accepted with a framework-generated reason and warning.
   `PreTickResult.combine()` exposes enum-only pairwise precedence.
   Named listeners replace an existing callback with the same identifier at its
   original position; plain callables remain supported with generated IDs.
