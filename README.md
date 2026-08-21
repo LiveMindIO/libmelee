@@ -173,9 +173,10 @@ committed game frames when scheduling the release.
 Implementations pass `name` and `description` to the constructor and implement
 `tick(...) -> Continue | Exit`. `game_tick(...)` delegates to `tick`; an `Exit`
 contains a reason and is sent to listeners registered with `add_exit_listener`.
-`get_exit_listeners()` returns the private collection. The same
-strategy class may be instantiated multiple times during one match, with each
-instance retaining independent state.
+`get_exit_listeners()` returns the private collection. Strategies also own an
+optional active montage through the same getter, setter, and identity-sensitive
+change-listener API as `BaseBot`. The same strategy class may be instantiated
+multiple times during one match, with each instance retaining independent state.
 
 `Listener[P, R]` adds a stable string `identifier` to a typed callable.
 `Listener.create(identifier, callback)` constructs a `SimpleListener`. `Listeners`

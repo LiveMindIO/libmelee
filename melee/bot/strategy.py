@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from typing import Generic, TypeVar
 
 from melee.bot.character_state import CharacterState
+from melee.bot.input_montage import InputMontage
 from melee.bot.listener import Listener, ListenerOrCallable, Listeners
 from melee.bot.simple_controls import SimpleControls
 from melee.controller import Controller
@@ -39,7 +40,9 @@ class Strategy(ABC, Generic[A]):
     def __init__(self, name: str, description: str) -> None:
         self._name = name
         self._description = description
+        self._active_montage: InputMontage | None = None
         self._exit_listeners: Listeners[[Exit], None] = Listeners()
+        self._montage_changed_listeners: Listeners[[InputMontage | None, InputMontage | None], None] = Listeners()
 
     def get_name(self) -> str:
         """Return this strategy instance's display name."""
@@ -48,6 +51,32 @@ class Strategy(ABC, Generic[A]):
     def get_description(self) -> str:
         """Return this strategy instance's description."""
         return self._description
+
+    def get_active_montage(self) -> InputMontage | None:
+        """Return the input montage currently owned by this strategy, if any."""
+        return self._active_montage
+
+    def add_montage_changed_listener(
+        self,
+        listener: ListenerOrCallable[[InputMontage | None, InputMontage | None], None],
+    ) -> Listener[[InputMontage | None, InputMontage | None], None]:
+        """Register and return a montage-change listener."""
+        return self._montage_changed_listeners.add(listener)
+
+    def get_montage_changed_listeners(
+        self,
+    ) -> Listeners[[InputMontage | None, InputMontage | None], None]:
+        """Return the montage-change listener collection."""
+        return self._montage_changed_listeners
+
+    def set_active_montage(self, montage: InputMontage | None) -> None:
+        """Set the active montage and notify listeners after an identity change."""
+        previous = self._active_montage
+        if previous is montage:
+            return
+        self._active_montage = montage
+        for listener in self._montage_changed_listeners.get_all():
+            listener(previous, montage)
 
     def add_exit_listener(self, listener: ListenerOrCallable[[Exit], None]) -> Listener[[Exit], None]:
         """Register and return a listener notified when this strategy exits."""

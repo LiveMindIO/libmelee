@@ -155,6 +155,47 @@ class BotProtocolTests(unittest.TestCase):
         self.assertEqual(result, Continue())
         self.assertEqual(exits, [])
 
+    def test_strategy_active_montage_notifies_on_identity_changes(self):
+        strategy = RecordingStrategy()
+        first = RecordingMontage()
+        second = RecordingMontage()
+        changes = []
+        change_listener = strategy.add_montage_changed_listener(
+            lambda previous, current: changes.append((previous, current))
+        )
+
+        strategy.set_active_montage(first)
+        strategy.set_active_montage(first)
+        strategy.set_active_montage(second)
+        strategy.set_active_montage(None)
+
+        self.assertIsNone(strategy.get_active_montage())
+        self.assertIsNone(strategy._active_montage)
+        self.assertEqual(changes, [(None, first), (first, second), (second, None)])
+        self.assertIs(
+            strategy.get_montage_changed_listeners().get(change_listener.identifier),
+            change_listener,
+        )
+
+    def test_strategy_montage_notifications_use_listener_snapshot(self):
+        strategy = RecordingStrategy()
+        montage = RecordingMontage()
+        calls = []
+
+        def clear_listeners(previous, current):
+            calls.append("clear")
+            strategy.get_montage_changed_listeners().clear()
+
+        strategy.add_montage_changed_listener(clear_listeners)
+        strategy.add_montage_changed_listener(
+            lambda previous, current: calls.append("second")
+        )
+
+        strategy.set_active_montage(montage)
+        strategy.set_active_montage(None)
+
+        self.assertEqual(calls, ["clear", "second"])
+
     def test_crowd_control_is_deprecated_protocol_alias(self):
         self.assertIs(CrowdControl, BotProtocol)
 

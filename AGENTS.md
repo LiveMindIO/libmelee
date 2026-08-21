@@ -32,8 +32,9 @@ uv pip install --python .venv/bin/python .
 - `Strategy[A]` is a stateful abstract base. Implementations pass a name and
   description to `super().__init__()` and implement `tick(...) -> Continue | Exit`.
   Base `game_tick` notifies listeners registered through `add_exit_listener` with
-  the returned `Exit`; strategy instances
-  may be created multiple times during a match and keep independent state.
+  the returned `Exit`. Each strategy also owns `_active_montage` and the same
+  montage getter, setter, and change-listener collection as `BaseBot`; strategy
+  instances may be created multiple times during a match and keep independent state.
 
 ## Listeners
 
