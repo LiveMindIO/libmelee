@@ -3,11 +3,10 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from collections.abc import Callable
 from enum import Enum, auto
 from typing import TYPE_CHECKING, Self
 
-from melee.bot.listener import Listener, Listeners
+from melee.bot.listener import ListenerOrCallable, Listeners
 
 if TYPE_CHECKING:
     from melee.bot.character_state import CharacterState
@@ -104,11 +103,7 @@ class InputMontage(ABC):
 
     def add_pre_tick_listener(
         self,
-        listener: Listener[
-            [SimpleControls, CharacterState, CharacterState, GameState],
-            PreTickResult,
-        ]
-        | Callable[
+        listener: ListenerOrCallable[
             [SimpleControls, CharacterState, CharacterState, GameState],
             PreTickResult,
         ],

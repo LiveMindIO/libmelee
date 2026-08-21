@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import Generic, ParamSpec, Protocol, TypeVar, runtime_checkable
+from typing import Generic, ParamSpec, Protocol, TypeAlias, TypeVar, runtime_checkable
 from uuid import uuid4
 
 P = ParamSpec("P")
@@ -52,6 +52,9 @@ class SimpleListener(Generic[P, R]):
         return SimpleListener(callback, name)
 
 
+ListenerOrCallable: TypeAlias = Listener[P, R] | Callable[P, R]
+
+
 class Listeners(Generic[P, R]):
     """Ordered listeners with efficient lookup and cached ordered access.
 
@@ -64,7 +67,7 @@ class Listeners(Generic[P, R]):
         self._by_identifier: dict[str, Listener[P, R]] = {}
         self._ordered: tuple[Listener[P, R], ...] = ()
 
-    def add(self, listener: Listener[P, R] | Callable[P, R]) -> Listener[P, R]:
+    def add(self, listener: ListenerOrCallable[P, R]) -> Listener[P, R]:
         """Add or replace a listener and return its named representation."""
         resolved = listener if isinstance(listener, Listener) else Listener.create(listener, str(uuid4()))
         identifier = resolved.identifier
@@ -102,4 +105,4 @@ class Listeners(Generic[P, R]):
         return len(self._by_identifier)
 
 
-__all__ = ["Listener", "Listeners", "SimpleListener"]
+__all__ = ["Listener", "ListenerOrCallable", "Listeners", "SimpleListener"]

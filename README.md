@@ -182,6 +182,7 @@ instance retaining independent state.
 keeps unique identifiers in execution order with O(1) identifier lookup and O(1)
 access to its cached immutable ordered tuple. Adding the same identifier replaces
 the callback in place; plain callables receive generated UUID identifiers.
+Listener registration signatures use the shared `ListenerOrCallable[P, R]` alias.
 
 `SimpleControls.tilt_turn()` requests a half-strength backward main-stick input;
 Melee reverses facing on character-dependent turn frames 5 through 9.

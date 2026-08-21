@@ -38,6 +38,8 @@ uv pip install --python .venv/bin/python .
 
 - `Listener[P, R]` is a callable with a stable string `identifier`.
   `Listener.create(callback, name)` returns a `SimpleListener`.
+- `ListenerOrCallable[P, R]` is the shared registration type for either a named
+  listener or a plain callable; listener-owning APIs must use this alias.
 - `Listeners[P, R]` stores listeners by identifier and caches an immutable tuple
   in execution order. Lookup and `get_all()` are O(1); replacing an identifier
   retains its position. Plain callables receive generated UUID identifiers.

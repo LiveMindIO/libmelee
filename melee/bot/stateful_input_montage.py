@@ -3,11 +3,10 @@
 from __future__ import annotations
 
 from abc import abstractmethod
-from collections.abc import Callable
 from typing import TYPE_CHECKING, Generic, Self, TypeVar
 
 from melee.bot.input_montage import InputMontage, MontageState, PreTickResult
-from melee.bot.listener import Listener
+from melee.bot.listener import Listener, ListenerOrCallable
 
 if TYPE_CHECKING:
     from melee.bot.character_state import CharacterState
@@ -33,7 +32,7 @@ class StatefulInputMontage(InputMontage, Generic[StateT]):
 
     def add_stateful_pre_tick_listener(
         self,
-        listener: Listener[
+        listener: ListenerOrCallable[
             [
                 SimpleControls,
                 CharacterState,
@@ -41,10 +40,6 @@ class StatefulInputMontage(InputMontage, Generic[StateT]):
                 GameState,
                 StateT,
             ],
-            PreTickResult,
-        ]
-        | Callable[
-            [SimpleControls, CharacterState, CharacterState, GameState, StateT],
             PreTickResult,
         ],
     ) -> Self:

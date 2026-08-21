@@ -3,12 +3,11 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Generic, TypeVar
 
 from melee.bot.character_state import CharacterState
-from melee.bot.listener import Listener, Listeners
+from melee.bot.listener import Listener, ListenerOrCallable, Listeners
 from melee.bot.simple_controls import SimpleControls
 from melee.controller import Controller
 from melee.framedata import FrameData
@@ -50,7 +49,7 @@ class Strategy(ABC, Generic[A]):
         """Return this strategy instance's description."""
         return self._description
 
-    def add_exit_listener(self, listener: Listener[[Exit], None] | Callable[[Exit], None]) -> Listener[[Exit], None]:
+    def add_exit_listener(self, listener: ListenerOrCallable[[Exit], None]) -> Listener[[Exit], None]:
         """Register and return a listener notified when this strategy exits."""
         return self._exit_listeners.add(listener)
 

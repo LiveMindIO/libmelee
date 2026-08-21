@@ -36,7 +36,7 @@ from melee.bot.character_state import (
     z_air_is_supported,
 )
 from melee.bot.input_montage import InputMontage, MontageState, PreTickResult
-from melee.bot.listener import Listener, Listeners, SimpleListener
+from melee.bot.listener import Listener, ListenerOrCallable, Listeners, SimpleListener
 from melee.bot.logger import BotLogEntry, BotLogger
 from melee.bot.match_history import (
     MatchHistory,
@@ -87,6 +87,7 @@ __all__ = [
     "LedgeRecoveryOption",
     "LedgedashMontage",
     "Listener",
+    "ListenerOrCallable",
     "Listeners",
     "MatchHistory",
     "MatchRoundOutcome",
