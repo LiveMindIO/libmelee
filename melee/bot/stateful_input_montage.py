@@ -26,8 +26,15 @@ class StatefulInputMontage(InputMontage, Generic[StateT]):
     terminal montages do not invoke the hook.
     """
 
-    def __init__(self, frame_limit: int, initial_state: StateT, cancel_montage: InputMontage | None = None) -> None:
-        super().__init__(frame_limit, cancel_montage)
+    def __init__(
+        self,
+        frame_limit: int,
+        initial_state: StateT,
+        cancel_montage: InputMontage | None = None,
+        *,
+        name: str | None = None,
+    ) -> None:
+        super().__init__(frame_limit, cancel_montage, name=name)
         self._input_state = initial_state
 
     def add_stateful_pre_tick_listener(
@@ -54,7 +61,7 @@ class StatefulInputMontage(InputMontage, Generic[StateT]):
             return listener(controls, player_state, opponent_state, state, self._input_state)
 
         super().add_pre_tick_listener(
-            Listener.create(adapted_listener, listener.identifier)
+            Listener.create(listener.identifier, adapted_listener)
             if isinstance(listener, Listener)
             else adapted_listener
         )

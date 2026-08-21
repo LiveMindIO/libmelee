@@ -25,21 +25,21 @@ class Listener(Protocol[P, R_co]):
         ...
 
     @staticmethod
-    def create(callback: Callable[P, R], name: str) -> Listener[P, R]:
-        """Wrap ``callback`` in a listener identified by ``name``."""
-        return SimpleListener(callback, name)
+    def create(identifier: str, callback: Callable[P, R]) -> Listener[P, R]:
+        """Wrap ``callback`` in a listener with ``identifier``."""
+        return SimpleListener(identifier, callback)
 
 
 class SimpleListener(Generic[P, R]):
-    """A listener implemented by a caller-supplied callable and name."""
+    """A listener implemented by a caller-supplied identifier and callable."""
 
-    def __init__(self, callback: Callable[P, R], name: str) -> None:
+    def __init__(self, identifier: str, callback: Callable[P, R]) -> None:
         self._callback = callback
-        self._identifier = name
+        self._identifier = identifier
 
     @property
     def identifier(self) -> str:
-        """Return the name supplied at construction."""
+        """Return the identifier supplied at construction."""
         return self._identifier
 
     def __call__(self, *args: P.args, **kwargs: P.kwargs) -> R:
@@ -47,9 +47,9 @@ class SimpleListener(Generic[P, R]):
         return self._callback(*args, **kwargs)
 
     @staticmethod
-    def create(callback: Callable[P, R], name: str) -> Listener[P, R]:
+    def create(identifier: str, callback: Callable[P, R]) -> Listener[P, R]:
         """Wrap ``callback`` in another simple listener."""
-        return SimpleListener(callback, name)
+        return SimpleListener(identifier, callback)
 
 
 ListenerOrCallable: TypeAlias = Listener[P, R] | Callable[P, R]
@@ -69,7 +69,7 @@ class Listeners(Generic[P, R]):
 
     def add(self, listener: ListenerOrCallable[P, R]) -> Listener[P, R]:
         """Add or replace a listener and return its named representation."""
-        resolved = listener if isinstance(listener, Listener) else Listener.create(listener, str(uuid4()))
+        resolved = listener if isinstance(listener, Listener) else Listener.create(str(uuid4()), listener)
         identifier = resolved.identifier
         if identifier in self._by_identifier:
             self._ordered = tuple(

@@ -24,7 +24,8 @@ uv pip install --python .venv/bin/python .
 - `BotProtocol[A].game_tick` receives `custom: A` as its final argument. The
   embedding application owns that payload's type and semantics; libmelee does
   not interpret it. `CrowdControl` is a deprecated compatibility alias.
-- New bots should subclass `BaseBot[A]` and call `super().__init__()`. It owns
+- New bots should subclass `BaseBot[A]`, which explicitly implements
+  `BotProtocol[A]`, and call `super().__init__()`. It owns
   logger injection, `_active_strategy`, `_active_montage`, and private listener
   collections exposed through `add_*_listener` / `get_*_listeners`. Setters notify
   cached ordered listeners with `(previous, current)` after identity changes.
@@ -37,7 +38,7 @@ uv pip install --python .venv/bin/python .
 ## Listeners
 
 - `Listener[P, R]` is a callable with a stable string `identifier`.
-  `Listener.create(callback, name)` returns a `SimpleListener`.
+  `Listener.create(identifier, callback)` returns a `SimpleListener`.
 - `ListenerOrCallable[P, R]` is the shared registration type for either a named
   listener or a plain callable; listener-owning APIs must use this alias.
 - `Listeners[P, R]` stores listeners by identifier and caches an immutable tuple
@@ -47,6 +48,8 @@ uv pip install --python .venv/bin/python .
 ## Input Montages
 
 - `melee.bot.InputMontage` instances are single-use, short-lived input sequences.
+- Each montage accepts an optional name and otherwise uses its concrete class name.
+  `StatefulInputMontage` and `AnonymousInputMontage` pass this name through.
 - Waiting does not consume `frame_limit`; each active `on_tick` call consumes one
   frame, and exactly `frame_limit` active calls are allowed.
 - Returning another montage directly from `on_tick()` marks the current node

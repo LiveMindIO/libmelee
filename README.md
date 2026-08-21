@@ -178,7 +178,7 @@ strategy class may be instantiated multiple times during one match, with each
 instance retaining independent state.
 
 `Listener[P, R]` adds a stable string `identifier` to a typed callable.
-`Listener.create(callback, name)` constructs a `SimpleListener`. `Listeners`
+`Listener.create(identifier, callback)` constructs a `SimpleListener`. `Listeners`
 keeps unique identifiers in execution order with O(1) identifier lookup and O(1)
 access to its cached immutable ordered tuple. Adding the same identifier replaces
 the callback in place; plain callables receive generated UUID identifiers.
@@ -193,7 +193,8 @@ pending inputs.
 ### Input Montages
 
 `melee.bot.InputMontage` is the base class for short-lived controller sequences
-that need coordinated input over multiple game ticks. A bot creates a new montage
+that need coordinated input over multiple game ticks. Each montage accepts an
+optional name that defaults to its concrete class name. A bot creates a new montage
 for each attempt, calls `tick(simple_controls, player_state, opponent_state,
 game_state)` every tick, and retains the returned montage while work continues.
 

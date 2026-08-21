@@ -10,7 +10,7 @@ from melee.bot.input_montage import InputMontage
 from melee.bot.listener import Listener, ListenerOrCallable, Listeners
 from melee.bot.logger import BotLogger
 from melee.bot.match_history import MatchHistory
-from melee.bot.protocol import CharacterSelection
+from melee.bot.protocol import BotProtocol, CharacterSelection
 from melee.bot.simple_controls import SimpleControls
 from melee.bot.strategy import Strategy
 from melee.controller import Controller
@@ -20,7 +20,7 @@ from melee.gamestate import GameState
 A = TypeVar("A")
 
 
-class BaseBot(ABC, Generic[A]):
+class BaseBot(BotProtocol[A], ABC, Generic[A]):
     """Base implementation for logger, strategy, and montage state.
 
     Change listeners run in subscription order after the active value is updated.

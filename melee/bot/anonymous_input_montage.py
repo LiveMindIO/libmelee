@@ -30,6 +30,7 @@ class AnonymousInputMontage(StatefulInputMontage[StateT]):
         *,
         frame_limit: int,
         initial_state: StateT,
+        name: str | None = None,
         can_start: Callable[
             [SimpleControls, CharacterState, CharacterState, GameState],
             bool,
@@ -47,7 +48,7 @@ class AnonymousInputMontage(StatefulInputMontage[StateT]):
             InputMontage | None,
         ],
     ) -> None:
-        super().__init__(frame_limit, initial_state)
+        super().__init__(frame_limit, initial_state, name=name)
         self._can_start = can_start
         self._on_tick = on_tick
         self._should_abort = should_abort

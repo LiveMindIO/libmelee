@@ -73,19 +73,30 @@ class InputMontage(ABC):
     return ``False`` as soon as their own success conditions become impossible.
     """
 
-    def __init__(self, frame_limit: int, cancel_montage: InputMontage | None = None) -> None:
+    def __init__(
+        self,
+        frame_limit: int,
+        cancel_montage: InputMontage | None = None,
+        *,
+        name: str | None = None,
+    ) -> None:
         if frame_limit <= 0:
             raise ValueError("frame_limit must be greater than zero")
 
         self._frame_limit = frame_limit
         self._frame_count = 0
         self._cancel_montage = cancel_montage
+        self._name = type(self).__name__ if name is None else name
         self._montage_state = MontageState.Waiting
         self._branches: list[InputMontage] = []
         self._pre_tick_listeners: Listeners[
             [SimpleControls, CharacterState, CharacterState, GameState],
             PreTickResult,
         ] = Listeners()
+
+    def get_name(self) -> str:
+        """Return this montage instance's configured name."""
+        return self._name
 
     def add_branch(self, montage: InputMontage) -> Self:
         """Append a possible follow-up montage and return this montage.
