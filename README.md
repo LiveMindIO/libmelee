@@ -213,6 +213,10 @@ game_state)` every tick, and retains the returned montage while work continues.
   remains compatible with a framework-generated abort reason. Boolean
   `should_abort()` results are likewise deprecated; return `Abort(reason)` or
   `None` instead. Deprecated result forms emit `DeprecationWarning`.
+- `add_abort_listener(listener)` registers an identifier-aware callback that
+  receives the same `Abort(reason)` when the montage enters `Aborted`.
+  `get_abort_listeners()` exposes that collection. Timeout and cancellation do
+  not notify abort listeners.
 - `add_pre_tick_listener(listener)` adds an observer with the same four inputs
   as `on_tick`. Listeners run in insertion order immediately before `on_tick` and
   return `PreTickResult.CONTINUE`, `EARLY_COMPLETION`, or

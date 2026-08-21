@@ -113,6 +113,7 @@ class InputMontage(ABC):
         self._name = type(self).__name__ if name is None else name
         self._montage_state = MontageState.Waiting
         self._branches: list[InputMontage] = []
+        self._abort_listeners: Listeners[[Abort], None] = Listeners()
         self._pre_tick_listeners: Listeners[
             [SimpleControls, CharacterState, CharacterState, GameState],
             PreTickResult | Abort,
@@ -135,6 +136,18 @@ class InputMontage(ABC):
             raise ValueError("a montage cannot branch to itself")
         self._branches.append(montage)
         return self
+
+    def add_abort_listener(
+        self,
+        listener: ListenerOrCallable[[Abort], None],
+    ) -> Self:
+        """Append a listener notified when this montage aborts."""
+        self._abort_listeners.add(listener)
+        return self
+
+    def get_abort_listeners(self) -> Listeners[[Abort], None]:
+        """Return the abort-listener collection."""
+        return self._abort_listeners
 
     def add_pre_tick_listener(
         self,
@@ -273,6 +286,8 @@ class InputMontage(ABC):
         controls.release_all()
         self._montage_state = MontageState.Aborted
         LOGGER.warning("Input montage %s aborted: %s", self._name, abort.reason)
+        for listener in self._abort_listeners.get_all():
+            listener(abort)
         return abort
 
     def cancel(

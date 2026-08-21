@@ -1385,6 +1385,24 @@ class InputMontageTests(unittest.TestCase):
         self.assertEqual(montage.get_montage_state(), MontageState.Aborted)
         self.assertEqual(self.controls.release_count, 1)
 
+    def test_abort_notifies_named_listeners_once_with_same_result(self):
+        abort = Abort("target moved out of range")
+        montage = RecordingMontage(results=(abort,))
+        observed = []
+        montage.add_abort_listener(
+            Listener.create("observer", lambda result: observed.append(("first", result)))
+        )
+        replacement = Listener.create(
+            "observer",
+            lambda result: observed.append(("replacement", result)),
+        )
+
+        self.assertIs(montage.add_abort_listener(replacement), montage)
+        self.assertIs(montage.get_abort_listeners().get("observer"), replacement)
+        self.assertIs(self.tick(montage), abort)
+        self.assertIs(self.tick(montage), False)
+        self.assertEqual(observed, [("replacement", abort)])
+
     def test_abort_logs_montage_name_at_warning(self):
         abort = Abort("spacing became unsafe")
         montage = RecordingMontage(abort=abort, name="unsafe approach")

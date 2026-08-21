@@ -57,7 +57,9 @@ uv pip install --python .venv/bin/python .
   `StatefulInputMontage` and `AnonymousInputMontage` pass this name through.
 - `Abort(reason)` is the reason-bearing failure result parallel to strategy
   `Exit(reason)`. Every transition to `MontageState.Aborted` returns that value and
-  logs the montage name and reason at WARNING.
+  logs the montage name and reason at WARNING. `add_abort_listener()` registers
+  identifier-aware callbacks that receive the same `Abort`; timeout and
+  cancellation remain separate and do not notify them.
 - Waiting does not consume `frame_limit`; each active `on_tick` call consumes one
   frame, and exactly `frame_limit` active calls are allowed.
 - Returning another montage directly from `on_tick()` marks the current node
