@@ -6,7 +6,7 @@ from enum import Enum, auto
 from typing import Final
 
 from melee.bot.character_state import CharacterState
-from melee.bot.input_montage import InputMontage
+from melee.bot.input_montage import Abort, InputMontage
 from melee.bot.simple_controls import SimpleControls
 from melee.bot.stateful_input_montage import StatefulInputMontage
 from melee.bot.techskill.common import (
@@ -100,15 +100,18 @@ class WavedashMontage(StatefulInputMontage[_WavedashPhase]):
         opponent_state: CharacterState,
         state: GameState,
         input_state: _WavedashPhase,
-    ) -> bool:
+    ) -> Abort | None:
         del controls, opponent_state, state, input_state
         player_state_value = player(player_state)
-        return (
-            player_state_value is None
-            or player_state_value.character is not self._character
-            or player_state_value.off_stage
-            or is_interrupted(player_state, player_state_value, include_hitlag=True)
-        )
+        if player_state_value is None:
+            return Abort("player state became unavailable")
+        if player_state_value.character is not self._character:
+            return Abort("player character changed")
+        if player_state_value.off_stage:
+            return Abort("player moved offstage")
+        if is_interrupted(player_state, player_state_value, include_hitlag=True):
+            return Abort("player was interrupted")
+        return None
 
     def stateful_on_tick(
         self,
@@ -117,12 +120,12 @@ class WavedashMontage(StatefulInputMontage[_WavedashPhase]):
         opponent_state: CharacterState,
         state: GameState,
         input_state: _WavedashPhase,
-    ) -> tuple[_WavedashPhase, InputMontage | bool]:
+    ) -> tuple[_WavedashPhase, InputMontage | bool | Abort]:
         del opponent_state, state
         player_state_value = player(player_state)
         if player_state_value is None or self._character is None:
             controls.release_all()
-            return input_state, False
+            return input_state, Abort("player state or captured character became unavailable")
 
         controls.release_all()
         match input_state, player_state_value.action:
@@ -131,7 +134,7 @@ class WavedashMontage(StatefulInputMontage[_WavedashPhase]):
                 if player_state_value.action_frame < jump_squat_frames:
                     return input_state, self
                 if player_state_value.action_frame > jump_squat_frames:
-                    return input_state, False
+                    return input_state, Abort("final jump-squat frame was missed")
                 apply_wavedash_input(controls, self._direction, self._angle_degrees, self._dodge_button)
                 return _WavedashPhase.AirDodgeRequested, self
             case _WavedashPhase.JumpRequested, action if player_state_value.on_ground and (
@@ -140,17 +143,19 @@ class WavedashMontage(StatefulInputMontage[_WavedashPhase]):
                 controls.press_button(self._jump_button)
                 return input_state, self
             case _WavedashPhase.JumpRequested, _:
-                return input_state, False
+                return input_state, Abort("jump squat did not begin")
             case _WavedashPhase.AirDodgeRequested, Action.LANDING_SPECIAL if player_state_value.on_ground:
                 return _WavedashPhase.LandingLag, self
             case _WavedashPhase.AirDodgeRequested, Action.AIRDODGE:
                 return input_state, self
             case _WavedashPhase.AirDodgeRequested, _:
-                return input_state, False
+                return input_state, Abort("air dodge did not begin")
             case _WavedashPhase.LandingLag, Action.LANDING_SPECIAL if player_state_value.on_ground:
                 return input_state, self
             case _WavedashPhase.LandingLag, action:
-                return input_state, player_state_value.on_ground and action in GROUND_MOVEMENT_ACTIONS
+                if player_state_value.on_ground and action in GROUND_MOVEMENT_ACTIONS:
+                    return input_state, True
+                return input_state, Abort("landing lag ended outside actionable ground movement")
 
 
 __all__ = ["WavedashDirection", "WavedashMontage"]

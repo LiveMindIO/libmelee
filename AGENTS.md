@@ -55,7 +55,9 @@ uv pip install --python .venv/bin/python .
 - `melee.bot.InputMontage` instances are single-use, short-lived input sequences.
 - Each montage accepts an optional name and otherwise uses its concrete class name.
   `StatefulInputMontage` and `AnonymousInputMontage` pass this name through.
-- Every transition to `MontageState.Aborted` logs the montage name at WARNING.
+- `Abort(reason)` is the reason-bearing failure result parallel to strategy
+  `Exit(reason)`. Every transition to `MontageState.Aborted` returns that value and
+  logs the montage name and reason at WARNING.
 - Waiting does not consume `frame_limit`; each active `on_tick` call consumes one
   frame, and exactly `frame_limit` active calls are allowed.
 - Returning another montage directly from `on_tick()` marks the current node
@@ -69,11 +71,10 @@ uv pip install --python .venv/bin/python .
   same arguments as `on_tick`. A repeated identifier replaces the existing listener
   without changing its position. `get_pre_tick_listeners()` returns the collection.
   They all run in insertion order after the timeout and `should_abort()` checks but
-  before `on_tick`. Aggregate `PreTickResult` precedence is `ABORTED` over
-  `EARLY_COMPLETION` over `CONTINUE`. Abort neutralizes input and skips `on_tick`;
-  early completion skips `on_tick` and uses normal successful branch selection.
-  Neither terminal result consumes active frame budget because `on_tick` did not
-  run. `PreTickResult.combine()` applies the same precedence pairwise.
+  before `on_tick`. Listeners may return `Abort(reason)`; the first abort reason
+  wins while every listener still runs. Abort takes precedence over
+  `EARLY_COMPLETION`, which takes precedence over `CONTINUE`. Legacy
+  `PreTickResult.ABORTED` receives a framework-generated reason.
 - `StatefulInputMontage[StateT]` stores constructor-supplied initial state and adapts
   `stateful_on_tick`, `stateful_should_abort`, and `stateful_cancel` to the base
   lifecycle. Every callback receives the current state; only `stateful_on_tick`
@@ -84,10 +85,11 @@ uv pip install --python .venv/bin/python .
   as its fifth argument into the base collection. Base and stateful listeners share
   one insertion order and the same aggregate precedence; named identifiers survive
   the adapter so replacement works across stateful registrations.
-- `False` and `should_abort()` use `Aborted`; exhausting the safety limit uses
-  `TimedOut`; cancelling an active montage uses `Cancelled` and may return a
-  configured fallback montage. Timeout, abort, explicit failure, malformed return,
-  and active cancellation neutralize pending input before returning.
+- `on_tick()` returns `Abort(reason)` for failure and `should_abort()` returns an
+  `Abort` or `None`; legacy `False`/`True` values receive framework-generated
+  reasons. Exhausting the safety limit uses `TimedOut`; cancelling an active
+  montage uses `Cancelled` and may return a configured fallback montage. Timeout,
+  abort, malformed return, and active cancellation neutralize pending input.
 - Base `on_tick()` results dispatch through an exhaustive structural match. Keep
   mutating callbacks such as `can_start()` and `SimpleControls.attack()` out of
   match guards; pure state predicates such as Wavedash jump eligibility may use

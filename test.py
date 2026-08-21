@@ -7,6 +7,7 @@ from uuid import UUID
 
 import melee
 from melee.bot import (
+    Abort,
     AnonymousInputMontage,
     AttackFrameData,
     AttackType,
@@ -1366,27 +1367,40 @@ class InputMontageTests(unittest.TestCase):
     def test_false_aborts_montage(self):
         montage = RecordingMontage(results=(False,))
 
-        self.assertIs(self.tick(montage), False)
+        self.assertEqual(self.tick(montage), Abort("on_tick returned False"))
         self.assertEqual(montage.get_montage_state(), MontageState.Aborted)
         self.assertIs(self.tick(montage), False)
         self.assertEqual(montage.on_tick_calls, 1)
         self.assertEqual(self.controls.release_count, 1)
 
+    def test_reasoned_on_tick_abort_is_returned_unchanged(self):
+        abort = Abort("target moved out of range")
+        montage = RecordingMontage(results=(abort,))
+
+        self.assertIs(self.tick(montage), abort)
+        self.assertEqual(montage.get_montage_state(), MontageState.Aborted)
+        self.assertEqual(self.controls.release_count, 1)
+
     def test_abort_logs_montage_name_at_warning(self):
-        montage = RecordingMontage(abort=True, name="unsafe approach")
+        abort = Abort("spacing became unsafe")
+        montage = RecordingMontage(abort=abort, name="unsafe approach")
 
         with self.assertLogs("melee.bot.input_montage", level="WARNING") as captured:
-            self.assertIs(self.tick(montage), False)
+            self.assertIs(self.tick(montage), abort)
 
         self.assertEqual(
             captured.output,
-            ["WARNING:melee.bot.input_montage:Input montage unsafe approach aborted"],
+            [
+                "WARNING:melee.bot.input_montage:Input montage unsafe approach "
+                "aborted: spacing became unsafe"
+            ],
         )
 
     def test_should_abort_prevents_input_tick(self):
-        montage = RecordingMontage(abort=True)
+        abort = Abort("player was hit")
+        montage = RecordingMontage(abort=abort)
 
-        self.assertIs(self.tick(montage), False)
+        self.assertIs(self.tick(montage), abort)
         self.assertEqual(montage.get_montage_state(), MontageState.Aborted)
         self.assertEqual(montage.should_abort_calls, 1)
         self.assertEqual(montage.on_tick_calls, 0)
@@ -1401,7 +1415,7 @@ class InputMontageTests(unittest.TestCase):
             )
         )
 
-        self.assertIs(self.tick(montage), False)
+        self.assertEqual(self.tick(montage), Abort("should_abort returned True"))
         self.assertEqual(calls, [])
         self.assertEqual(montage.on_tick_calls, 0)
         self.assertEqual(montage.get_montage_state(), MontageState.Aborted)
@@ -1409,7 +1423,7 @@ class InputMontageTests(unittest.TestCase):
     def test_invalid_tick_result_aborts_and_raises(self):
         montage = RecordingMontage(results=(None,))
 
-        with self.assertRaisesRegex(TypeError, "InputMontage or bool"):
+        with self.assertRaisesRegex(TypeError, "InputMontage, Abort, or bool"):
             self.tick(montage)
         self.assertEqual(montage.get_montage_state(), MontageState.Aborted)
         self.assertIs(self.tick(montage), False)
@@ -1500,7 +1514,7 @@ class InputMontageTests(unittest.TestCase):
         montage.add_branch(RecordingMontage(start_allowed=False))
         montage.add_branch(RecordingMontage(start_allowed=False))
 
-        self.assertIs(self.tick(montage), False)
+        self.assertEqual(self.tick(montage), Abort("no configured branch could start"))
         self.assertEqual(montage.get_montage_state(), MontageState.Aborted)
         self.assertEqual(self.controls.release_count, 1)
 
@@ -1513,7 +1527,7 @@ class InputMontageTests(unittest.TestCase):
         self.assertEqual(montage.get_montage_state(), MontageState.Finished)
         self.assertEqual(self.controls.release_count, 0)
 
-        self.assertIs(self.tick(branch), False)
+        self.assertEqual(self.tick(branch), Abort("on_tick returned False"))
         self.assertEqual(branch.get_montage_state(), MontageState.Aborted)
         self.assertEqual(montage.get_montage_state(), MontageState.Finished)
         self.assertEqual(self.controls.release_count, 1)
@@ -1616,11 +1630,34 @@ class InputMontageTests(unittest.TestCase):
                 )
             )
 
-        self.assertIs(self.tick(montage), False)
+        self.assertEqual(
+            self.tick(montage),
+            Abort("pre-tick listener returned ABORTED"),
+        )
         self.assertEqual(calls, ["continue", "complete", "abort", "after-abort"])
         self.assertEqual(montage.get_montage_state(), MontageState.Aborted)
         self.assertEqual(montage.on_tick_calls, 0)
         self.assertEqual(self.controls.release_count, 1)
+
+    def test_reasoned_pre_tick_abort_uses_first_reason_and_runs_all_listeners(self):
+        calls = []
+        first_abort = Abort("opponent left range")
+        montage = RecordingMontage(results=(True,))
+        for name, result in (
+            ("first", first_abort),
+            ("complete", PreTickResult.EARLY_COMPLETION),
+            ("second", Abort("later reason")),
+        ):
+            montage.add_pre_tick_listener(
+                lambda controls, player_state, opponent_state, state, name=name, result=result: (
+                    calls.append(name) or result
+                )
+            )
+
+        self.assertIs(self.tick(montage), first_abort)
+        self.assertEqual(calls, ["first", "complete", "second"])
+        self.assertEqual(montage.get_montage_state(), MontageState.Aborted)
+        self.assertEqual(montage.on_tick_calls, 0)
 
     def test_pre_tick_early_completion_overrides_continue(self):
         montage = RecordingMontage(results=(False,))
@@ -1710,9 +1747,10 @@ class InputMontageTests(unittest.TestCase):
         self.assertEqual(montage.get_montage_state(), MontageState.Finished)
 
     def test_stateful_abort_reads_initial_state_without_ticking(self):
-        montage = RecordingStatefulMontage(4, abort=True)
+        abort = Abort("state no longer viable")
+        montage = RecordingStatefulMontage(4, abort=abort)
 
-        self.assertIs(self.tick(montage), False)
+        self.assertIs(self.tick(montage), abort)
         self.assertEqual(montage.should_abort_states, [4])
         self.assertEqual(montage.on_tick_states, [])
         self.assertEqual(montage.get_montage_state(), MontageState.Aborted)
@@ -1752,7 +1790,7 @@ class InputMontageTests(unittest.TestCase):
             ),
             on_tick=on_tick,
             should_abort=lambda controls, player_state, opponent_state, state, input_state: (
-                calls.append(("should_abort", input_state)) or False
+                calls.append(("should_abort", input_state)) or None
             ),
             cancel=lambda controls, player_state, opponent_state, state, input_state: (
                 calls.append(("cancel", input_state)) or fallback
@@ -1773,6 +1811,23 @@ class InputMontageTests(unittest.TestCase):
         self.assertIs(self.cancel(montage), fallback)
         self.assertEqual(calls[-1], ("cancel", 21))
 
+    def test_anonymous_montage_propagates_abort_reason(self):
+        abort = Abort("anonymous condition failed")
+        montage = AnonymousInputMontage(
+            frame_limit=2,
+            initial_state=20,
+            can_start=lambda controls, player_state, opponent_state, state: True,
+            on_tick=lambda controls, player_state, opponent_state, state, input_state: (
+                input_state,
+                True,
+            ),
+            should_abort=lambda controls, player_state, opponent_state, state, input_state: abort,
+            cancel=lambda controls, player_state, opponent_state, state, input_state: None,
+        )
+
+        self.assertIs(self.tick(montage), abort)
+        self.assertEqual(montage.get_montage_state(), MontageState.Aborted)
+
     def test_anonymous_montage_validates_frame_limit(self):
         with self.assertRaisesRegex(ValueError, "greater than zero"):
             AnonymousInputMontage(
@@ -1783,7 +1838,7 @@ class InputMontageTests(unittest.TestCase):
                     input_state,
                     True,
                 ),
-                should_abort=lambda controls, player_state, opponent_state, state, input_state: False,
+                should_abort=lambda controls, player_state, opponent_state, state, input_state: None,
                 cancel=lambda controls, player_state, opponent_state, state, input_state: None,
             )
 
@@ -2090,13 +2145,13 @@ class TechniqueMontageTests(unittest.TestCase):
         self.assertIs(self.tick(montage, melee.Action.STANDING), montage)
         self.controls.take_calls()
 
-        self.assertIs(
+        self.assertEqual(
             self.tick(
                 montage,
                 melee.Action.FALLING,
                 on_ground=False,
             ),
-            False,
+            Abort("player left the ground before dashing"),
         )
         self.assertEqual(self.controls.take_calls(), [("release_all",)])
         self.assertEqual(montage.get_montage_state(), MontageState.Aborted)
@@ -2106,7 +2161,10 @@ class TechniqueMontageTests(unittest.TestCase):
         self.assertIs(self.tick(montage, melee.Action.STANDING), montage)
         self.controls.take_calls()
 
-        self.assertIs(self.tick(montage, melee.Action.STANDING), False)
+        self.assertEqual(
+            self.tick(montage, melee.Action.STANDING),
+            Abort("dash input did not produce DASHING"),
+        )
         self.assertEqual(self.controls.take_calls(), [("release_all",)])
         self.assertEqual(montage.get_montage_state(), MontageState.Aborted)
 
@@ -2204,7 +2262,10 @@ class TechniqueMontageTests(unittest.TestCase):
         self.tick(montage, melee.Action.DASHING)
         self.controls.take_calls()
 
-        self.assertIs(self.tick(montage, melee.Action.DASHING), False)
+        self.assertEqual(
+            self.tick(montage, melee.Action.DASHING),
+            Abort("one-frame TURNING attack window was missed"),
+        )
         self.assertEqual(montage.get_montage_state(), MontageState.Aborted)
         self.assertEqual(self.controls.take_calls(), [("release_all",)])
 
@@ -2214,9 +2275,9 @@ class TechniqueMontageTests(unittest.TestCase):
         self.tick(montage, melee.Action.DASHING)
         self.controls.take_calls()
 
-        self.assertIs(
+        self.assertEqual(
             self.tick(montage, melee.Action.TURNING, facing=False),
-            False,
+            Abort("requested attack could not start"),
         )
         self.assertEqual(montage.get_montage_state(), MontageState.Aborted)
         self.assertEqual(
@@ -2292,9 +2353,9 @@ class TechniqueMontageTests(unittest.TestCase):
         self.tick(montage, melee.Action.TURNING, facing=False)
         self.controls.take_calls()
 
-        self.assertIs(
+        self.assertEqual(
             self.tick(montage, melee.Action.STANDING, facing=False),
-            False,
+            Abort("turn or jump-squat confirmation was missed"),
         )
         self.assertEqual(montage.get_montage_state(), MontageState.Aborted)
         self.assertEqual(self.controls.take_calls(), [("release_all",)])
@@ -2326,7 +2387,10 @@ class TechniqueMontageTests(unittest.TestCase):
         self.tick(montage, melee.Action.DASHING)
         self.controls.take_calls()
 
-        self.assertIs(self.tick(montage, melee.Action.DASHING), False)
+        self.assertEqual(
+            self.tick(montage, melee.Action.DASHING),
+            Abort("turn or jump-squat confirmation was missed"),
+        )
         self.assertEqual(montage.get_montage_state(), MontageState.Aborted)
         self.assertEqual(self.controls.take_calls(), [("release_all",)])
 
@@ -2442,7 +2506,7 @@ class TechniqueMontageTests(unittest.TestCase):
 
         self.assertIs(self.tick(montage, melee.Action.STANDING), montage)
         self.controls.take_calls()
-        self.assertIs(
+        self.assertEqual(
             self.tick(
                 montage,
                 melee.Action.DOWN_B_GROUND_START,
@@ -2851,7 +2915,7 @@ class TechniqueMontageTests(unittest.TestCase):
             self.tick(montage, melee.Action.KNEE_BEND, action_frame=action_frame)
             self.controls.take_calls()
 
-        self.assertIs(
+        self.assertEqual(
             self.tick(montage, melee.Action.REFLECTOR_HIT_GROUND),
             montage,
         )
@@ -2924,7 +2988,7 @@ class TechniqueMontageTests(unittest.TestCase):
                 pulse_x, _ = self.requested_stick_coordinates(calls)
                 self.assertGreater(pulse_x, 0.5)
 
-        self.assertIs(
+        self.assertEqual(
             self.tick(
                 montage,
                 melee.Action.DAMAGE_HIGH_1,
@@ -2954,7 +3018,7 @@ class TechniqueMontageTests(unittest.TestCase):
             ),
             (1.0, 0.5),
         )
-        self.assertIs(
+        self.assertEqual(
             self.tick(
                 montage,
                 melee.Action.DAMAGE_HIGH_1,
@@ -3209,7 +3273,7 @@ class TechniqueMontageTests(unittest.TestCase):
         )
         self.controls.take_calls()
 
-        self.assertIs(
+        self.assertEqual(
             self.tick(
                 montage,
                 melee.Action.DAMAGE_HIGH_1,
@@ -3217,7 +3281,7 @@ class TechniqueMontageTests(unittest.TestCase):
                 hitlag_left=2,
                 hitstun_frames_left=5,
             ),
-            False,
+            Abort("player character changed"),
         )
         self.assertEqual(montage.get_montage_state(), MontageState.Aborted)
         self.assertEqual(self.controls.take_calls(), [("release_all",)])
@@ -3233,7 +3297,7 @@ class TechniqueMontageTests(unittest.TestCase):
         )
         self.controls.take_calls()
 
-        self.assertIs(
+        self.assertEqual(
             self.tick(
                 montage,
                 melee.Action.DAMAGE_HIGH_1,
@@ -3241,7 +3305,7 @@ class TechniqueMontageTests(unittest.TestCase):
                 hitstun_frames_left=5,
                 stock=3,
             ),
-            False,
+            Abort("player stock changed"),
         )
         self.assertEqual(montage.get_montage_state(), MontageState.Aborted)
         self.assertEqual(self.controls.take_calls(), [("release_all",)])
@@ -3256,14 +3320,14 @@ class TechniqueMontageTests(unittest.TestCase):
         )
         self.controls.take_calls()
 
-        self.assertIs(
+        self.assertEqual(
             self.tick(
                 montage,
                 melee.Action.DEAD_FLY,
                 hitlag_left=2,
                 hitstun_frames_left=5,
             ),
-            False,
+            Abort("player entered a death action"),
         )
         self.assertEqual(montage.get_montage_state(), MontageState.Aborted)
         self.assertEqual(self.controls.take_calls(), [("release_all",)])
@@ -3387,7 +3451,10 @@ class TechniqueMontageTests(unittest.TestCase):
         self.tick(montage, melee.Action.KNEE_BEND, action_frame=3)
         self.controls.take_calls()
 
-        self.assertIs(self.tick(montage, melee.Action.LANDING), False)
+        self.assertEqual(
+            self.tick(montage, melee.Action.LANDING),
+            Abort("air dodge did not begin"),
+        )
         self.assertEqual(montage.get_montage_state(), MontageState.Aborted)
 
     def test_wavedash_waits_in_normal_landing_lag(self):
@@ -3402,13 +3469,13 @@ class TechniqueMontageTests(unittest.TestCase):
         self.tick(montage, melee.Action.STANDING)
         self.controls.take_calls()
 
-        self.assertIs(
+        self.assertEqual(
             self.tick(
                 montage,
                 melee.Action.JUMPING_ARIAL_FORWARD,
                 on_ground=False,
             ),
-            False,
+            Abort("jump squat did not begin"),
         )
         self.assertEqual(montage.get_montage_state(), MontageState.Aborted)
         self.assertNotIn(
@@ -3510,14 +3577,14 @@ class TechniqueMontageTests(unittest.TestCase):
         self.tick(montage, melee.Action.STANDING)
         self.controls.take_calls()
 
-        self.assertIs(
+        self.assertEqual(
             self.tick(
                 montage,
                 melee.Action.DAMAGE_HIGH_1,
                 on_ground=False,
                 hitstun_frames_left=8,
             ),
-            False,
+            Abort("player was interrupted"),
         )
         self.assertEqual(
             self.controls.take_calls(),
@@ -3529,13 +3596,13 @@ class TechniqueMontageTests(unittest.TestCase):
         self.tick(montage, melee.Action.STANDING)
         self.controls.take_calls()
 
-        self.assertIs(
+        self.assertEqual(
             self.tick(
                 montage,
                 melee.Action.KNEE_BEND,
                 hitlag_left=2,
             ),
-            False,
+            Abort("player was interrupted"),
         )
         self.assertEqual(self.controls.take_calls(), [("release_all",)])
 
@@ -3765,7 +3832,7 @@ class TechniqueMontageTests(unittest.TestCase):
                 )
                 self.controls.take_calls()
 
-                self.assertIs(
+                self.assertEqual(
                     self.tick(
                         montage,
                         action,
@@ -3774,7 +3841,7 @@ class TechniqueMontageTests(unittest.TestCase):
                         jumps_left=0,
                         position_x=70.0,
                     ),
-                    False,
+                    Abort("player left the viable rising state before clearance"),
                 )
                 self.assertEqual(
                     montage.get_montage_state(),

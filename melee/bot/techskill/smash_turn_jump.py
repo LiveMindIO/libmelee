@@ -9,7 +9,7 @@ from __future__ import annotations
 from enum import Enum, auto
 
 from melee.bot.character_state import CharacterState
-from melee.bot.input_montage import InputMontage
+from melee.bot.input_montage import Abort, InputMontage
 from melee.bot.simple_controls import SimpleControls
 from melee.bot.stateful_input_montage import StatefulInputMontage
 from melee.bot.techskill.common import is_interrupted, player, validate_button
@@ -91,19 +91,18 @@ class SmashTurnJumpMontage(StatefulInputMontage[_SmashTurnJumpPhase]):
         opponent_state: CharacterState,
         state: GameState,
         input_state: _SmashTurnJumpPhase,
-    ) -> bool:
+    ) -> Abort | None:
         del controls, opponent_state, state
         player_state_value = player(player_state)
-        return (
-            player_state_value is None
-            or player_state_value.character is not self._character
-            or player_state_value.off_stage
-            or is_interrupted(
-                player_state,
-                player_state_value,
-                include_hitlag=True,
-            )
-        )
+        if player_state_value is None:
+            return Abort("player state became unavailable")
+        if player_state_value.character is not self._character:
+            return Abort("player character changed")
+        if player_state_value.off_stage:
+            return Abort("player moved offstage")
+        if is_interrupted(player_state, player_state_value, include_hitlag=True):
+            return Abort("player was interrupted")
+        return None
 
     def stateful_on_tick(
         self,
@@ -112,11 +111,11 @@ class SmashTurnJumpMontage(StatefulInputMontage[_SmashTurnJumpPhase]):
         opponent_state: CharacterState,
         state: GameState,
         input_state: _SmashTurnJumpPhase,
-    ) -> tuple[_SmashTurnJumpPhase, InputMontage | bool]:
+    ) -> tuple[_SmashTurnJumpPhase, InputMontage | bool | Abort]:
         del opponent_state, state
         player_state_value = player(player_state)
         if player_state_value is None:
-            return input_state, False
+            return input_state, Abort("player state became unavailable")
 
         match input_state, player_state_value.action:
             case _SmashTurnJumpPhase.Initial, Action.DASHING:
@@ -134,7 +133,7 @@ class SmashTurnJumpMontage(StatefulInputMontage[_SmashTurnJumpPhase]):
             case _SmashTurnJumpPhase.JumpRequested, Action.KNEE_BEND:
                 return input_state, True
             case _:
-                return input_state, False
+                return input_state, Abort("turn or jump-squat confirmation was missed")
 
 
 __all__ = ["SmashTurnJumpMontage"]

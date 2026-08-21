@@ -8,7 +8,7 @@ from enum import Enum, auto
 from typing import Final
 
 from melee.bot.character_state import CharacterState
-from melee.bot.input_montage import InputMontage
+from melee.bot.input_montage import Abort, InputMontage
 from melee.bot.simple_controls import SimpleControls
 from melee.bot.stateful_input_montage import StatefulInputMontage
 from melee.bot.techskill.common import (
@@ -114,14 +114,16 @@ class LedgedashMontage(StatefulInputMontage[_LedgedashState]):
         opponent_state: CharacterState,
         state: GameState,
         input_state: _LedgedashState,
-    ) -> bool:
+    ) -> Abort | None:
         del controls, opponent_state, state, input_state
         player_state_value = player(player_state)
-        return (
-            player_state_value is None
-            or player_state_value.character is not self._character
-            or is_interrupted(player_state, player_state_value, include_hitlag=True)
-        )
+        if player_state_value is None:
+            return Abort("player state became unavailable")
+        if player_state_value.character is not self._character:
+            return Abort("player character changed")
+        if is_interrupted(player_state, player_state_value, include_hitlag=True):
+            return Abort("player was interrupted")
+        return None
 
     def stateful_on_tick(
         self,
@@ -130,16 +132,16 @@ class LedgedashMontage(StatefulInputMontage[_LedgedashState]):
         opponent_state: CharacterState,
         state: GameState,
         input_state: _LedgedashState,
-    ) -> tuple[_LedgedashState, InputMontage | bool]:
+    ) -> tuple[_LedgedashState, InputMontage | bool | Abort]:
         del opponent_state, state
         player_state_value = player(player_state)
         if player_state_value is None or self._direction is None:
             controls.release_all()
-            return input_state, False
+            return input_state, Abort("player state or inward direction became unavailable")
         if input_state.phase is _LedgedashPhase.Rising and (
             player_state_value.on_ground or player_state_value.action not in _RISING_ACTIONS
         ):
-            return input_state, False
+            return input_state, Abort("player left the viable rising state before clearance")
 
         controls.release_all()
         match input_state, player_state_value.action:
@@ -149,7 +151,7 @@ class LedgedashMontage(StatefulInputMontage[_LedgedashState]):
                 controls.tilt_stick(player_state.backward_axis(), 0.0, stick=Button.BUTTON_C)
                 return _LedgedashState(_LedgedashPhase.ReleaseRequested), self
             case _LedgedashState(phase=_LedgedashPhase.Ledge), _:
-                return input_state, False
+                return input_state, Abort("player left the ledge before release")
             case _LedgedashState(phase=_LedgedashPhase.ReleaseRequested), Action.EDGE_HANGING:
                 return _LedgedashState(_LedgedashPhase.Ledge), self
             case _LedgedashState(phase=_LedgedashPhase.ReleaseRequested), Action.FALLING if (
@@ -159,7 +161,7 @@ class LedgedashMontage(StatefulInputMontage[_LedgedashState]):
                 controls.press_button(self._jump_button)
                 return _LedgedashState(_LedgedashPhase.JumpRequested, player_state_value.jumps_left), self
             case _LedgedashState(phase=_LedgedashPhase.ReleaseRequested), _:
-                return input_state, False
+                return input_state, Abort("ledge release did not produce a viable falling state")
             case _LedgedashState(
                 phase=_LedgedashPhase.JumpRequested,
                 jumps_before_request=jumps_before_request,
@@ -170,7 +172,7 @@ class LedgedashMontage(StatefulInputMontage[_LedgedashState]):
             ):
                 input_state = _LedgedashState(_LedgedashPhase.Rising, jumps_before_request)
             case _LedgedashState(phase=_LedgedashPhase.JumpRequested), _:
-                return input_state, False
+                return input_state, Abort("aerial jump request was not confirmed")
             case _LedgedashState(phase=_LedgedashPhase.Rising), _:
                 pass
             case _LedgedashState(phase=_LedgedashPhase.AirDodgeRequested), Action.LANDING_SPECIAL if (
@@ -180,13 +182,15 @@ class LedgedashMontage(StatefulInputMontage[_LedgedashState]):
             case _LedgedashState(phase=_LedgedashPhase.AirDodgeRequested), Action.AIRDODGE:
                 return input_state, self
             case _LedgedashState(phase=_LedgedashPhase.AirDodgeRequested), _:
-                return input_state, False
+                return input_state, Abort("air dodge did not begin")
             case _LedgedashState(phase=_LedgedashPhase.LandingLag), Action.LANDING_SPECIAL if (
                 player_state_value.on_ground
             ):
                 return input_state, self
             case _LedgedashState(phase=_LedgedashPhase.LandingLag), action:
-                return input_state, player_state_value.on_ground and action in GROUND_MOVEMENT_ACTIONS
+                if player_state_value.on_ground and action in GROUND_MOVEMENT_ACTIONS:
+                    return input_state, True
+                return input_state, Abort("landing lag ended outside actionable ground movement")
 
         ecb_bottom_y = float(player_state_value.position.y) + float(player_state_value.ecb.bottom.y)
         if ecb_bottom_y <= self._minimum_ecb_bottom_y:

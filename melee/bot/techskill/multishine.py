@@ -7,7 +7,7 @@ from enum import Enum, auto
 from typing import Final
 
 from melee.bot.character_state import CharacterState
-from melee.bot.input_montage import InputMontage
+from melee.bot.input_montage import Abort, InputMontage
 from melee.bot.simple_controls import SimpleControls, StickReferenceAxis
 from melee.bot.stateful_input_montage import StatefulInputMontage
 from melee.bot.techskill.common import (
@@ -143,15 +143,18 @@ class MultishineMontage(StatefulInputMontage[_MultishineState]):
         opponent_state: CharacterState,
         state: GameState,
         input_state: _MultishineState,
-    ) -> bool:
+    ) -> Abort | None:
         del controls, opponent_state, state, input_state
         player_state_value = player(player_state)
-        return (
-            player_state_value is None
-            or player_state_value.character is not Character.FOX
-            or player_state_value.off_stage
-            or is_interrupted(player_state, player_state_value, include_hitlag=False)
-        )
+        if player_state_value is None:
+            return Abort("player state became unavailable")
+        if player_state_value.character is not Character.FOX:
+            return Abort("player is no longer Fox")
+        if player_state_value.off_stage:
+            return Abort("player moved offstage")
+        if is_interrupted(player_state, player_state_value, include_hitlag=False):
+            return Abort("player was interrupted")
+        return None
 
     def stateful_on_tick(
         self,
@@ -160,12 +163,12 @@ class MultishineMontage(StatefulInputMontage[_MultishineState]):
         opponent_state: CharacterState,
         state: GameState,
         input_state: _MultishineState,
-    ) -> tuple[_MultishineState, InputMontage | bool]:
+    ) -> tuple[_MultishineState, InputMontage | bool | Abort]:
         del opponent_state, state
         player_state_value = player(player_state)
         if player_state_value is None:
             controls.release_all()
-            return input_state, False
+            return input_state, Abort("player state became unavailable")
 
         shine_hitlag_left = (
             player_state_value.hitlag_left if player_state_value.action in SHINE_ACTIONS else 0
@@ -210,7 +213,7 @@ class MultishineMontage(StatefulInputMontage[_MultishineState]):
                         ),
                         self,
                     )
-                return input_state, False
+                return input_state, Abort("Fox passed the final jump-squat frame")
             case _MultishinePhase.NextShineRequested, action if action in _REFLECTOR_HIT_ACTIONS:
                 if input_state.shines_requested >= self._shine_count:
                     controls.release_all()
@@ -259,7 +262,7 @@ class MultishineMontage(StatefulInputMontage[_MultishineState]):
                 return input_state, True
             case _:
                 controls.release_all()
-                return input_state, False
+                return input_state, Abort("unexpected action for the current multishine phase")
 
 
 __all__ = ["MultishineMontage"]

@@ -5,7 +5,7 @@ from __future__ import annotations
 from enum import Enum, auto
 
 from melee.bot.character_state import CharacterState
-from melee.bot.input_montage import InputMontage
+from melee.bot.input_montage import Abort, InputMontage
 from melee.bot.simple_controls import SimpleControls, StickReferenceAxis
 from melee.bot.stateful_input_montage import StatefulInputMontage
 from melee.bot.techskill.common import is_interrupted, player
@@ -72,16 +72,20 @@ class InitiateDashMontage(StatefulInputMontage[_DashPhase]):
         opponent_state: CharacterState,
         state: GameState,
         input_state: _DashPhase,
-    ) -> bool:
+    ) -> Abort | None:
         del controls, opponent_state, state, input_state
         player_state_value = player(player_state)
-        return (
-            player_state_value is None
-            or player_state_value.character is not self._character
-            or not player_state_value.on_ground
-            or player_state_value.off_stage
-            or is_interrupted(player_state, player_state_value, include_hitlag=True)
-        )
+        if player_state_value is None:
+            return Abort("player state became unavailable")
+        if player_state_value.character is not self._character:
+            return Abort("player character changed")
+        if not player_state_value.on_ground:
+            return Abort("player left the ground before dashing")
+        if player_state_value.off_stage:
+            return Abort("player moved offstage")
+        if is_interrupted(player_state, player_state_value, include_hitlag=True):
+            return Abort("player was interrupted")
+        return None
 
     def stateful_on_tick(
         self,
@@ -90,11 +94,11 @@ class InitiateDashMontage(StatefulInputMontage[_DashPhase]):
         opponent_state: CharacterState,
         state: GameState,
         input_state: _DashPhase,
-    ) -> tuple[_DashPhase, InputMontage | bool]:
+    ) -> tuple[_DashPhase, InputMontage | bool | Abort]:
         del opponent_state, state
         player_state_value = player(player_state)
         if player_state_value is None:
-            return input_state, False
+            return input_state, Abort("player state became unavailable")
 
         match input_state:
             case _DashPhase.Initial:
@@ -118,7 +122,7 @@ class InitiateDashMontage(StatefulInputMontage[_DashPhase]):
             case _DashPhase.DashRequested if player_state_value.action is Action.DASHING:
                 return input_state, True
             case _:
-                return input_state, False
+                return input_state, Abort("dash input did not produce DASHING")
 
 
 __all__ = ["InitiateDashMontage"]

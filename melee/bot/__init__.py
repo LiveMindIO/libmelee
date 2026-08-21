@@ -35,7 +35,7 @@ from melee.bot.character_state import (
     neutral_b_is_chargeable,
     z_air_is_supported,
 )
-from melee.bot.input_montage import InputMontage, MontageState, PreTickResult
+from melee.bot.input_montage import Abort, InputMontage, MontageState, PreTickResult
 from melee.bot.listener import Listener, ListenerOrCallable, Listeners, SimpleListener
 from melee.bot.logger import BotLogEntry, BotLogger
 from melee.bot.match_history import (
@@ -69,6 +69,7 @@ from melee.bot.techskill import (
 
 __all__ = [
     "AnonymousInputMontage",
+    "Abort",
     "AttackFrameData",
     "AttackType",
     "BaseBot",

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 from abc import ABC, abstractmethod
+from dataclasses import dataclass
 from enum import Enum, auto
 from typing import TYPE_CHECKING, Self
 
@@ -15,6 +16,13 @@ if TYPE_CHECKING:
     from melee.bot.character_state import CharacterState
     from melee.bot.simple_controls import SimpleControls
     from melee.gamestate import GameState
+
+
+@dataclass(frozen=True)
+class Abort:
+    """Signal that an input montage aborted for ``reason``."""
+
+    reason: str
 
 
 class MontageState(Enum):
@@ -57,8 +65,8 @@ class InputMontage(ABC):
     A montage instance is single-use. Call :meth:`tick` once per game tick and
     retain the returned montage while the sequence is in progress. A montage may
     return itself, or return a different montage to hand control to a follow-up
-    or branch. ``True`` means the sequence completed successfully and ``False``
-    means it reached a terminal unsuccessful state.
+    or branch. ``True`` means the sequence completed successfully and
+    :class:`Abort` carries a terminal failure reason.
 
     Use :meth:`add_branch` to choose a follow-up from the current game state.
     A successful montage becomes finished, then returns the first eligible
@@ -73,9 +81,9 @@ class InputMontage(ABC):
 
     ``frame_limit`` counts calls to :meth:`on_tick`, not time spent waiting for
     :meth:`can_start`. The limit is a safety boundary; implementations should
-    return ``False`` as soon as their own success conditions become impossible.
-    Every transition to :attr:`MontageState.Aborted` logs the montage name at
-    WARNING.
+    return :class:`Abort` as soon as their own success conditions become
+    impossible. Every transition to :attr:`MontageState.Aborted` returns that
+    value and logs the montage name and reason at WARNING.
     """
 
     def __init__(
@@ -96,7 +104,7 @@ class InputMontage(ABC):
         self._branches: list[InputMontage] = []
         self._pre_tick_listeners: Listeners[
             [SimpleControls, CharacterState, CharacterState, GameState],
-            PreTickResult,
+            PreTickResult | Abort,
         ] = Listeners()
 
     def get_name(self) -> str:
@@ -121,7 +129,7 @@ class InputMontage(ABC):
         self,
         listener: ListenerOrCallable[
             [SimpleControls, CharacterState, CharacterState, GameState],
-            PreTickResult,
+            PreTickResult | Abort,
         ],
     ) -> Self:
         """Append a listener that may continue, complete, or abort before the input tick."""
@@ -132,7 +140,7 @@ class InputMontage(ABC):
         self,
     ) -> Listeners[
         [SimpleControls, CharacterState, CharacterState, GameState],
-        PreTickResult,
+        PreTickResult | Abort,
     ]:
         """Return the pre-tick listener collection."""
         return self._pre_tick_listeners
@@ -147,7 +155,7 @@ class InputMontage(ABC):
         player_state: CharacterState,
         opponent_state: CharacterState,
         state: GameState,
-    ) -> InputMontage | bool:
+    ) -> InputMontage | bool | Abort:
         """Advance this montage by at most one active input frame.
 
         Waiting and active montages return a montage for the caller to retain.
@@ -168,18 +176,26 @@ class InputMontage(ABC):
             self._montage_state = MontageState.TimedOut
             return False
 
-        if self.should_abort(controls, player_state, opponent_state, state):
-            self._abort(controls)
-            return False
+        should_abort = self.should_abort(controls, player_state, opponent_state, state)
+        if isinstance(should_abort, Abort):
+            return self._abort(controls, should_abort)
+        if should_abort:
+            return self._abort(controls, Abort("should_abort returned True"))
 
         pre_tick_result = PreTickResult.CONTINUE
+        pre_tick_abort: Abort | None = None
         for listener in self._pre_tick_listeners.get_all():
             listener_result = listener(controls, player_state, opponent_state, state)
-            pre_tick_result = pre_tick_result.combine(listener_result)
+            if isinstance(listener_result, Abort):
+                if pre_tick_abort is None:
+                    pre_tick_abort = listener_result
+            else:
+                pre_tick_result = pre_tick_result.combine(listener_result)
 
+        if pre_tick_abort is not None:
+            return self._abort(controls, pre_tick_abort)
         if pre_tick_result is PreTickResult.ABORTED:
-            self._abort(controls)
-            return False
+            return self._abort(controls, Abort("pre-tick listener returned ABORTED"))
         if pre_tick_result is PreTickResult.EARLY_COMPLETION:
             return self._continue_to_branch_or_finish(controls, player_state, opponent_state, state)
 
@@ -187,19 +203,23 @@ class InputMontage(ABC):
         self._frame_count += 1
 
         match result:
+            case Abort() as abort:
+                return self._abort(controls, abort)
             case True:
                 return self._continue_to_branch_or_finish(controls, player_state, opponent_state, state)
             case False:
-                self._abort(controls)
-                return False
+                return self._abort(controls, Abort("on_tick returned False"))
             case InputMontage() as next_montage if next_montage is not self:
                 self._montage_state = MontageState.Finished
                 return next_montage
             case InputMontage() as next_montage:
                 return next_montage
             case _:
-                self._abort(controls)
-                raise TypeError("on_tick must return an InputMontage or bool")
+                self._abort(
+                    controls,
+                    Abort(f"on_tick returned unsupported type {type(result).__name__}"),
+                )
+                raise TypeError("on_tick must return an InputMontage, Abort, or bool")
 
     def _continue_to_branch_or_finish(
         self,
@@ -207,7 +227,7 @@ class InputMontage(ABC):
         player_state: CharacterState,
         opponent_state: CharacterState,
         state: GameState,
-    ) -> InputMontage | bool:
+    ) -> InputMontage | bool | Abort:
         self._montage_state = MontageState.Finished
         if not self._branches:
             return True
@@ -221,14 +241,14 @@ class InputMontage(ABC):
             branch._montage_state = MontageState.Active
             return branch
 
-        self._abort(controls)
-        return False
+        return self._abort(controls, Abort("no configured branch could start"))
 
-    def _abort(self, controls: SimpleControls) -> None:
-        """Neutralize input, enter the aborted state, and log the montage name."""
+    def _abort(self, controls: SimpleControls, abort: Abort) -> Abort:
+        """Neutralize input, enter the aborted state, and return ``abort``."""
         controls.release_all()
         self._montage_state = MontageState.Aborted
-        LOGGER.warning("Input montage %s aborted", self._name)
+        LOGGER.warning("Input montage %s aborted: %s", self._name, abort.reason)
+        return abort
 
     def cancel(
         self,
@@ -264,11 +284,13 @@ class InputMontage(ABC):
         player_state: CharacterState,
         opponent_state: CharacterState,
         state: GameState,
-    ) -> InputMontage | bool:
+    ) -> InputMontage | bool | Abort:
         """Apply one active frame and report what should happen next.
 
         Return ``self`` to continue this montage on the next game tick, another
-        montage to hand off control, ``True`` on success, or ``False`` on failure.
+        montage to hand off control, ``True`` on success, or :class:`Abort` on
+        failure. ``False`` remains accepted as a compatibility abort without a
+        custom reason.
         """
         raise NotImplementedError
 
@@ -279,12 +301,13 @@ class InputMontage(ABC):
         player_state: CharacterState,
         opponent_state: CharacterState,
         state: GameState,
-    ) -> bool:
-        """Return whether game state made continuing the sequence invalid.
+    ) -> Abort | bool | None:
+        """Return an abort reason when game state invalidates the sequence.
 
         Examples include an aerial-attack montage whose character is no longer
         airborne, a jump montage when no jump is available, or any sequence that
-        was interrupted because the character was hit.
+        was interrupted because the character was hit. ``True`` remains accepted
+        as a compatibility abort without a custom reason.
         """
         raise NotImplementedError
 
@@ -300,4 +323,4 @@ class InputMontage(ABC):
         raise NotImplementedError
 
 
-__all__ = ["InputMontage", "MontageState", "PreTickResult"]
+__all__ = ["Abort", "InputMontage", "MontageState", "PreTickResult"]

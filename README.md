@@ -178,7 +178,8 @@ optional active montage through the same getter, setter, and identity-sensitive
 change-listener API as `BaseBot`. Selecting a strategy makes `BaseBot` subscribe
 to that montage state and mirror it until the strategy is replaced or cleared.
 The bot logs strategy changes, strategy exit reasons, and montage name changes at
-DEBUG. Every montage abort logs its name at WARNING.
+DEBUG. Every montage abort returns `Abort(reason)` and logs its name and reason at
+WARNING.
 The same strategy class may be instantiated multiple times during one match,
 with each instance retaining independent state.
 
@@ -206,20 +207,22 @@ game_state)` every tick, and retains the returned montage while work continues.
 - The current montage returns itself while it is waiting or active.
 - Returning another `InputMontage` finishes the current node and hands control to
   a follow-up or branch.
-- Returning `True` finishes successfully; returning `False`, aborting, cancelling,
-  or timing out makes that montage instance terminal.
+- Returning `True` finishes successfully. Returning `Abort(reason)` aborts and
+  returns the same value to the caller; cancelling or timing out uses its own
+  distinct terminal state.
 - `add_pre_tick_listener(listener)` adds an observer with the same four inputs
   as `on_tick`. Listeners run in insertion order immediately before `on_tick` and
-  return `PreTickResult.CONTINUE`, `EARLY_COMPLETION`, or `ABORTED`. Every listener
-  runs; precedence is abort, early completion, then continue. Abort neutralizes
-  input and skips `on_tick`; early completion skips `on_tick` and follows the
-  normal successful branch-selection path. `PreTickResult.combine()` exposes the
-  same pairwise precedence used to aggregate listener results.
+  return `PreTickResult.CONTINUE`, `EARLY_COMPLETION`, or `Abort(reason)`. Every
+  listener runs; precedence is abort, early completion, then continue. The first
+  abort reason wins, neutralizes input, and skips `on_tick`; early completion skips
+  `on_tick` and follows the normal successful branch-selection path. Legacy
+  `PreTickResult.ABORTED` remains accepted with a framework-generated reason.
+  `PreTickResult.combine()` exposes enum-only pairwise precedence.
   Named listeners replace an existing callback with the same identifier at its
   original position; plain callables remain supported with generated IDs.
   `get_pre_tick_listeners()` returns the private collection.
 - `frame_limit` counts active `on_tick` calls only. It is a safety boundary, not a
-  substitute for an implementation detecting failure and returning `False`.
+  substitute for an implementation detecting failure and returning `Abort(reason)`.
 - `cancel(...)` only cancels an active montage and returns its configured fallback,
   if any. It neutralizes pending input before handoff; implementations may override
   it to choose a state-dependent cancellation montage.

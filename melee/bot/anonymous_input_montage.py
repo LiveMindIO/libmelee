@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import TYPE_CHECKING, TypeVar
 
-from melee.bot.input_montage import InputMontage
+from melee.bot.input_montage import Abort, InputMontage
 from melee.bot.stateful_input_montage import StatefulInputMontage
 
 if TYPE_CHECKING:
@@ -37,11 +37,11 @@ class AnonymousInputMontage(StatefulInputMontage[StateT]):
         ],
         on_tick: Callable[
             [SimpleControls, CharacterState, CharacterState, GameState, StateT],
-            tuple[StateT, InputMontage | bool],
+            tuple[StateT, InputMontage | bool | Abort],
         ],
         should_abort: Callable[
             [SimpleControls, CharacterState, CharacterState, GameState, StateT],
-            bool,
+            Abort | bool | None,
         ],
         cancel: Callable[
             [SimpleControls, CharacterState, CharacterState, GameState, StateT],
@@ -70,7 +70,7 @@ class AnonymousInputMontage(StatefulInputMontage[StateT]):
         opponent_state: CharacterState,
         state: GameState,
         input_state: StateT,
-    ) -> tuple[StateT, InputMontage | bool]:
+    ) -> tuple[StateT, InputMontage | bool | Abort]:
         return self._on_tick(controls, player_state, opponent_state, state, input_state)
 
     def stateful_should_abort(
@@ -80,7 +80,7 @@ class AnonymousInputMontage(StatefulInputMontage[StateT]):
         opponent_state: CharacterState,
         state: GameState,
         input_state: StateT,
-    ) -> bool:
+    ) -> Abort | bool | None:
         return self._should_abort(controls, player_state, opponent_state, state, input_state)
 
     def stateful_cancel(

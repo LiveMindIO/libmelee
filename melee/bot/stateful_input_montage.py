@@ -5,7 +5,7 @@ from __future__ import annotations
 from abc import abstractmethod
 from typing import TYPE_CHECKING, Generic, Self, TypeVar
 
-from melee.bot.input_montage import InputMontage, MontageState, PreTickResult
+from melee.bot.input_montage import Abort, InputMontage, MontageState, PreTickResult
 from melee.bot.listener import Listener, ListenerOrCallable
 
 if TYPE_CHECKING:
@@ -47,7 +47,7 @@ class StatefulInputMontage(InputMontage, Generic[StateT]):
                 GameState,
                 StateT,
             ],
-            PreTickResult,
+            PreTickResult | Abort,
         ],
     ) -> Self:
         """Append a pre-tick listener that also receives the current typed state."""
@@ -57,7 +57,7 @@ class StatefulInputMontage(InputMontage, Generic[StateT]):
             player_state: CharacterState,
             opponent_state: CharacterState,
             state: GameState,
-        ) -> PreTickResult:
+        ) -> PreTickResult | Abort:
             return listener(controls, player_state, opponent_state, state, self._input_state)
 
         super().add_pre_tick_listener(
@@ -73,7 +73,7 @@ class StatefulInputMontage(InputMontage, Generic[StateT]):
         player_state: CharacterState,
         opponent_state: CharacterState,
         state: GameState,
-    ) -> InputMontage | bool:
+    ) -> InputMontage | bool | Abort:
         self._input_state, result = self.stateful_on_tick(
             controls,
             player_state,
@@ -89,7 +89,7 @@ class StatefulInputMontage(InputMontage, Generic[StateT]):
         player_state: CharacterState,
         opponent_state: CharacterState,
         state: GameState,
-    ) -> bool:
+    ) -> Abort | bool | None:
         return self.stateful_should_abort(controls, player_state, opponent_state, state, self._input_state)
 
     def cancel(
@@ -115,7 +115,7 @@ class StatefulInputMontage(InputMontage, Generic[StateT]):
         opponent_state: CharacterState,
         state: GameState,
         input_state: StateT,
-    ) -> tuple[StateT, InputMontage | bool]:
+    ) -> tuple[StateT, InputMontage | bool | Abort]:
         """Apply one frame and return the next state followed by the result."""
         raise NotImplementedError
 
@@ -127,8 +127,8 @@ class StatefulInputMontage(InputMontage, Generic[StateT]):
         opponent_state: CharacterState,
         state: GameState,
         input_state: StateT,
-    ) -> bool:
-        """Return whether this montage should abort from the current state."""
+    ) -> Abort | bool | None:
+        """Return an abort reason when the current state cannot continue."""
         raise NotImplementedError
 
     def stateful_cancel(

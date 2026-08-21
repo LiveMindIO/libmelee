@@ -5,7 +5,7 @@ from __future__ import annotations
 from enum import Enum, auto
 
 from melee.bot.character_state import AttackType, CharacterState
-from melee.bot.input_montage import InputMontage
+from melee.bot.input_montage import Abort, InputMontage
 from melee.bot.simple_controls import SimpleControls
 from melee.bot.stateful_input_montage import StatefulInputMontage
 from melee.bot.techskill.common import is_interrupted, player
@@ -77,21 +77,20 @@ class PerfectPivotMontage(StatefulInputMontage[_PerfectPivotPhase]):
         opponent_state: CharacterState,
         state: GameState,
         input_state: _PerfectPivotPhase,
-    ) -> bool:
+    ) -> Abort | None:
         del controls, opponent_state, state
         if input_state is _PerfectPivotPhase.AttackRequested:
-            return False
+            return None
         player_state_value = player(player_state)
-        return (
-            player_state_value is None
-            or player_state_value.character is not self._character
-            or player_state_value.off_stage
-            or is_interrupted(
-                player_state,
-                player_state_value,
-                include_hitlag=True,
-            )
-        )
+        if player_state_value is None:
+            return Abort("player state became unavailable")
+        if player_state_value.character is not self._character:
+            return Abort("player character changed")
+        if player_state_value.off_stage:
+            return Abort("player moved offstage")
+        if is_interrupted(player_state, player_state_value, include_hitlag=True):
+            return Abort("player was interrupted")
+        return None
 
     def stateful_on_tick(
         self,
@@ -100,7 +99,7 @@ class PerfectPivotMontage(StatefulInputMontage[_PerfectPivotPhase]):
         opponent_state: CharacterState,
         state: GameState,
         input_state: _PerfectPivotPhase,
-    ) -> tuple[_PerfectPivotPhase, InputMontage | bool]:
+    ) -> tuple[_PerfectPivotPhase, InputMontage | bool | Abort]:
         del opponent_state, state
         if input_state is _PerfectPivotPhase.AttackRequested:
             controls.release_all()
@@ -108,7 +107,7 @@ class PerfectPivotMontage(StatefulInputMontage[_PerfectPivotPhase]):
 
         player_state_value = player(player_state)
         if player_state_value is None:
-            return input_state, False
+            return input_state, Abort("player state became unavailable")
 
         match input_state, player_state_value.action:
             case _PerfectPivotPhase.Initial, Action.DASHING:
@@ -123,10 +122,10 @@ class PerfectPivotMontage(StatefulInputMontage[_PerfectPivotPhase]):
                 return _PerfectPivotPhase.TurnRequested, self
             case _PerfectPivotPhase.TurnRequested, Action.TURNING:
                 if controls.attack(self._attack_type) is None:
-                    return input_state, False
+                    return input_state, Abort("requested attack could not start")
                 return _PerfectPivotPhase.AttackRequested, self
             case _:
-                return input_state, False
+                return input_state, Abort("one-frame TURNING attack window was missed")
 
 
 __all__ = ["PerfectPivotMontage"]
