@@ -236,6 +236,24 @@ class BotProtocolTests(unittest.TestCase):
             change_listener,
         )
 
+    def test_active_strategy_changes_and_exit_reason_log_at_debug(self):
+        bot = RecordingBot()
+        strategy = RecordingStrategy(Exit("spacing lost"))
+
+        with self.assertLogs("melee.bot.base_bot", level="DEBUG") as captured:
+            bot.set_active_strategy(strategy)
+            strategy.game_tick(None, None, None, None, None, None, None, None, None)
+            bot.set_active_strategy(None)
+
+        self.assertEqual(
+            captured.output,
+            [
+                "DEBUG:melee.bot.base_bot:Active strategy changed: None -> recording",
+                "DEBUG:melee.bot.base_bot:Strategy recording exited: spacing lost",
+                "DEBUG:melee.bot.base_bot:Active strategy changed: recording -> None",
+            ],
+        )
+
     def test_active_strategy_montage_propagates_to_bot(self):
         bot = RecordingBot()
         strategy = RecordingStrategy()
@@ -281,10 +299,13 @@ class BotProtocolTests(unittest.TestCase):
 
         bot.set_active_strategy(previous)
         self.assertEqual(len(previous.get_montage_changed_listeners()), 1)
+        self.assertEqual(len(previous.get_exit_listeners()), 1)
         bot.set_active_strategy(current)
         previous.set_active_montage(stale_montage)
 
         self.assertEqual(len(previous.get_montage_changed_listeners()), 0)
+        self.assertEqual(len(previous.get_exit_listeners()), 0)
+        self.assertEqual(len(current.get_exit_listeners()), 1)
         self.assertIs(bot.get_active_montage(), current_montage)
 
         current.set_active_montage(next_montage)
@@ -332,6 +353,25 @@ class BotProtocolTests(unittest.TestCase):
         self.assertIs(
             bot.get_montage_changed_listeners().get(change_listener.identifier),
             change_listener,
+        )
+
+    def test_active_montage_changes_log_names_at_debug(self):
+        bot = RecordingBot()
+        first = RecordingMontage(name="approach")
+        second = RecordingMontage(name="punish")
+
+        with self.assertLogs("melee.bot.base_bot", level="DEBUG") as captured:
+            bot.set_active_montage(first)
+            bot.set_active_montage(second)
+            bot.set_active_montage(None)
+
+        self.assertEqual(
+            captured.output,
+            [
+                "DEBUG:melee.bot.base_bot:Active montage changed: None -> approach",
+                "DEBUG:melee.bot.base_bot:Active montage changed: approach -> punish",
+                "DEBUG:melee.bot.base_bot:Active montage changed: punish -> None",
+            ],
         )
 
 
@@ -1331,6 +1371,17 @@ class InputMontageTests(unittest.TestCase):
         self.assertIs(self.tick(montage), False)
         self.assertEqual(montage.on_tick_calls, 1)
         self.assertEqual(self.controls.release_count, 1)
+
+    def test_abort_logs_montage_name_at_warning(self):
+        montage = RecordingMontage(abort=True, name="unsafe approach")
+
+        with self.assertLogs("melee.bot.input_montage", level="WARNING") as captured:
+            self.assertIs(self.tick(montage), False)
+
+        self.assertEqual(
+            captured.output,
+            ["WARNING:melee.bot.input_montage:Input montage unsafe approach aborted"],
+        )
 
     def test_should_abort_prevents_input_tick(self):
         montage = RecordingMontage(abort=True)

@@ -31,6 +31,8 @@ uv pip install --python .venv/bin/python .
   cached ordered listeners with `(previous, current)` after identity changes.
   Its first strategy-change listener detaches from the previous strategy, subscribes
   to the current strategy's montage changes, and mirrors that montage immediately.
+  Built-in lifecycle listeners log strategy changes and exit reasons plus montage
+  name changes at DEBUG.
 - `Strategy[A]` is a stateful abstract base. Implementations pass a name and
   description to `super().__init__()` and implement `tick(...) -> Continue | Exit`.
   Base `game_tick` notifies listeners registered through `add_exit_listener` with
@@ -53,6 +55,7 @@ uv pip install --python .venv/bin/python .
 - `melee.bot.InputMontage` instances are single-use, short-lived input sequences.
 - Each montage accepts an optional name and otherwise uses its concrete class name.
   `StatefulInputMontage` and `AnonymousInputMontage` pass this name through.
+- Every transition to `MontageState.Aborted` logs the montage name at WARNING.
 - Waiting does not consume `frame_limit`; each active `on_tick` call consumes one
   frame, and exactly `frame_limit` active calls are allowed.
 - Returning another montage directly from `on_tick()` marks the current node

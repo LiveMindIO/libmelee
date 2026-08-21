@@ -177,6 +177,8 @@ contains a reason and is sent to listeners registered with `add_exit_listener`.
 optional active montage through the same getter, setter, and identity-sensitive
 change-listener API as `BaseBot`. Selecting a strategy makes `BaseBot` subscribe
 to that montage state and mirror it until the strategy is replaced or cleared.
+The bot logs strategy changes, strategy exit reasons, and montage name changes at
+DEBUG. Every montage abort logs its name at WARNING.
 The same strategy class may be instantiated multiple times during one match,
 with each instance retaining independent state.
 

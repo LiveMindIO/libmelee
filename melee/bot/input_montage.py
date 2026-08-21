@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import logging
 from abc import ABC, abstractmethod
 from enum import Enum, auto
 from typing import TYPE_CHECKING, Self
 
 from melee.bot.listener import ListenerOrCallable, Listeners
+
+LOGGER = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from melee.bot.character_state import CharacterState
@@ -71,6 +74,8 @@ class InputMontage(ABC):
     ``frame_limit`` counts calls to :meth:`on_tick`, not time spent waiting for
     :meth:`can_start`. The limit is a safety boundary; implementations should
     return ``False`` as soon as their own success conditions become impossible.
+    Every transition to :attr:`MontageState.Aborted` logs the montage name at
+    WARNING.
     """
 
     def __init__(
@@ -164,8 +169,7 @@ class InputMontage(ABC):
             return False
 
         if self.should_abort(controls, player_state, opponent_state, state):
-            controls.release_all()
-            self._montage_state = MontageState.Aborted
+            self._abort(controls)
             return False
 
         pre_tick_result = PreTickResult.CONTINUE
@@ -174,8 +178,7 @@ class InputMontage(ABC):
             pre_tick_result = pre_tick_result.combine(listener_result)
 
         if pre_tick_result is PreTickResult.ABORTED:
-            controls.release_all()
-            self._montage_state = MontageState.Aborted
+            self._abort(controls)
             return False
         if pre_tick_result is PreTickResult.EARLY_COMPLETION:
             return self._continue_to_branch_or_finish(controls, player_state, opponent_state, state)
@@ -187,8 +190,7 @@ class InputMontage(ABC):
             case True:
                 return self._continue_to_branch_or_finish(controls, player_state, opponent_state, state)
             case False:
-                controls.release_all()
-                self._montage_state = MontageState.Aborted
+                self._abort(controls)
                 return False
             case InputMontage() as next_montage if next_montage is not self:
                 self._montage_state = MontageState.Finished
@@ -196,8 +198,7 @@ class InputMontage(ABC):
             case InputMontage() as next_montage:
                 return next_montage
             case _:
-                controls.release_all()
-                self._montage_state = MontageState.Aborted
+                self._abort(controls)
                 raise TypeError("on_tick must return an InputMontage or bool")
 
     def _continue_to_branch_or_finish(
@@ -220,9 +221,14 @@ class InputMontage(ABC):
             branch._montage_state = MontageState.Active
             return branch
 
+        self._abort(controls)
+        return False
+
+    def _abort(self, controls: SimpleControls) -> None:
+        """Neutralize input, enter the aborted state, and log the montage name."""
         controls.release_all()
         self._montage_state = MontageState.Aborted
-        return False
+        LOGGER.warning("Input montage %s aborted", self._name)
 
     def cancel(
         self,

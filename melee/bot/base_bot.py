@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from abc import ABC, abstractmethod
 from typing import Generic, TypeVar
 
@@ -12,12 +13,13 @@ from melee.bot.logger import BotLogger
 from melee.bot.match_history import MatchHistory
 from melee.bot.protocol import BotProtocol, CharacterSelection
 from melee.bot.simple_controls import SimpleControls
-from melee.bot.strategy import Strategy
+from melee.bot.strategy import Exit, Strategy
 from melee.controller import Controller
 from melee.framedata import FrameData
 from melee.gamestate import GameState
 
 A = TypeVar("A")
+LOGGER = logging.getLogger(__name__)
 
 
 class BaseBot(BotProtocol[A], ABC, Generic[A]):
@@ -28,6 +30,8 @@ class BaseBot(BotProtocol[A], ABC, Generic[A]):
     strategy to :meth:`set_active_strategy`. That setter immediately mirrors the
     strategy's current montage and propagates later strategy montage changes.
     Assigning ``_active_strategy`` directly bypasses this synchronization.
+    Built-in listeners log strategy and montage name changes at DEBUG and log a
+    strategy's exit reason at DEBUG.
 
     Change listeners run in subscription order after the active value is updated.
     Each listener receives ``(previous, current)``. Assigning the same object by
@@ -40,9 +44,11 @@ class BaseBot(BotProtocol[A], ABC, Generic[A]):
         self._active_strategy: Strategy[A] | None = None
         self._active_montage: InputMontage | None = None
         self._strategy_montage_listener_identifier: str | None = None
+        self._strategy_exit_listener_identifier: str | None = None
         self._strategy_changed_listeners: Listeners[[Strategy[A] | None, Strategy[A] | None], None] = Listeners()
         self._montage_changed_listeners: Listeners[[InputMontage | None, InputMontage | None], None] = Listeners()
         self.add_strategy_changed_listener(self._on_strategy_changed)
+        self.add_montage_changed_listener(self._on_montage_changed)
 
     def set_logger(self, logger: BotLogger) -> None:
         """Store the profile-scoped logger supplied by the runtime."""
@@ -93,9 +99,17 @@ class BaseBot(BotProtocol[A], ABC, Generic[A]):
         previous: Strategy[A] | None,
         current: Strategy[A] | None,
     ) -> None:
+        LOGGER.debug(
+            "Active strategy changed: %s -> %s",
+            previous.get_name() if previous is not None else None,
+            current.get_name() if current is not None else None,
+        )
         if previous is not None and self._strategy_montage_listener_identifier is not None:
             previous.get_montage_changed_listeners().remove(self._strategy_montage_listener_identifier)
+        if previous is not None and self._strategy_exit_listener_identifier is not None:
+            previous.get_exit_listeners().remove(self._strategy_exit_listener_identifier)
         self._strategy_montage_listener_identifier = None
+        self._strategy_exit_listener_identifier = None
 
         if current is None:
             self.set_active_montage(None)
@@ -103,7 +117,15 @@ class BaseBot(BotProtocol[A], ABC, Generic[A]):
 
         listener = current.add_montage_changed_listener(self._on_strategy_montage_changed)
         self._strategy_montage_listener_identifier = listener.identifier
+        exit_listener = current.add_exit_listener(
+            lambda result: self._on_strategy_exit(current, result)
+        )
+        self._strategy_exit_listener_identifier = exit_listener.identifier
         self.set_active_montage(current.get_active_montage())
+
+    def _on_strategy_exit(self, strategy: Strategy[A], result: Exit) -> None:
+        """Log the active strategy's exit reason at DEBUG."""
+        LOGGER.debug("Strategy %s exited: %s", strategy.get_name(), result.reason)
 
     def _on_strategy_montage_changed(
         self,
@@ -111,6 +133,18 @@ class BaseBot(BotProtocol[A], ABC, Generic[A]):
         current: InputMontage | None,
     ) -> None:
         self.set_active_montage(current)
+
+    def _on_montage_changed(
+        self,
+        previous: InputMontage | None,
+        current: InputMontage | None,
+    ) -> None:
+        """Log active montage names after an identity change."""
+        LOGGER.debug(
+            "Active montage changed: %s -> %s",
+            previous.get_name() if previous is not None else None,
+            current.get_name() if current is not None else None,
+        )
 
     def get_active_montage(self) -> InputMontage | None:
         """Return the input montage currently owned by this bot, if any."""
