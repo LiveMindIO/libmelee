@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Generic, TypeVar
 
 from melee.bot.character_state import CharacterState
-from melee.bot.listener import Listeners
+from melee.bot.listener import Listener, Listeners
 from melee.bot.simple_controls import SimpleControls
 from melee.controller import Controller
 from melee.framedata import FrameData
@@ -39,7 +40,7 @@ class Strategy(ABC, Generic[A]):
     def __init__(self, name: str, description: str) -> None:
         self._name = name
         self._description = description
-        self.on_exit: Listeners[[Exit], None] = Listeners()
+        self._exit_listeners: Listeners[[Exit], None] = Listeners()
 
     def get_name(self) -> str:
         """Return this strategy instance's display name."""
@@ -48,6 +49,14 @@ class Strategy(ABC, Generic[A]):
     def get_description(self) -> str:
         """Return this strategy instance's description."""
         return self._description
+
+    def add_exit_listener(self, listener: Listener[[Exit], None] | Callable[[Exit], None]) -> Listener[[Exit], None]:
+        """Register and return a listener notified when this strategy exits."""
+        return self._exit_listeners.add(listener)
+
+    def get_exit_listeners(self) -> Listeners[[Exit], None]:
+        """Return this strategy's exit-listener collection."""
+        return self._exit_listeners
 
     def game_tick(
         self,
@@ -74,7 +83,7 @@ class Strategy(ABC, Generic[A]):
             custom,
         )
         if isinstance(result, Exit):
-            for listener in self.on_exit.get_all():
+            for listener in self._exit_listeners.get_all():
                 listener(result)
         return result
 

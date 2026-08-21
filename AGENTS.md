@@ -25,12 +25,13 @@ uv pip install --python .venv/bin/python .
   embedding application owns that payload's type and semantics; libmelee does
   not interpret it. `CrowdControl` is a deprecated compatibility alias.
 - New bots should subclass `BaseBot[A]` and call `super().__init__()`. It owns
-  logger injection, `_active_strategy`, `_active_montage`, and the public
-  `on_strategy_changed` / `on_montage_changed` `Listeners` collections. Setters
-  notify the cached ordered listeners with `(previous, current)` after identity changes.
+  logger injection, `_active_strategy`, `_active_montage`, and private listener
+  collections exposed through `add_*_listener` / `get_*_listeners`. Setters notify
+  cached ordered listeners with `(previous, current)` after identity changes.
 - `Strategy[A]` is a stateful abstract base. Implementations pass a name and
   description to `super().__init__()` and implement `tick(...) -> Continue | Exit`.
-  Base `game_tick` notifies `on_exit` with the returned `Exit`; strategy instances
+  Base `game_tick` notifies listeners registered through `add_exit_listener` with
+  the returned `Exit`; strategy instances
   may be created multiple times during a match and keep independent state.
 
 ## Listeners
@@ -55,7 +56,7 @@ uv pip install --python .venv/bin/python .
   none can start, the completed segment aborts instead.
 - `add_pre_tick_listener()` accepts named listeners or plain callbacks with the
   same arguments as `on_tick`. A repeated identifier replaces the existing listener
-  without changing its position.
+  without changing its position. `get_pre_tick_listeners()` returns the collection.
   They all run in insertion order after the timeout and `should_abort()` checks but
   before `on_tick`. Aggregate `PreTickResult` precedence is `ABORTED` over
   `EARLY_COMPLETION` over `CONTINUE`. Abort neutralizes input and skips `on_tick`;

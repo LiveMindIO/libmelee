@@ -127,7 +127,9 @@ class BotProtocolTests(unittest.TestCase):
     def test_strategy_metadata_and_exit_listener(self):
         strategy = RecordingStrategy(Exit("spacing lost"))
         exits = []
-        strategy.on_exit.add(lambda result: exits.append(result.reason))
+        exit_listener = strategy.add_exit_listener(
+            lambda result: exits.append(result.reason)
+        )
 
         result = strategy.game_tick(None, None, None, None, None, None, None, None, None)
 
@@ -135,11 +137,12 @@ class BotProtocolTests(unittest.TestCase):
         self.assertEqual(strategy.get_description(), "Records strategy lifecycle behavior.")
         self.assertEqual(result, Exit("spacing lost"))
         self.assertEqual(exits, ["spacing lost"])
+        self.assertIs(strategy.get_exit_listeners().get(exit_listener.identifier), exit_listener)
 
     def test_strategy_continue_does_not_notify_exit_listeners(self):
         strategy = RecordingStrategy()
         exits = []
-        strategy.on_exit.add(exits.append)
+        strategy.add_exit_listener(exits.append)
 
         result = strategy.game_tick(None, None, None, None, None, None, None, None, None)
 
@@ -165,7 +168,9 @@ class BotProtocolTests(unittest.TestCase):
         first = RecordingStrategy()
         second = RecordingStrategy()
         changes = []
-        bot.on_strategy_changed.add(lambda previous, current: changes.append((previous, current)))
+        change_listener = bot.add_strategy_changed_listener(
+            lambda previous, current: changes.append((previous, current))
+        )
 
         bot.set_active_strategy(first)
         bot.set_active_strategy(first)
@@ -175,6 +180,10 @@ class BotProtocolTests(unittest.TestCase):
         self.assertIsNone(bot.get_active_strategy())
         self.assertIsNone(bot._active_strategy)
         self.assertEqual(changes, [(None, first), (first, second), (second, None)])
+        self.assertIs(
+            bot.get_strategy_changed_listeners().get(change_listener.identifier),
+            change_listener,
+        )
 
     def test_change_notifications_use_listener_snapshot(self):
         bot = RecordingBot()
@@ -183,10 +192,12 @@ class BotProtocolTests(unittest.TestCase):
 
         def clear_listeners(previous, current):
             calls.append("clear")
-            bot.on_strategy_changed.clear()
+            bot.get_strategy_changed_listeners().clear()
 
-        bot.on_strategy_changed.add(clear_listeners)
-        bot.on_strategy_changed.add(lambda previous, current: calls.append("second"))
+        bot.add_strategy_changed_listener(clear_listeners)
+        bot.add_strategy_changed_listener(
+            lambda previous, current: calls.append("second")
+        )
 
         bot.set_active_strategy(strategy)
         bot.set_active_strategy(None)
@@ -198,7 +209,9 @@ class BotProtocolTests(unittest.TestCase):
         first = RecordingMontage()
         second = RecordingMontage()
         changes = []
-        bot.on_montage_changed.add(lambda previous, current: changes.append((previous, current)))
+        change_listener = bot.add_montage_changed_listener(
+            lambda previous, current: changes.append((previous, current))
+        )
 
         bot.set_active_montage(first)
         bot.set_active_montage(first)
@@ -208,6 +221,10 @@ class BotProtocolTests(unittest.TestCase):
         self.assertIsNone(bot.get_active_montage())
         self.assertIsNone(bot._active_montage)
         self.assertEqual(changes, [(None, first), (first, second), (second, None)])
+        self.assertIs(
+            bot.get_montage_changed_listeners().get(change_listener.identifier),
+            change_listener,
+        )
 
 
 class PostFrameParsingTests(unittest.TestCase):
@@ -1397,10 +1414,12 @@ class InputMontageTests(unittest.TestCase):
 
         montage.add_pre_tick_listener(Listener.create(listener("first"), "shared"))
         montage.add_pre_tick_listener(Listener.create(listener("middle"), "middle"))
-        montage.add_pre_tick_listener(Listener.create(listener("replacement"), "shared"))
+        replacement = Listener.create(listener("replacement"), "shared")
+        montage.add_pre_tick_listener(replacement)
 
         self.assertIs(self.tick(montage), True)
         self.assertEqual(calls, ["replacement", "middle"])
+        self.assertIs(montage.get_pre_tick_listeners().get("shared"), replacement)
 
     def test_pre_tick_early_completion_selects_branch_without_ticking(self):
         branch = RecordingMontage(results=(True,))

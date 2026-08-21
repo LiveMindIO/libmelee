@@ -117,6 +117,15 @@ class InputMontage(ABC):
         self._pre_tick_listeners.add(listener)
         return self
 
+    def get_pre_tick_listeners(
+        self,
+    ) -> Listeners[
+        [SimpleControls, CharacterState, CharacterState, GameState],
+        PreTickResult,
+    ]:
+        """Return the pre-tick listener collection."""
+        return self._pre_tick_listeners
+
     def get_montage_state(self) -> MontageState:
         """Return this montage's current lifecycle state."""
         return self._montage_state

@@ -172,7 +172,8 @@ committed game frames when scheduling the release.
 `Strategy[A]` is a stateful abstract base for compartmentalized in-game logic.
 Implementations pass `name` and `description` to the constructor and implement
 `tick(...) -> Continue | Exit`. `game_tick(...)` delegates to `tick`; an `Exit`
-contains a reason and is sent to the strategy's `on_exit` listeners. The same
+contains a reason and is sent to listeners registered with `add_exit_listener`.
+`get_exit_listeners()` returns the private collection. The same
 strategy class may be instantiated multiple times during one match, with each
 instance retaining independent state.
 
@@ -209,6 +210,7 @@ game_state)` every tick, and retains the returned montage while work continues.
   same pairwise precedence used to aggregate listener results.
   Named listeners replace an existing callback with the same identifier at its
   original position; plain callables remain supported with generated IDs.
+  `get_pre_tick_listeners()` returns the private collection.
 - `frame_limit` counts active `on_tick` calls only. It is a safety boundary, not a
   substitute for an implementation detecting failure and returning `False`.
 - `cancel(...)` only cancels an active montage and returns its configured fallback,
