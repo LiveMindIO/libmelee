@@ -19,11 +19,19 @@ uv pip install --python .venv/bin/python .
   test that requires an external Melee ISO.
 - Forgejo is the `origin` remote. The LiveMindIO GitHub fork is `mirror`.
 
-## Bot Protocol
+## Bot Protocol And Base
 
-- `CrowdControl[A].game_tick` receives `custom: A` as its final argument. The
+- `BotProtocol[A].game_tick` receives `custom: A` as its final argument. The
   embedding application owns that payload's type and semantics; libmelee does
-  not interpret it.
+  not interpret it. `CrowdControl` is a deprecated compatibility alias.
+- New bots should subclass `BaseBot[A]` and call `super().__init__()`. It owns
+  logger injection, `_active_strategy`, `_active_montage`, and the public
+  `on_strategy_changed` / `on_montage_changed` listener collections. Setters
+  notify a snapshot of listeners with `(previous, current)` after identity changes.
+- `Strategy[A].game_tick` is the composable in-game logic surface. It receives
+  the same positional frame inputs as `BotProtocol[A].game_tick` plus the owning
+  bot's `BotLogger` as a required keyword-only `logger` argument. Character
+  selection and logger lifecycle remain responsibilities of the owning bot.
 
 ## Input Montages
 

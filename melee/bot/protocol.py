@@ -1,19 +1,18 @@
-"""Protocol for Crowd Control Python bots."""
+"""Protocols for libmelee Python bots."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Protocol, TypeVar, runtime_checkable
 
-from melee.controller import Controller
-from melee.enums import Character
-from melee.framedata import FrameData
-from melee.gamestate import GameState
-
 from melee.bot.character_state import CharacterState
 from melee.bot.logger import BotLogger
 from melee.bot.match_history import MatchHistory
 from melee.bot.simple_controls import SimpleControls
+from melee.controller import Controller
+from melee.enums import Character
+from melee.framedata import FrameData
+from melee.gamestate import GameState
 
 A = TypeVar("A", contravariant=True)
 
@@ -28,7 +27,29 @@ class CharacterSelection:
 
 
 @runtime_checkable
-class CrowdControl(Protocol[A]):
+class Strategy(Protocol[A]):
+    """Composable interface for one frame of in-game bot logic."""
+
+    def game_tick(
+        self,
+        port: int,
+        match_number: int,
+        game_state: GameState,
+        controller: Controller,
+        simple_controls: SimpleControls,
+        frame_data: FrameData,
+        player_state: CharacterState,
+        opponent_state: CharacterState,
+        custom: A,
+        *,
+        logger: BotLogger,
+    ) -> None:
+        """Run one frame of strategy logic with the owning bot's logger."""
+        ...
+
+
+@runtime_checkable
+class BotProtocol(Protocol[A]):
     """Interface implemented by Python bots controlled through libmelee."""
 
     def set_logger(self, logger: BotLogger) -> None:
@@ -86,3 +107,8 @@ class CrowdControl(Protocol[A]):
         locks in before the centrally selected stage is started.
         """
         ...
+
+
+# DESNOTE(jbarber, 2026-08-21): Published bot sources import CrowdControl, so
+# retain the old name while new source migrates to BotProtocol.
+CrowdControl = BotProtocol

@@ -1,4 +1,5 @@
 #!/usr/bin/python3
+import inspect
 import math
 import sys
 import unittest
@@ -8,9 +9,14 @@ from melee.bot import (
     AnonymousInputMontage,
     AttackFrameData,
     AttackType,
+    BaseBot,
+    BotLogger,
+    BotProtocol,
+    CharacterSelection,
     CharacterState,
-    InitiateDashMontage,
+    CrowdControl,
     Hold,
+    InitiateDashMontage,
     InputMontage,
     LedgedashMontage,
     MontageState,
@@ -22,6 +28,7 @@ from melee.bot import (
     SmashTurnJumpMontage,
     StatefulInputMontage,
     StickReferenceAxis,
+    Strategy,
     WavedashDirection,
     WavedashMontage,
     can_jump,
@@ -33,6 +40,98 @@ from melee.bot.techskill.common import (
     clamp_wavedash_angle,
 )
 from melee.controller import fix_analog_stick
+
+
+class RecordingBot(BaseBot[object]):
+    def game_tick(self, *args, **kwargs):
+        pass
+
+    def select_character(self, port, match_number, match_history):
+        return CharacterSelection(character=melee.Character.FOX)
+
+
+class RecordingStrategy:
+    def game_tick(self, *args, **kwargs):
+        pass
+
+
+class BotProtocolTests(unittest.TestCase):
+    def test_strategy_tick_matches_bot_tick_and_adds_keyword_logger(self):
+        strategy_parameters = inspect.signature(Strategy.game_tick).parameters
+        bot_parameters = inspect.signature(BotProtocol.game_tick).parameters
+
+        self.assertEqual(
+            list(strategy_parameters.values())[:-1],
+            list(bot_parameters.values()),
+        )
+        self.assertEqual(
+            strategy_parameters["logger"].kind,
+            inspect.Parameter.KEYWORD_ONLY,
+        )
+
+    def test_crowd_control_is_deprecated_protocol_alias(self):
+        self.assertIs(CrowdControl, BotProtocol)
+
+    def test_base_bot_stores_injected_logger(self):
+        bot = RecordingBot()
+        logger = BotLogger("recording")
+
+        with self.assertRaisesRegex(RuntimeError, "has not been configured"):
+            bot.get_logger()
+        bot.set_logger(logger)
+
+        self.assertIs(bot.get_logger(), logger)
+        self.assertIsInstance(bot, BotProtocol)
+
+    def test_active_strategy_notifies_on_identity_changes(self):
+        bot = RecordingBot()
+        first = RecordingStrategy()
+        second = RecordingStrategy()
+        changes = []
+        bot.on_strategy_changed.append(lambda previous, current: changes.append((previous, current)))
+
+        bot.set_active_strategy(first)
+        bot.set_active_strategy(first)
+        bot.set_active_strategy(second)
+        bot.set_active_strategy(None)
+
+        self.assertIsNone(bot.get_active_strategy())
+        self.assertIsNone(bot._active_strategy)
+        self.assertEqual(changes, [(None, first), (first, second), (second, None)])
+
+    def test_change_notifications_use_listener_snapshot(self):
+        bot = RecordingBot()
+        strategy = RecordingStrategy()
+        calls = []
+
+        def clear_listeners(previous, current):
+            calls.append("clear")
+            bot.on_strategy_changed.clear()
+
+        bot.on_strategy_changed.extend(
+            [clear_listeners, lambda previous, current: calls.append("second")]
+        )
+
+        bot.set_active_strategy(strategy)
+        bot.set_active_strategy(None)
+
+        self.assertEqual(calls, ["clear", "second"])
+
+    def test_active_montage_notifies_on_identity_changes(self):
+        bot = RecordingBot()
+        first = RecordingMontage()
+        second = RecordingMontage()
+        changes = []
+        bot.on_montage_changed.append(lambda previous, current: changes.append((previous, current)))
+
+        bot.set_active_montage(first)
+        bot.set_active_montage(first)
+        bot.set_active_montage(second)
+        bot.set_active_montage(None)
+
+        self.assertIsNone(bot.get_active_montage())
+        self.assertIsNone(bot._active_montage)
+        self.assertEqual(changes, [(None, first), (first, second), (second, None)])
 
 
 class PostFrameParsingTests(unittest.TestCase):

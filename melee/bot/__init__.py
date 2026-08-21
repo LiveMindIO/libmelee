@@ -7,6 +7,7 @@ against.
 """
 
 from melee.bot.anonymous_input_montage import AnonymousInputMontage
+from melee.bot.base_bot import BaseBot
 from melee.bot.character_state import (
     AttackType,
     CharacterState,
@@ -43,7 +44,7 @@ from melee.bot.match_history import (
     OtherPlayerRelation,
     PlayerMatchRecord,
 )
-from melee.bot.protocol import CharacterSelection, CrowdControl
+from melee.bot.protocol import BotProtocol, CharacterSelection, CrowdControl, Strategy
 from melee.bot.simple_controls import (
     AttackFrameData,
     Hold,
@@ -68,14 +69,16 @@ __all__ = [
     "AnonymousInputMontage",
     "AttackFrameData",
     "AttackType",
+    "BaseBot",
     "BotLogEntry",
     "BotLogger",
+    "BotProtocol",
     "CharacterSelection",
     "CharacterState",
     "CharacterStatus",
     "CrowdControl",
-    "InitiateDashMontage",
     "Hold",
+    "InitiateDashMontage",
     "InputMontage",
     "LedgeRecoveryOption",
     "LedgedashMontage",
@@ -93,6 +96,7 @@ __all__ = [
     "SmashTurnJumpMontage",
     "StatefulInputMontage",
     "StickReferenceAxis",
+    "Strategy",
     "WavedashDirection",
     "WavedashMontage",
     "attack_is_holdable",

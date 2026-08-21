@@ -358,7 +358,7 @@ class SimpleControls:
     """Apply common Melee attack inputs from a single game-state snapshot.
 
     Construct a fresh instance each frame (the live-match handler does this
-    automatically and passes it into ``CrowdControl.game_tick``). Inputs are
+    automatically and passes it into ``BotProtocol.game_tick``). Inputs are
     written to the supplied ``Controller``; the runtime flushes them on the next
     ``console.step()`` — do not call ``controller.flush()`` from bot code.
 
