@@ -159,6 +159,13 @@ uv pip install --python .venv/bin/python .
 - Directional aerials use the C-stick without also pressing `A` and horizontal
   aerials retain matching main-stick drift. `NAIR` necessarily uses `A` because
   Melee has no neutral C-stick aerial input.
+- Aerial attacks may start only from actionable air states or grounded
+  `KNEE_BEND` jump startup. Other grounded states reject aerial requests instead
+  of converting C-stick input into a grounded smash.
+- `Hold` is externally immutable and hash-compatible; successful `release()` sets
+  framework-owned `released` and `release_frame` lifecycle fields so the token
+  cannot be reused. Its returned metadata may still
+  name the expected action before a later `PlayerState` confirms startup.
 - `CharacterState.can_jump()` and the module-level `can_jump()` allow actionable
   ground jumps and remaining aerial jumps. Every shield phase is jumpable for
   all characters except Yoshi, who cannot jump out of shield.
@@ -177,3 +184,10 @@ uv pip install --python .venv/bin/python .
   named cardinal toward the second. Their angle is inclusive from 0 through 90
   degrees, their magnitude is inclusive from 0 through 1, and they support either
   the main stick or C-stick.
+- Mewtwo's special recognition uses raw action IDs 341-360 because shared `Action`
+  names are character-relative aliases. Framedata special-slot queries likewise
+  use authoritative raw IDs for Luigi and Mewtwo, filtered to rows present in
+  `framedata.csv`; do not restore label-order inference for those characters.
+- `UnknownAnimation` is an immutable, hashable value object so parser-preserved
+  unknown IDs are safe in state-classification set membership. `FrameData.is_bmove`
+  returns `False` for these values rather than relying on a nonexistent enum member.

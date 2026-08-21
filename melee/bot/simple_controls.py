@@ -40,33 +40,29 @@ from __future__ import annotations
 
 import math
 import warnings
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum, auto
 from typing import TYPE_CHECKING, Final
 
-from melee.controller import Controller
-from melee.enums import Action, Button, Character
-from melee.framedata import FrameData
-from melee.gamestate import GameState, PlayerState as LibPlayerState
-
 from melee.bot.character_state import (
+    _ACTIONABLE_AIR,
+    _ACTIONABLE_GROUND,
+    _ACTIONS_FOR_TYPE,
+    _AERIAL_ATTACKS,
+    _AIR_ATTACKS,
+    _GRAB_THROW_ATTACKS,
+    _GRAB_THROW_INPUT_ACTIONS,
+    _GRABBER_ACTIONS,
+    _GROUND_ATTACKS,
+    _LEDGE_GETUP_ACTIONS,
+    _LEDGE_HANG_ACTIONS,
+    _SPECIAL_ATTACKS,
     AttackType,
     CharacterState,
     CharacterStatus,
     StickReferenceAxis,
-    _ACTIONS_FOR_TYPE,
-    _ACTIONABLE_AIR,
-    _ACTIONABLE_GROUND,
-    _AERIAL_ATTACKS,
-    _AIR_ATTACKS,
-    _GRABBER_ACTIONS,
-    _GRAB_THROW_ATTACKS,
-    _GRAB_THROW_INPUT_ACTIONS,
-    _GROUND_ATTACKS,
+    _actions_for_attack_type,
     _is_special_action,
-    _LEDGE_GETUP_ACTIONS,
-    _LEDGE_HANG_ACTIONS,
-    _SPECIAL_ATTACKS,
     _relative_attack_type,
     attack_is_holdable,
     can_air_attack,
@@ -83,12 +79,17 @@ from melee.bot.character_state import (
     is_grabbed,
     is_grabbing,
     is_grabbing_ledge,
-    is_shielding,
     is_shield_broken,
+    is_shielding,
     is_taunting,
     neutral_b_is_chargeable,
     z_air_is_supported,
 )
+from melee.controller import Controller
+from melee.enums import Action, Button, Character
+from melee.framedata import FrameData
+from melee.gamestate import GameState
+from melee.gamestate import PlayerState as LibPlayerState
 
 if TYPE_CHECKING:
     pass
@@ -107,6 +108,14 @@ _SMASH_CHARGE_ACTIONS: Final = frozenset(
     {
         Action.NEUTRAL_B_CHARGING,
         Action.NEUTRAL_B_CHARGING_AIR,
+    }
+)
+_MEWTWO_SHADOW_BALL_CHARGE_ACTIONS: Final = frozenset(
+    {
+        Action(341),
+        Action(342),
+        Action(346),
+        Action(347),
     }
 )
 
@@ -299,8 +308,8 @@ class Hold:
     stick_y: float
     port: int
     charging: bool
-    released: bool = False
-    release_frame: int | None = None
+    released: bool = field(default=False, compare=False, hash=False)
+    release_frame: int | None = field(default=None, compare=False, hash=False)
 
 
 def _warn_state_deprecated(name: str) -> None:
@@ -714,7 +723,12 @@ class SimpleControls:
             return None
 
         player = self._player()
-        if player is None or self._hold_interrupted(player, hold):
+        if (
+            player is None
+            or player.character != hold.character
+            or self._port != hold.port
+            or self._hold_interrupted(player, hold)
+        ):
             return None
 
         self._controller.release_all()
@@ -724,6 +738,11 @@ class SimpleControls:
             # command whose result cannot be observed until a later game frame.
             # Preserve useful metadata without claiming PlayerState confirmation.
             action = hold.action
+        # DESNOTE(jbarber, 2026-08-21): Hold remains externally immutable and
+        # hash-compatible. These non-comparing lifecycle fields are framework-
+        # owned so an accepted release cannot be replayed.
+        object.__setattr__(hold, "released", True)
+        object.__setattr__(hold, "release_frame", self._game_state.frame)
 
         return AttackFrameData(
             character=player.character,
@@ -909,7 +928,10 @@ class SimpleControls:
         if hold.charging:
             self._apply_charge_inputs(hold)
             charging_action = self._current_attack_action(player, hold.attack_type)
-            if charging_action is not None and not self._is_charge_action(charging_action):
+            if charging_action is not None and not self._is_charge_action(
+                player.character,
+                charging_action,
+            ):
                 return AttackFrameData(
                     character=player.character,
                     action=charging_action,
@@ -1096,17 +1118,7 @@ class SimpleControls:
             return player.action in _ACTIONABLE_GROUND
 
         if attack_type in _AIR_ATTACKS:
-            if player.on_ground and (
-                not isinstance(player.action, Action)
-                or player.action not in _ACTIONABLE_GROUND
-            ):
-                return False
-            if not player.on_ground and (
-                not isinstance(player.action, Action)
-                or player.action not in _ACTIONABLE_AIR
-            ):
-                return False
-            return True
+            return self._character_state.can_air_attack()
 
         if attack_type in _SPECIAL_ATTACKS:
             if player.on_ground:
@@ -1137,7 +1149,7 @@ class SimpleControls:
     ) -> Action | None:
         """Map ``player.action`` to ``attack_type``, if the move is active.
 
-        First checks membership in ``_ACTIONS_FOR_TYPE``. Moves without hitboxes
+        First checks character-aware action membership. Moves without hitboxes
         (grabs, many specials) fall through to ``FrameData.is_grab`` or
         :func:`_is_special_action` because ``FrameData.is_attack`` returns
         ``False`` for them.
@@ -1148,8 +1160,7 @@ class SimpleControls:
         """
         if not isinstance(player.action, Action):
             return None
-        relative_attack_type = _relative_attack_type(attack_type)
-        if player.action not in _ACTIONS_FOR_TYPE[relative_attack_type]:
+        if player.action not in _actions_for_attack_type(player.character, attack_type):
             return None
         if attack_type in _GRAB_THROW_ATTACKS:
             return player.action
@@ -1207,18 +1218,22 @@ class SimpleControls:
         }
         return mapping[attack_type]
 
-    def _is_charge_action(self, action: Action) -> bool:
+    def _is_charge_action(self, character: Character, action: Action) -> bool:
         """Return whether ``action`` is a hold-to-charge neutral-B state."""
+        if character is Character.MEWTWO:
+            return action in _MEWTWO_SHADOW_BALL_CHARGE_ACTIONS
         return action in _SMASH_CHARGE_ACTIONS
 
     def _charge_completed(self, player: LibPlayerState, hold: Hold) -> bool:
         """Return whether a charging hold finished and the attack animation started."""
         if not isinstance(player.action, Action):
             return False
-        if player.action in _SMASH_CHARGE_ACTIONS:
+        if self._is_charge_action(player.character, player.action):
             return False
-        relative_attack_type = _relative_attack_type(hold.attack_type)
-        return player.action in _ACTIONS_FOR_TYPE[relative_attack_type]
+        return player.action in _actions_for_attack_type(
+            player.character,
+            hold.attack_type,
+        )
 
 
 __all__ = [

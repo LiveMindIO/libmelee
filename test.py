@@ -41,7 +41,9 @@ from melee.bot import (
     can_jump,
     stick_coordinates,
 )
+from melee.bot.framedata_query import get_framedata
 from melee.bot.techskill.common import (
+    GROUND_MOVEMENT_ACTIONS,
     WAVEDASH_MAX_ANGLE_DEGREES,
     WAVEDASH_MIN_ANGLE_DEGREES,
     clamp_wavedash_angle,
@@ -481,6 +483,38 @@ class SLPFile(unittest.TestCase):
         framedata = melee.FrameData()
         self.assertTrue(framedata.is_attack(melee.Character.FALCO, melee.Action.DAIR))
         self.assertFalse(framedata.is_attack(melee.Character.FALCO, melee.Action.STANDING))
+        self.assertTrue(
+            framedata.is_bmove(
+                melee.Character.FOX,
+                melee.Action.LASER_GUN_PULL,
+            )
+        )
+        self.assertFalse(
+            framedata.is_bmove(
+                melee.Character.FOX,
+                melee.UnknownAnimation(0x777),
+            )
+        )
+
+    def test_luigi_and_mewtwo_special_slots_use_character_action_ids(self) -> None:
+        cases = {
+            ("luigi", "neutral-special"): (341, 342),
+            ("luigi", "side-special"): (343, 346, 347, 348, 349, 351, 352, 353, 354),
+            ("luigi", "up-special"): (355, 356),
+            ("luigi", "down-special"): (357, 358),
+            ("mewtwo", "neutral-special"): (341, 342, 343, 344, 345, 346, 347, 348, 350),
+            ("mewtwo", "side-special"): (351, 352),
+            ("mewtwo", "up-special"): (353, 356, 357, 358),
+            ("mewtwo", "down-special"): (359, 360),
+        }
+
+        for (character, special), expected_action_ids in cases.items():
+            with self.subTest(character=character, special=special):
+                result = get_framedata(character, special)
+                self.assertEqual(
+                    tuple(action.action_id for action in result.resolved_actions),
+                    expected_action_ids,
+                )
 
 class MenuEventCostumeTests(unittest.TestCase):
     def test_offline_css_reads_port_one_costume(self) -> None:
@@ -1107,12 +1141,140 @@ class SimpleControlsInputTests(unittest.TestCase):
         self.assertIsInstance(hold, Hold)
         assert isinstance(hold, Hold)
 
+        hold_hash = hash(hold)
         result = controls.release(hold)
 
         self.assertIsInstance(result, AttackFrameData)
         self.assertEqual(result.action, melee.Action.FSMASH_MID)
         self.assertEqual(controller.main_stick, (0.5, 0.5))
         self.assertEqual(controller.buttons, set())
+        self.assertTrue(hold.released)
+        self.assertEqual(hold.release_frame, 10)
+        self.assertEqual(hash(hold), hold_hash)
+        self.assertFalse(controls.check_hold(hold))
+        self.assertIsNone(controls.release(hold))
+
+    def test_rejected_release_does_not_mutate_hold(self) -> None:
+        player = melee.PlayerState(
+            character=melee.Character.MARTH,
+            action=melee.Action.STANDING,
+            on_ground=True,
+        )
+        controls, _ = self.controls(player, frame=10)
+        hold = controls.attack(AttackType.FTILT)
+        self.assertIsInstance(hold, Hold)
+        assert isinstance(hold, Hold)
+
+        self.assertIsNone(controls.release(hold))
+        self.assertFalse(hold.released)
+        self.assertIsNone(hold.release_frame)
+
+    def test_release_rejects_hold_from_another_port_or_character(self) -> None:
+        player = melee.PlayerState(
+            character=melee.Character.MARTH,
+            action=melee.Action.STANDING,
+            on_ground=True,
+        )
+        controls, _ = self.controls(player, frame=10)
+        hold = controls.attack(AttackType.FSMASH)
+        self.assertIsInstance(hold, Hold)
+        assert isinstance(hold, Hold)
+
+        for port, character in (
+            (2, melee.Character.MARTH),
+            (1, melee.Character.FOX),
+        ):
+            with self.subTest(port=port, character=character):
+                other_player = melee.PlayerState(
+                    character=character,
+                    action=melee.Action.STANDING,
+                    on_ground=True,
+                )
+                other_controls = SimpleControls(
+                    melee.GameState(frame=11, players={port: other_player}),
+                    port,
+                    RecordingSimpleController(),
+                    frame_data=self.frame_data,
+                )
+                self.assertIsNone(other_controls.release(hold))
+                self.assertFalse(hold.released)
+                self.assertIsNone(hold.release_frame)
+
+    def test_mewtwo_shadow_ball_hold_continues_through_start_and_loop(self) -> None:
+        player = melee.PlayerState(
+            character=melee.Character.MEWTWO,
+            action=melee.Action.STANDING,
+            on_ground=True,
+        )
+        controls, _ = self.controls(player)
+        hold = controls.attack(AttackType.NEUTRAL_B)
+        self.assertIsInstance(hold, Hold)
+        assert isinstance(hold, Hold)
+
+        for frame, action_id in enumerate((341, 342), start=1):
+            with self.subTest(action_id=action_id):
+                charge_player = melee.PlayerState(
+                    character=melee.Character.MEWTWO,
+                    action=melee.Action(action_id),
+                    on_ground=True,
+                )
+                charge_controls, _ = self.controls(charge_player, frame=frame)
+                self.assertIs(
+                    charge_controls.attack(AttackType.NEUTRAL_B, hold=hold),
+                    hold,
+                )
+
+    def test_aerials_start_only_in_jump_squat_or_actionable_air(self) -> None:
+        cases = (
+            (melee.Action.STANDING, True, False),
+            (melee.Action.CROUCHING, True, False),
+            (melee.Action.KNEE_BEND, True, True),
+            (melee.Action.FALLING, False, True),
+        )
+        for action, on_ground, expected in cases:
+            with self.subTest(action=action, on_ground=on_ground):
+                player = melee.PlayerState(
+                    character=melee.Character.MARTH,
+                    action=action,
+                    on_ground=on_ground,
+                )
+                controls, _ = self.controls(player)
+
+                self.assertEqual(controls.character_state.can_air_attack(), expected)
+                self.assertEqual(
+                    isinstance(controls.attack(AttackType.NAIR), Hold),
+                    expected,
+                )
+
+    def test_unknown_animation_is_hashable_and_safe_to_classify(self) -> None:
+        first = melee.UnknownAnimation(0x777)
+        second = melee.UnknownAnimation(0x777)
+        self.assertEqual(hash(first), hash(second))
+        self.assertIn(second, {first})
+
+        player = melee.PlayerState(action=first, on_ground=True)
+        controls, _ = self.controls(player)
+        controls.character_state.get_state()
+        controls.character_state.can_attack()
+
+    def test_mewtwo_special_actions_are_recognized_by_move_slot(self) -> None:
+        expected_ids = {
+            AttackType.NEUTRAL_B: frozenset(range(341, 351)),
+            AttackType.SIDE_B: frozenset(range(351, 353)),
+            AttackType.UP_B: frozenset(range(353, 359)),
+            AttackType.DOWN_B: frozenset(range(359, 361)),
+        }
+
+        for action_id in range(341, 361):
+            player = melee.PlayerState(
+                character=melee.Character.MEWTWO,
+                action=melee.Action(action_id),
+            )
+            controls, _ = self.controls(player)
+            for attack_type, slot_ids in expected_ids.items():
+                with self.subTest(action_id=action_id, attack_type=attack_type):
+                    action = controls._current_attack_action(player, attack_type)
+                    self.assertEqual(action is not None, action_id in slot_ids)
 
     def test_deprecated_absolute_special_aliases_remain_compatible(self) -> None:
         self.assertIs(AttackType.LEFT_B, AttackType.LSPECIAL)
@@ -2756,6 +2918,25 @@ class TechniqueMontageTests(unittest.TestCase):
             ),
             montage,
         )
+        self.assertEqual(montage.get_montage_state(), MontageState.Waiting)
+        self.assertEqual(self.controls.take_calls(), [])
+
+    def test_multishine_starts_from_ground_movement_actions(self):
+        for action in GROUND_MOVEMENT_ACTIONS:
+            with self.subTest(action=action):
+                montage = MultishineMontage()
+
+                self.assertIs(self.tick(montage, action), montage)
+                self.assertEqual(montage.get_montage_state(), MontageState.Active)
+                self.assertIn(
+                    ("press_button", melee.Button.BUTTON_B),
+                    self.controls.take_calls(),
+                )
+
+    def test_multishine_waits_during_jump_squat(self):
+        montage = MultishineMontage()
+
+        self.assertIs(self.tick(montage, melee.Action.KNEE_BEND), montage)
         self.assertEqual(montage.get_montage_state(), MontageState.Waiting)
         self.assertEqual(self.controls.take_calls(), [])
 

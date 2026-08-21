@@ -22,7 +22,8 @@ from typing import Final
 
 from melee.enums import Action, Character
 from melee.framedata import FrameData
-from melee.gamestate import GameState, PlayerState as LibPlayerState, UnknownAnimation
+from melee.gamestate import GameState, UnknownAnimation
+from melee.gamestate import PlayerState as LibPlayerState
 
 # Ground locomotion states where Slippi may falsely report hitstun_frames_left=1.
 _FALSE_HITSTUN_NEUTRAL_ACTIONS: Final = frozenset(
@@ -556,6 +557,11 @@ def _action_set(*names: str) -> frozenset[Action]:
     return frozenset(getattr(Action, name) for name in names)
 
 
+def _action_id_set(first: int, last: int) -> frozenset[Action]:
+    """Build a contiguous action set from raw character-specific IDs."""
+    return frozenset(Action(action_id) for action_id in range(first, last + 1))
+
+
 def _relative_attack_type(attack_type: AttackType) -> AttackType:
     """Resolve an absolute horizontal request to its facing-relative move."""
     if attack_type in {AttackType.LTILT, AttackType.RTILT}:
@@ -652,6 +658,28 @@ _ACTIONS_FOR_TYPE: Final = {
     AttackType.UTHROW: _action_set("THROW_UP"),
     AttackType.DTHROW: _action_set("THROW_DOWN"),
 }
+
+# DESNOTE(jbarber, 2026-08-21): Action names are aliases for character-relative
+# raw IDs. Mewtwo's 341-360 range does not follow the Fox/Marth names exposed by
+# Action, so generic named sets misclassify Shadow Ball, Confusion, Teleport, and
+# Disable. Keep these IDs aligned with bot/data/ssbm_action_state.json.
+_MEWTWO_SPECIAL_ACTIONS: Final[dict[AttackType, frozenset[Action]]] = {
+    AttackType.NEUTRAL_B: _action_id_set(341, 350),
+    AttackType.SIDE_B: _action_id_set(351, 352),
+    AttackType.UP_B: _action_id_set(353, 358),
+    AttackType.DOWN_B: _action_id_set(359, 360),
+}
+
+
+def _actions_for_attack_type(
+    character: Character,
+    attack_type: AttackType,
+) -> frozenset[Action]:
+    """Return active actions for a move, including character-specific aliases."""
+    relative_attack_type = _relative_attack_type(attack_type)
+    if character is Character.MEWTWO and relative_attack_type in _MEWTWO_SPECIAL_ACTIONS:
+        return _MEWTWO_SPECIAL_ACTIONS[relative_attack_type]
+    return _ACTIONS_FOR_TYPE[relative_attack_type]
 
 _ALL_ATTACK_ACTIONS: Final = frozenset(
     action for actions in _ACTIONS_FOR_TYPE.values() for action in actions
@@ -1208,7 +1236,7 @@ def can_air_attack(player: LibPlayerState, frame_data: FrameData) -> bool:
     if not isinstance(player.action, Action):
         return False
     if player.on_ground:
-        return player.action in _ACTIONABLE_GROUND
+        return player.action is Action.KNEE_BEND
     return player.action in _ACTIONABLE_AIR
 
 
@@ -1303,10 +1331,7 @@ def attack_is_holdable(attack_type: AttackType, character: Character) -> bool:
 def _is_special_action(action: Action) -> bool:
     """Return whether ``action`` is any B-special animation.
 
-    Uses the same raw action-ID threshold as libmelee ``FrameData.is_bmove`` but
-    skips the ``Action.UNKNOWN_ANIMATION`` guard — that member is missing from the
-    shipped ``melee`` package and causes ``AttributeError`` if ``is_bmove`` is
-    called directly.
+    Uses the same raw action-ID threshold as libmelee ``FrameData.is_bmove``.
 
     This is intentionally broad: side-B, up-B, and down-B share many
     character-specific ``Action`` names (often ``SWORD_DANCE_*``), so

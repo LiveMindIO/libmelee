@@ -44,14 +44,13 @@ from pathlib import Path
 from typing import Final, TextIO, TypedDict
 
 import melee
-from melee.enums import Action, AttackState, Character
-from melee.framedata import FrameData
-
 from melee.bot.action_names import (
     action_name,
     action_state_ident,
     character_section_name,
 )
+from melee.enums import Action, AttackState, Character
+from melee.framedata import FrameData
 
 _MAX_CSV_ROWS: Final[int] = 200
 _SPECIAL_SLOT_ORDER: Final[tuple[str, ...]] = (
@@ -86,6 +85,24 @@ _NORMALIZE_RE = re.compile(r"[^a-z0-9]+")
 _SPECIAL_SLOT_BY_NORMALIZED: Final[dict[str, str]] = {
     _NORMALIZE_RE.sub("", alias.strip().lower()): slot
     for alias, slot in _SPECIAL_SLOT_ALIASES.items()
+}
+# DESNOTE(jbarber, 2026-08-21): Luigi and Mewtwo use multiple phase labels for
+# one special, so grouping formatted labels shifts later slots. Raw IDs are the
+# stable identity in bot/data/ssbm_action_state.json; resolution still filters
+# them through framedata.csv because this API cannot return unavailable frames.
+_SPECIAL_SLOT_ACTION_IDS: Final[dict[Character, dict[str, tuple[int, ...]]]] = {
+    Character.LUIGI: {
+        "neutral-special": (341, 342),
+        "side-special": (343, 344, 346, 347, 348, 349, 350, 351, 352, 353, 354),
+        "up-special": (355, 356),
+        "down-special": (357, 358),
+    },
+    Character.MEWTWO: {
+        "neutral-special": tuple(range(341, 351)),
+        "side-special": (351, 352),
+        "up-special": tuple(range(353, 359)),
+        "down-special": (359, 360),
+    },
 }
 _CHARACTER_ALIASES: Final[dict[str, Character]] = {
     "mario": Character.MARIO,
@@ -420,31 +437,6 @@ def resolve_character(character: str | int) -> Character:
     raise FramedataQueryError(msg)
 
 
-def _is_bmove(character: Character, action: Action) -> bool:
-    """Return whether ``action`` is a special ("B-move") for ``character``.
-
-    Mirrors libmelee's ``FrameData.is_bmove``, which references
-    ``Action.UNKNOWN_ANIMATION`` (not defined in this fork). Handles the
-    Peach float-cancel / side-B exceptions locally.
-    """
-    # DESNOTE(jbarber, 2026-07-07): libmelee FrameData.is_bmove references
-    # Action.UNKNOWN_ANIMATION, which this fork does not define; mirror the
-    # value check and Peach exceptions locally.
-    if character == Character.PEACH and action in (
-        Action.LASER_GUN_PULL,
-        Action.NEUTRAL_B_CHARGING,
-        Action.NEUTRAL_B_ATTACKING,
-    ):
-        return False
-    if character == Character.PEACH and action in (
-        Action.SWORD_DANCE_2_MID,
-        Action.SWORD_DANCE_1,
-        Action.SWORD_DANCE_2_HIGH,
-    ):
-        return False
-    return action.value >= Action.LASER_GUN_PULL.value
-
-
 def _resolve_action_entry(character: Character, action: Action) -> ResolvedAction:
     """Build a :class:`ResolvedAction` from an ``(character, action)`` pair."""
     action_id = int(action.value)
@@ -466,7 +458,7 @@ def _special_slot_groups(character: Character) -> list[tuple[str, list[ResolvedA
     frame_data = _frame_data()
     grouped: dict[str, list[ResolvedAction]] = {}
     for action in frame_data.framedata[character]:
-        if not _is_bmove(character, action):
+        if not frame_data.is_bmove(character, action):
             continue
         entry = _resolve_action_entry(character, action)
         grouped.setdefault(entry.action_label, []).append(entry)
@@ -489,6 +481,14 @@ def _resolve_special_slot(character: Character, slot: str) -> list[ResolvedActio
     if normalized is None:
         msg = f"unknown special slot: {slot!r}"
         raise FramedataQueryError(msg)
+    special_action_ids = _SPECIAL_SLOT_ACTION_IDS.get(character, {}).get(normalized)
+    if special_action_ids is not None:
+        available_actions = _frame_data().framedata[character]
+        return [
+            _resolve_action_entry(character, action)
+            for action_id in special_action_ids
+            if (action := Action(action_id)) in available_actions
+        ]
     groups = _special_slot_groups(character)
     try:
         index = _SPECIAL_SLOT_ORDER.index(normalized)
@@ -674,7 +674,7 @@ def _collect_tags(character: Character, actions: Sequence[ResolvedAction]) -> li
         action = entry.action
         if frame_data.is_grab(character, action):
             tags.add("GRAB")
-        if _is_bmove(character, action):
+        if frame_data.is_bmove(character, action):
             tags.add("B_MOVE")
         if frame_data.is_attack(character, action):
             tags.add("ATTACK")

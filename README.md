@@ -143,7 +143,9 @@ translating through `PlayerState.facing`. Existing `FTILT`, `FSMASH`, and
 facing-relative `FAIR`/`BAIR`, since their move behavior depends on character
 facing. Directional aerial attacks are issued through the C-stick only while
 retaining matching horizontal main-stick drift. `NAIR` uses `A` with neutral
-sticks because Melee has no neutral C-stick aerial input.
+sticks because Melee has no neutral C-stick aerial input. Aerial requests start
+only from actionable air states or grounded `KNEE_BEND` jump startup; other
+grounded states reject them so C-stick input cannot become a grounded smash.
 
 `LEFT_B` and `RIGHT_B` remain deprecated aliases for `LSPECIAL` and `RSPECIAL`.
 
@@ -153,7 +155,8 @@ input is committed on the next `Console.step()`, so same-frame release neutraliz
 the attack before Dolphin sees it. On a later frame, `release()` acknowledges the
 release command but may return `AttackFrameData` seeded with the hold's expected
 action before `PlayerState.action` reports the move. Confirm startup from a later
-game-state snapshot when observed startup matters.
+game-state snapshot when observed startup matters. An accepted release marks the
+token as `released` and records `release_frame`; do not reuse it.
 
 `CharacterState.can_jump()` (also available as `melee.bot.can_jump`) reports
 actionable ground jumps and remaining aerial jumps. It returns `True` throughout
