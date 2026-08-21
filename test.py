@@ -7310,10 +7310,9 @@ class TechniqueMontageTests(unittest.TestCase):
                 ),
                 montage,
             )
-            self.assertNotIn(
-                ("press_button", melee.Button.BUTTON_Y),
-                self.controls.take_calls(),
-            )
+            calls = self.controls.take_calls()
+            self.assertNotIn(("press_button", melee.Button.BUTTON_Y), calls)
+            self.assertIn(("press_button", melee.Button.BUTTON_B), calls)
 
         for action_frame in (2, 3):
             self.assertIs(
@@ -7341,6 +7340,19 @@ class TechniqueMontageTests(unittest.TestCase):
             ("press_button", melee.Button.BUTTON_Y),
             self.controls.take_calls(),
         )
+
+        for action_frame in (1, 2, 3):
+            self.assertIs(
+                self.tick(montage, melee.Action.KNEE_BEND, action_frame=action_frame),
+                montage,
+            )
+            self.controls.take_calls()
+
+        self.assertIs(
+            self.tick(montage, melee.Action.DOWN_B_AIR_START, on_ground=False),
+            True,
+        )
+        self.assertEqual(montage.get_montage_state(), MontageState.Finished)
 
     def test_multishine_extends_budget_for_each_observed_hit(self):
         montage = MultishineMontage(frame_limit=18, shine_count=3)
@@ -7417,6 +7429,30 @@ class TechniqueMontageTests(unittest.TestCase):
             True,
         )
         self.assertEqual(montage.get_montage_state(), MontageState.Finished)
+
+    def test_multishine_holds_reflector_through_followup_shine_hitlag(self):
+        montage = MultishineMontage(shine_count=3)
+        self.tick(montage, melee.Action.STANDING)
+        self.controls.take_calls()
+        self.tick(montage, melee.Action.DOWN_B_GROUND_START, action_frame=4)
+        self.controls.take_calls()
+        for action_frame in (1, 2, 3):
+            self.tick(montage, melee.Action.KNEE_BEND, action_frame=action_frame)
+            self.controls.take_calls()
+
+        for hitlag_left in (4, 3):
+            self.assertIs(
+                self.tick(
+                    montage,
+                    melee.Action.DOWN_B_AIR_START,
+                    on_ground=False,
+                    hitlag_left=hitlag_left,
+                ),
+                montage,
+            )
+            calls = self.controls.take_calls()
+            self.assertIn(("press_button", melee.Button.BUTTON_B), calls)
+            self.assertNotIn(("press_button", melee.Button.BUTTON_Y), calls)
 
     def test_multishine_extends_budget_once_per_hitlag_rise(self):
         for character, peak_hitlag in (

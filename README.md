@@ -320,8 +320,8 @@ Libmelee includes concrete technique montages:
   normal cycle plus transition slack per shine. It uses Fox's three-frame or
   Falco's five-frame jump squat. Each observed rise in shine attacker hitlag adds
   only the newly observed frames to either the default or an explicit budget.
-  During a projectile reflection it holds B
-  through non-final Reflector hit animations so they return to the
+  It holds B through attacker hitlag and through non-final projectile-reflection
+  hit animations so they return to the
   jump-cancelable loop; release and final states are held neutral until the
   sequence can retry or complete. Fresh Reflector hit and release frames extend
   the safety budget one-for-one, bounded by one complete hit-plus-release wait

@@ -84,7 +84,16 @@ def _apply_jump_cancel_input(
     action: Action,
     action_frame: int,
     on_ground: bool,
+    hitlag_left: int,
 ) -> None:
+    # DESNOTE(jbarber, 2026-08-19): Reflector startup latches release whenever B
+    # is not held. Preserve B while a successful shine freezes Fox in attacker
+    # hitlag so startup can still reach its jump-cancelable loop afterward.
+    # See ftFx_SpecialLwStart_Anim in
+    # https://github.com/doldecomp/melee/blob/master/src/melee/ft/chara/ftFox/ftFx_SpecialLw.c
+    if hitlag_left > 0:
+        _hold_reflector_input(controls)
+        return
     controls.release_all()
     # DESNOTE(jbarber, 2026-08-19): Preserve libmelee's historical on-ground
     # handling for action 0x16D. It tolerates a landed aerial-start packet while
@@ -215,6 +224,7 @@ class MultishineMontage(StatefulInputMontage[_MultishineState]):
                     action,
                     player_state_value.action_frame,
                     player_state_value.on_ground,
+                    player_state_value.hitlag_left,
                 )
                 return input_state, self
             case _MultishinePhase.JumpRequested, Action.KNEE_BEND:
@@ -262,6 +272,7 @@ class MultishineMontage(StatefulInputMontage[_MultishineState]):
                     action,
                     player_state_value.action_frame,
                     player_state_value.on_ground,
+                    player_state_value.hitlag_left,
                 )
                 return (
                     replace(input_state, phase=_MultishinePhase.JumpRequested),
