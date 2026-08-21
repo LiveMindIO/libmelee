@@ -32,8 +32,10 @@ class BaseBot(BotProtocol[A], ABC, Generic[A]):
         self._bot_logger: BotLogger | None = None
         self._active_strategy: Strategy[A] | None = None
         self._active_montage: InputMontage | None = None
+        self._strategy_montage_listener_identifier: str | None = None
         self._strategy_changed_listeners: Listeners[[Strategy[A] | None, Strategy[A] | None], None] = Listeners()
         self._montage_changed_listeners: Listeners[[InputMontage | None, InputMontage | None], None] = Listeners()
+        self.add_strategy_changed_listener(self._on_strategy_changed)
 
     def set_logger(self, logger: BotLogger) -> None:
         """Store the profile-scoped logger supplied by the runtime."""
@@ -71,6 +73,30 @@ class BaseBot(BotProtocol[A], ABC, Generic[A]):
         self._active_strategy = strategy
         for listener in self._strategy_changed_listeners.get_all():
             listener(previous, strategy)
+
+    def _on_strategy_changed(
+        self,
+        previous: Strategy[A] | None,
+        current: Strategy[A] | None,
+    ) -> None:
+        if previous is not None and self._strategy_montage_listener_identifier is not None:
+            previous.get_montage_changed_listeners().remove(self._strategy_montage_listener_identifier)
+        self._strategy_montage_listener_identifier = None
+
+        if current is None:
+            self.set_active_montage(None)
+            return
+
+        listener = current.add_montage_changed_listener(self._on_strategy_montage_changed)
+        self._strategy_montage_listener_identifier = listener.identifier
+        self.set_active_montage(current.get_active_montage())
+
+    def _on_strategy_montage_changed(
+        self,
+        _previous: InputMontage | None,
+        current: InputMontage | None,
+    ) -> None:
+        self.set_active_montage(current)
 
     def get_active_montage(self) -> InputMontage | None:
         """Return the input montage currently owned by this bot, if any."""

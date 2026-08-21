@@ -212,6 +212,7 @@ class BotProtocolTests(unittest.TestCase):
 
         self.assertIs(bot.get_logger(), logger)
         self.assertIsInstance(bot, BotProtocol)
+        self.assertEqual(len(bot.get_strategy_changed_listeners()), 1)
 
     def test_active_strategy_notifies_on_identity_changes(self):
         bot = RecordingBot()
@@ -234,6 +235,63 @@ class BotProtocolTests(unittest.TestCase):
             bot.get_strategy_changed_listeners().get(change_listener.identifier),
             change_listener,
         )
+
+    def test_active_strategy_montage_propagates_to_bot(self):
+        bot = RecordingBot()
+        strategy = RecordingStrategy()
+        first = RecordingMontage()
+        second = RecordingMontage()
+        changes = []
+        strategy.set_active_montage(first)
+        bot.add_montage_changed_listener(
+            lambda previous, current: changes.append((previous, current))
+        )
+
+        bot.set_active_strategy(strategy)
+        strategy.set_active_montage(second)
+        strategy.set_active_montage(None)
+
+        self.assertIsNone(bot.get_active_montage())
+        self.assertEqual(changes, [(None, first), (first, second), (second, None)])
+
+    def test_strategy_change_observers_see_propagated_montage(self):
+        bot = RecordingBot()
+        strategy = RecordingStrategy()
+        montage = RecordingMontage()
+        observed_montages = []
+        strategy.set_active_montage(montage)
+        bot.add_strategy_changed_listener(
+            lambda previous, current: observed_montages.append(bot.get_active_montage())
+        )
+
+        bot.set_active_strategy(strategy)
+
+        self.assertEqual(observed_montages, [montage])
+
+    def test_replaced_strategy_cannot_update_bot_montage(self):
+        bot = RecordingBot()
+        previous = RecordingStrategy()
+        current = RecordingStrategy()
+        previous_montage = RecordingMontage()
+        current_montage = RecordingMontage()
+        stale_montage = RecordingMontage()
+        next_montage = RecordingMontage()
+        previous.set_active_montage(previous_montage)
+        current.set_active_montage(current_montage)
+
+        bot.set_active_strategy(previous)
+        self.assertEqual(len(previous.get_montage_changed_listeners()), 1)
+        bot.set_active_strategy(current)
+        previous.set_active_montage(stale_montage)
+
+        self.assertEqual(len(previous.get_montage_changed_listeners()), 0)
+        self.assertIs(bot.get_active_montage(), current_montage)
+
+        current.set_active_montage(next_montage)
+        self.assertIs(bot.get_active_montage(), next_montage)
+
+        bot.set_active_strategy(None)
+        self.assertIsNone(bot.get_active_montage())
 
     def test_change_notifications_use_listener_snapshot(self):
         bot = RecordingBot()

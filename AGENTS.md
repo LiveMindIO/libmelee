@@ -29,6 +29,8 @@ uv pip install --python .venv/bin/python .
   logger injection, `_active_strategy`, `_active_montage`, and private listener
   collections exposed through `add_*_listener` / `get_*_listeners`. Setters notify
   cached ordered listeners with `(previous, current)` after identity changes.
+  Its first strategy-change listener detaches from the previous strategy, subscribes
+  to the current strategy's montage changes, and mirrors that montage immediately.
 - `Strategy[A]` is a stateful abstract base. Implementations pass a name and
   description to `super().__init__()` and implement `tick(...) -> Continue | Exit`.
   Base `game_tick` notifies listeners registered through `add_exit_listener` with
