@@ -27,28 +27,6 @@ class CharacterSelection:
 
 
 @runtime_checkable
-class Strategy(Protocol[A]):
-    """Composable interface for one frame of in-game bot logic."""
-
-    def game_tick(
-        self,
-        port: int,
-        match_number: int,
-        game_state: GameState,
-        controller: Controller,
-        simple_controls: SimpleControls,
-        frame_data: FrameData,
-        player_state: CharacterState,
-        opponent_state: CharacterState,
-        custom: A,
-        *,
-        logger: BotLogger,
-    ) -> None:
-        """Run one frame of strategy logic with the owning bot's logger."""
-        ...
-
-
-@runtime_checkable
 class BotProtocol(Protocol[A]):
     """Interface implemented by Python bots controlled through libmelee."""
 

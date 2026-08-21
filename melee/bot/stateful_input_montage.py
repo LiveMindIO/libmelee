@@ -7,6 +7,7 @@ from collections.abc import Callable
 from typing import TYPE_CHECKING, Generic, Self, TypeVar
 
 from melee.bot.input_montage import InputMontage, MontageState, PreTickResult
+from melee.bot.listener import Listener
 
 if TYPE_CHECKING:
     from melee.bot.character_state import CharacterState
@@ -32,12 +33,23 @@ class StatefulInputMontage(InputMontage, Generic[StateT]):
 
     def add_stateful_pre_tick_listener(
         self,
-        listener: Callable[
+        listener: Listener[
+            [
+                SimpleControls,
+                CharacterState,
+                CharacterState,
+                GameState,
+                StateT,
+            ],
+            PreTickResult,
+        ]
+        | Callable[
             [SimpleControls, CharacterState, CharacterState, GameState, StateT],
             PreTickResult,
         ],
     ) -> Self:
         """Append a pre-tick listener that also receives the current typed state."""
+
         def adapted_listener(
             controls: SimpleControls,
             player_state: CharacterState,
@@ -46,7 +58,11 @@ class StatefulInputMontage(InputMontage, Generic[StateT]):
         ) -> PreTickResult:
             return listener(controls, player_state, opponent_state, state, self._input_state)
 
-        super().add_pre_tick_listener(adapted_listener)
+        super().add_pre_tick_listener(
+            Listener.create(adapted_listener, listener.identifier)
+            if isinstance(listener, Listener)
+            else adapted_listener
+        )
         return self
 
     def on_tick(

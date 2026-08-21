@@ -3,15 +3,16 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from collections.abc import Callable
 from typing import Generic, TypeVar
 
 from melee.bot.character_state import CharacterState
 from melee.bot.input_montage import InputMontage
+from melee.bot.listener import Listeners
 from melee.bot.logger import BotLogger
 from melee.bot.match_history import MatchHistory
-from melee.bot.protocol import CharacterSelection, Strategy
+from melee.bot.protocol import CharacterSelection
 from melee.bot.simple_controls import SimpleControls
+from melee.bot.strategy import Strategy
 from melee.controller import Controller
 from melee.framedata import FrameData
 from melee.gamestate import GameState
@@ -31,8 +32,8 @@ class BaseBot(ABC, Generic[A]):
         self._bot_logger: BotLogger | None = None
         self._active_strategy: Strategy[A] | None = None
         self._active_montage: InputMontage | None = None
-        self.on_strategy_changed: list[Callable[[Strategy[A] | None, Strategy[A] | None], None]] = []
-        self.on_montage_changed: list[Callable[[InputMontage | None, InputMontage | None], None]] = []
+        self.on_strategy_changed: Listeners[[Strategy[A] | None, Strategy[A] | None], None] = Listeners()
+        self.on_montage_changed: Listeners[[InputMontage | None, InputMontage | None], None] = Listeners()
 
     def set_logger(self, logger: BotLogger) -> None:
         """Store the profile-scoped logger supplied by the runtime."""
@@ -55,7 +56,7 @@ class BaseBot(ABC, Generic[A]):
         if previous is strategy:
             return
         self._active_strategy = strategy
-        for listener in tuple(self.on_strategy_changed):
+        for listener in self.on_strategy_changed.get_all():
             listener(previous, strategy)
 
     def get_active_montage(self) -> InputMontage | None:
@@ -68,7 +69,7 @@ class BaseBot(ABC, Generic[A]):
         if previous is montage:
             return
         self._active_montage = montage
-        for listener in tuple(self.on_montage_changed):
+        for listener in self.on_montage_changed.get_all():
             listener(previous, montage)
 
     @abstractmethod

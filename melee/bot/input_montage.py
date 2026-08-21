@@ -7,6 +7,8 @@ from collections.abc import Callable
 from enum import Enum, auto
 from typing import TYPE_CHECKING, Self
 
+from melee.bot.listener import Listener, Listeners
+
 if TYPE_CHECKING:
     from melee.bot.character_state import CharacterState
     from melee.bot.simple_controls import SimpleControls
@@ -81,9 +83,10 @@ class InputMontage(ABC):
         self._cancel_montage = cancel_montage
         self._montage_state = MontageState.Waiting
         self._branches: list[InputMontage] = []
-        self._pre_tick_listeners: list[
-            Callable[[SimpleControls, CharacterState, CharacterState, GameState], PreTickResult]
-        ] = []
+        self._pre_tick_listeners: Listeners[
+            [SimpleControls, CharacterState, CharacterState, GameState],
+            PreTickResult,
+        ] = Listeners()
 
     def add_branch(self, montage: InputMontage) -> Self:
         """Append a possible follow-up montage and return this montage.
@@ -101,10 +104,17 @@ class InputMontage(ABC):
 
     def add_pre_tick_listener(
         self,
-        listener: Callable[[SimpleControls, CharacterState, CharacterState, GameState], PreTickResult],
+        listener: Listener[
+            [SimpleControls, CharacterState, CharacterState, GameState],
+            PreTickResult,
+        ]
+        | Callable[
+            [SimpleControls, CharacterState, CharacterState, GameState],
+            PreTickResult,
+        ],
     ) -> Self:
         """Append a listener that may continue, complete, or abort before the input tick."""
-        self._pre_tick_listeners.append(listener)
+        self._pre_tick_listeners.add(listener)
         return self
 
     def get_montage_state(self) -> MontageState:
@@ -144,7 +154,7 @@ class InputMontage(ABC):
             return False
 
         pre_tick_result = PreTickResult.CONTINUE
-        for listener in self._pre_tick_listeners:
+        for listener in self._pre_tick_listeners.get_all():
             listener_result = listener(controls, player_state, opponent_state, state)
             pre_tick_result = pre_tick_result.combine(listener_result)
 

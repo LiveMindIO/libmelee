@@ -26,12 +26,20 @@ uv pip install --python .venv/bin/python .
   not interpret it. `CrowdControl` is a deprecated compatibility alias.
 - New bots should subclass `BaseBot[A]` and call `super().__init__()`. It owns
   logger injection, `_active_strategy`, `_active_montage`, and the public
-  `on_strategy_changed` / `on_montage_changed` listener collections. Setters
-  notify a snapshot of listeners with `(previous, current)` after identity changes.
-- `Strategy[A].game_tick` is the composable in-game logic surface. It receives
-  the same positional frame inputs as `BotProtocol[A].game_tick` plus the owning
-  bot's `BotLogger` as a required keyword-only `logger` argument. Character
-  selection and logger lifecycle remain responsibilities of the owning bot.
+  `on_strategy_changed` / `on_montage_changed` `Listeners` collections. Setters
+  notify the cached ordered listeners with `(previous, current)` after identity changes.
+- `Strategy[A]` is a stateful abstract base. Implementations pass a name and
+  description to `super().__init__()` and implement `tick(...) -> Continue | Exit`.
+  Base `game_tick` notifies `on_exit` with the returned `Exit`; strategy instances
+  may be created multiple times during a match and keep independent state.
+
+## Listeners
+
+- `Listener[P, R]` is a callable with a stable string `identifier`.
+  `Listener.create(callback, name)` returns a `SimpleListener`.
+- `Listeners[P, R]` stores listeners by identifier and caches an immutable tuple
+  in execution order. Lookup and `get_all()` are O(1); replacing an identifier
+  retains its position. Plain callables receive generated UUID identifiers.
 
 ## Input Montages
 
@@ -45,7 +53,9 @@ uv pip install --python .venv/bin/python .
   `Finished` and returns the first branch whose `can_start()` returns true. The
   selected branch starts on the caller's next tick. If branches are configured but
   none can start, the completed segment aborts instead.
-- `add_pre_tick_listener()` appends callbacks with the same arguments as `on_tick`.
+- `add_pre_tick_listener()` accepts named listeners or plain callbacks with the
+  same arguments as `on_tick`. A repeated identifier replaces the existing listener
+  without changing its position.
   They all run in insertion order after the timeout and `should_abort()` checks but
   before `on_tick`. Aggregate `PreTickResult` precedence is `ABORTED` over
   `EARLY_COMPLETION` over `CONTINUE`. Abort neutralizes input and skips `on_tick`;
@@ -60,7 +70,8 @@ uv pip install --python .venv/bin/python .
   requires an explicit `frame_limit`.
 - `add_stateful_pre_tick_listener()` adapts a listener with the current typed state
   as its fifth argument into the base collection. Base and stateful listeners share
-  one insertion order and the same aggregate precedence.
+  one insertion order and the same aggregate precedence; named identifiers survive
+  the adapter so replacement works across stateful registrations.
 - `False` and `should_abort()` use `Aborted`; exhausting the safety limit uses
   `TimedOut`; cancelling an active montage uses `Cancelled` and may return a
   configured fallback montage. Timeout, abort, explicit failure, malformed return,
