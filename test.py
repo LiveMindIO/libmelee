@@ -1,27 +1,40 @@
 #!/usr/bin/python3
+import inspect
 import math
 import sys
 import unittest
+from uuid import UUID
 
 import melee
 from melee.bot import (
     AnonymousInputMontage,
     AttackFrameData,
     AttackType,
+    BaseBot,
+    BotLogger,
+    BotProtocol,
+    CharacterSelection,
     CharacterState,
-    InitiateDashMontage,
+    Continue,
+    CrowdControl,
+    Exit,
     Hold,
+    InitiateDashMontage,
     InputMontage,
     LedgedashMontage,
+    Listener,
+    Listeners,
     MontageState,
     MultishineMontage,
     PerfectPivotMontage,
     PreTickResult,
     SDIMontage,
     SimpleControls,
+    SimpleListener,
     SmashTurnJumpMontage,
     StatefulInputMontage,
     StickReferenceAxis,
+    Strategy,
     WavedashDirection,
     WavedashMontage,
     can_jump,
@@ -33,6 +46,293 @@ from melee.bot.techskill.common import (
     clamp_wavedash_angle,
 )
 from melee.controller import fix_analog_stick
+
+
+class RecordingBot(BaseBot[object]):
+    def game_tick(self, *args, **kwargs):
+        pass
+
+    def select_character(self, port, match_number, match_history):
+        return CharacterSelection(character=melee.Character.FOX)
+
+
+class RecordingStrategy(Strategy[object]):
+    def __init__(self, result=None):
+        super().__init__("recording", "Records strategy lifecycle behavior.")
+        self.result = Continue() if result is None else result
+
+    def tick(self, *args, **kwargs):
+        return self.result
+
+
+class ListenerTests(unittest.TestCase):
+    def test_simple_listener_constructor_accepts_identifier_before_callback(self):
+        listener = SimpleListener("double", lambda value: value * 2)
+
+        self.assertEqual(listener.identifier, "double")
+        self.assertEqual(listener(3), 6)
+
+    def test_listener_create_wraps_callable_with_identifier(self):
+        listener = Listener.create("double", lambda value: value * 2)
+
+        self.assertIsInstance(listener, Listener)
+        self.assertIsInstance(listener, SimpleListener)
+        self.assertEqual(listener.identifier, "double")
+        self.assertEqual(listener(3), 6)
+
+    def test_listeners_replace_identifier_in_place(self):
+        listeners = Listeners()
+        first = Listener.create("shared", lambda: "first")
+        middle = Listener.create("middle", lambda: "middle")
+        replacement = Listener.create("shared", lambda: "replacement")
+        listeners.add(first)
+        listeners.add(middle)
+        original_order = listeners.get_all()
+
+        listeners.add(replacement)
+
+        self.assertIs(listeners.get("shared"), replacement)
+        self.assertEqual(listeners.get_all(), (replacement, middle))
+        self.assertIs(listeners.get_all(), listeners.get_all())
+        self.assertIsNot(listeners.get_all(), original_order)
+
+    def test_plain_callable_receives_uuid_identifier(self):
+        listeners = Listeners()
+
+        listener = listeners.add(lambda: None)
+
+        self.assertEqual(UUID(listener.identifier).version, 4)
+        self.assertIs(listeners.get(listener.identifier), listener)
+
+    def test_remove_and_clear_keep_lookup_and_order_in_sync(self):
+        listeners = Listeners()
+        first = Listener.create("first", lambda: None)
+        second = Listener.create("second", lambda: None)
+        listeners.add(first)
+        listeners.add(second)
+
+        self.assertIs(listeners.remove("first"), first)
+        self.assertIsNone(listeners.get("first"))
+        self.assertEqual(listeners.get_all(), (second,))
+        self.assertIsNone(listeners.remove("missing"))
+        listeners.clear()
+
+        self.assertEqual(len(listeners), 0)
+        self.assertEqual(listeners.get_all(), ())
+
+
+class BotProtocolTests(unittest.TestCase):
+    def test_strategy_tick_matches_bot_tick_parameters(self):
+        strategy_parameters = inspect.signature(Strategy.game_tick).parameters
+        implementation_parameters = inspect.signature(Strategy.tick).parameters
+        bot_parameters = inspect.signature(BotProtocol.game_tick).parameters
+
+        self.assertEqual(list(strategy_parameters.values()), list(bot_parameters.values()))
+        self.assertEqual(list(implementation_parameters.values()), list(bot_parameters.values()))
+
+    def test_strategy_metadata_and_exit_listener(self):
+        strategy = RecordingStrategy(Exit("spacing lost"))
+        exits = []
+        exit_listener = strategy.add_exit_listener(
+            lambda result: exits.append(result.reason)
+        )
+
+        result = strategy.game_tick(None, None, None, None, None, None, None, None, None)
+
+        self.assertEqual(strategy.get_name(), "recording")
+        self.assertEqual(strategy.get_description(), "Records strategy lifecycle behavior.")
+        self.assertEqual(result, Exit("spacing lost"))
+        self.assertEqual(exits, ["spacing lost"])
+        self.assertIs(strategy.get_exit_listeners().get(exit_listener.identifier), exit_listener)
+
+    def test_strategy_continue_does_not_notify_exit_listeners(self):
+        strategy = RecordingStrategy()
+        exits = []
+        strategy.add_exit_listener(exits.append)
+
+        result = strategy.game_tick(None, None, None, None, None, None, None, None, None)
+
+        self.assertEqual(result, Continue())
+        self.assertEqual(exits, [])
+
+    def test_strategy_active_montage_notifies_on_identity_changes(self):
+        strategy = RecordingStrategy()
+        first = RecordingMontage()
+        second = RecordingMontage()
+        changes = []
+        change_listener = strategy.add_montage_changed_listener(
+            lambda previous, current: changes.append((previous, current))
+        )
+
+        strategy.set_active_montage(first)
+        strategy.set_active_montage(first)
+        strategy.set_active_montage(second)
+        strategy.set_active_montage(None)
+
+        self.assertIsNone(strategy.get_active_montage())
+        self.assertIsNone(strategy._active_montage)
+        self.assertEqual(changes, [(None, first), (first, second), (second, None)])
+        self.assertIs(
+            strategy.get_montage_changed_listeners().get(change_listener.identifier),
+            change_listener,
+        )
+
+    def test_strategy_montage_notifications_use_listener_snapshot(self):
+        strategy = RecordingStrategy()
+        montage = RecordingMontage()
+        calls = []
+
+        def clear_listeners(previous, current):
+            calls.append("clear")
+            strategy.get_montage_changed_listeners().clear()
+
+        strategy.add_montage_changed_listener(clear_listeners)
+        strategy.add_montage_changed_listener(
+            lambda previous, current: calls.append("second")
+        )
+
+        strategy.set_active_montage(montage)
+        strategy.set_active_montage(None)
+
+        self.assertEqual(calls, ["clear", "second"])
+
+    def test_crowd_control_is_deprecated_protocol_alias(self):
+        self.assertIs(CrowdControl, BotProtocol)
+
+    def test_base_bot_explicitly_implements_bot_protocol(self):
+        self.assertIn(BotProtocol, BaseBot.__mro__)
+
+    def test_base_bot_stores_injected_logger(self):
+        bot = RecordingBot()
+        logger = BotLogger("recording")
+
+        with self.assertRaisesRegex(RuntimeError, "has not been configured"):
+            bot.get_logger()
+        bot.set_logger(logger)
+
+        self.assertIs(bot.get_logger(), logger)
+        self.assertIsInstance(bot, BotProtocol)
+        self.assertEqual(len(bot.get_strategy_changed_listeners()), 1)
+
+    def test_active_strategy_notifies_on_identity_changes(self):
+        bot = RecordingBot()
+        first = RecordingStrategy()
+        second = RecordingStrategy()
+        changes = []
+        change_listener = bot.add_strategy_changed_listener(
+            lambda previous, current: changes.append((previous, current))
+        )
+
+        bot.set_active_strategy(first)
+        bot.set_active_strategy(first)
+        bot.set_active_strategy(second)
+        bot.set_active_strategy(None)
+
+        self.assertIsNone(bot.get_active_strategy())
+        self.assertIsNone(bot._active_strategy)
+        self.assertEqual(changes, [(None, first), (first, second), (second, None)])
+        self.assertIs(
+            bot.get_strategy_changed_listeners().get(change_listener.identifier),
+            change_listener,
+        )
+
+    def test_active_strategy_montage_propagates_to_bot(self):
+        bot = RecordingBot()
+        strategy = RecordingStrategy()
+        first = RecordingMontage()
+        second = RecordingMontage()
+        changes = []
+        strategy.set_active_montage(first)
+        bot.add_montage_changed_listener(
+            lambda previous, current: changes.append((previous, current))
+        )
+
+        bot.set_active_strategy(strategy)
+        strategy.set_active_montage(second)
+        strategy.set_active_montage(None)
+
+        self.assertIsNone(bot.get_active_montage())
+        self.assertEqual(changes, [(None, first), (first, second), (second, None)])
+
+    def test_strategy_change_observers_see_propagated_montage(self):
+        bot = RecordingBot()
+        strategy = RecordingStrategy()
+        montage = RecordingMontage()
+        observed_montages = []
+        strategy.set_active_montage(montage)
+        bot.add_strategy_changed_listener(
+            lambda previous, current: observed_montages.append(bot.get_active_montage())
+        )
+
+        bot.set_active_strategy(strategy)
+
+        self.assertEqual(observed_montages, [montage])
+
+    def test_replaced_strategy_cannot_update_bot_montage(self):
+        bot = RecordingBot()
+        previous = RecordingStrategy()
+        current = RecordingStrategy()
+        previous_montage = RecordingMontage()
+        current_montage = RecordingMontage()
+        stale_montage = RecordingMontage()
+        next_montage = RecordingMontage()
+        previous.set_active_montage(previous_montage)
+        current.set_active_montage(current_montage)
+
+        bot.set_active_strategy(previous)
+        self.assertEqual(len(previous.get_montage_changed_listeners()), 1)
+        bot.set_active_strategy(current)
+        previous.set_active_montage(stale_montage)
+
+        self.assertEqual(len(previous.get_montage_changed_listeners()), 0)
+        self.assertIs(bot.get_active_montage(), current_montage)
+
+        current.set_active_montage(next_montage)
+        self.assertIs(bot.get_active_montage(), next_montage)
+
+        bot.set_active_strategy(None)
+        self.assertIsNone(bot.get_active_montage())
+
+    def test_change_notifications_use_listener_snapshot(self):
+        bot = RecordingBot()
+        strategy = RecordingStrategy()
+        calls = []
+
+        def clear_listeners(previous, current):
+            calls.append("clear")
+            bot.get_strategy_changed_listeners().clear()
+
+        bot.add_strategy_changed_listener(clear_listeners)
+        bot.add_strategy_changed_listener(
+            lambda previous, current: calls.append("second")
+        )
+
+        bot.set_active_strategy(strategy)
+        bot.set_active_strategy(None)
+
+        self.assertEqual(calls, ["clear", "second"])
+
+    def test_active_montage_notifies_on_identity_changes(self):
+        bot = RecordingBot()
+        first = RecordingMontage()
+        second = RecordingMontage()
+        changes = []
+        change_listener = bot.add_montage_changed_listener(
+            lambda previous, current: changes.append((previous, current))
+        )
+
+        bot.set_active_montage(first)
+        bot.set_active_montage(first)
+        bot.set_active_montage(second)
+        bot.set_active_montage(None)
+
+        self.assertIsNone(bot.get_active_montage())
+        self.assertIsNone(bot._active_montage)
+        self.assertEqual(changes, [(None, first), (first, second), (second, None)])
+        self.assertIs(
+            bot.get_montage_changed_listeners().get(change_listener.identifier),
+            change_listener,
+        )
 
 
 class PostFrameParsingTests(unittest.TestCase):
@@ -878,8 +1178,9 @@ class RecordingMontage(InputMontage):
         start_allowed=True,
         abort=False,
         results=(),
+        name=None,
     ):
-        super().__init__(frame_limit, cancel_montage)
+        super().__init__(frame_limit, cancel_montage, name=name)
         self.start_allowed = start_allowed
         self.abort = abort
         self.results = list(results)
@@ -910,8 +1211,9 @@ class RecordingStatefulMontage(StatefulInputMontage[int]):
         abort=False,
         fallback=None,
         results=(),
+        name=None,
     ):
-        super().__init__(3, initial_state)
+        super().__init__(3, initial_state, name=name)
         self.abort = abort
         self.fallback = fallback
         self.results = list(results)
@@ -1006,6 +1308,12 @@ class InputMontageTests(unittest.TestCase):
         self.assertIs(self.tick(montage), montage)
         self.assertEqual(montage.get_montage_state(), MontageState.Active)
         self.assertEqual(montage.on_tick_calls, 1)
+
+    def test_montage_name_defaults_to_concrete_class_and_accepts_override(self):
+        self.assertEqual(RecordingMontage().get_name(), "RecordingMontage")
+        self.assertEqual(RecordingMontage(name="approach").get_name(), "approach")
+        self.assertEqual(RecordingStatefulMontage(0).get_name(), "RecordingStatefulMontage")
+        self.assertEqual(RecordingStatefulMontage(0, name="stateful").get_name(), "stateful")
 
     def test_true_finishes_montage_and_terminal_instances_cannot_restart(self):
         montage = RecordingMontage(results=(True,))
@@ -1211,6 +1519,24 @@ class InputMontageTests(unittest.TestCase):
         self.assertEqual(montage.on_tick_calls, 1)
         self.assertEqual(montage.get_montage_state(), MontageState.Finished)
 
+    def test_named_pre_tick_listener_replaces_in_original_order(self):
+        calls = []
+        montage = RecordingMontage(results=(True,))
+
+        def listener(name):
+            return lambda controls, player_state, opponent_state, state: (
+                calls.append(name) or PreTickResult.CONTINUE
+            )
+
+        montage.add_pre_tick_listener(Listener.create("shared", listener("first")))
+        montage.add_pre_tick_listener(Listener.create("middle", listener("middle")))
+        replacement = Listener.create("shared", listener("replacement"))
+        montage.add_pre_tick_listener(replacement)
+
+        self.assertIs(self.tick(montage), True)
+        self.assertEqual(calls, ["replacement", "middle"])
+        self.assertIs(montage.get_pre_tick_listeners().get("shared"), replacement)
+
     def test_pre_tick_early_completion_selects_branch_without_ticking(self):
         branch = RecordingMontage(results=(True,))
         montage = RecordingMontage()
@@ -1310,6 +1636,28 @@ class InputMontageTests(unittest.TestCase):
         self.assertEqual(montage.on_tick_states, [10])
         self.assertEqual(montage.get_montage_state(), MontageState.Finished)
 
+    def test_named_stateful_listener_preserves_identifier_when_adapted(self):
+        calls = []
+        montage = RecordingStatefulMontage(10)
+        montage.results = [True]
+
+        def listener(name):
+            return lambda controls, player_state, opponent_state, state, input_state: (
+                calls.append((name, input_state)) or PreTickResult.CONTINUE
+            )
+
+        montage.add_stateful_pre_tick_listener(
+            Listener.create("shared", listener("first"))
+        )
+        montage.add_stateful_pre_tick_listener(
+            Listener.create("shared", listener("replacement"))
+        )
+
+        self.assertIs(self.tick(montage), True)
+        self.assertEqual(calls, [("replacement", 10)])
+        self.assertEqual(montage.on_tick_states, [10])
+        self.assertEqual(montage.get_montage_state(), MontageState.Finished)
+
     def test_stateful_abort_reads_initial_state_without_ticking(self):
         montage = RecordingStatefulMontage(4, abort=True)
 
@@ -1347,6 +1695,7 @@ class InputMontageTests(unittest.TestCase):
         montage = AnonymousInputMontage(
             frame_limit=2,
             initial_state=20,
+            name="anonymous",
             can_start=lambda controls, player_state, opponent_state, state: (
                 calls.append(("can_start", None)) or True
             ),
@@ -1359,6 +1708,7 @@ class InputMontageTests(unittest.TestCase):
             ),
         )
 
+        self.assertEqual(montage.get_name(), "anonymous")
         self.assertIs(self.tick(montage), montage)
         self.assertEqual(
             calls,

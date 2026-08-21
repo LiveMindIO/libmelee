@@ -167,6 +167,26 @@ jump-squat frame produces a full hop. Controller input persists until explicitly
 changed, and pending input is committed on the next `Console.step()`, so count
 committed game frames when scheduling the release.
 
+### Strategies and Listeners
+
+`Strategy[A]` is a stateful abstract base for compartmentalized in-game logic.
+Implementations pass `name` and `description` to the constructor and implement
+`tick(...) -> Continue | Exit`. `game_tick(...)` delegates to `tick`; an `Exit`
+contains a reason and is sent to listeners registered with `add_exit_listener`.
+`get_exit_listeners()` returns the private collection. Strategies also own an
+optional active montage through the same getter, setter, and identity-sensitive
+change-listener API as `BaseBot`. Selecting a strategy makes `BaseBot` subscribe
+to that montage state and mirror it until the strategy is replaced or cleared.
+The same strategy class may be instantiated multiple times during one match,
+with each instance retaining independent state.
+
+`Listener[P, R]` adds a stable string `identifier` to a typed callable.
+`Listener.create(identifier, callback)` constructs a `SimpleListener`. `Listeners`
+keeps unique identifiers in execution order with O(1) identifier lookup and O(1)
+access to its cached immutable ordered tuple. Adding the same identifier replaces
+the callback in place; plain callables receive generated UUID identifiers.
+Listener registration signatures use the shared `ListenerOrCallable[P, R]` alias.
+
 `SimpleControls.tilt_turn()` requests a half-strength backward main-stick input;
 Melee reverses facing on character-dependent turn frames 5 through 9.
 `SimpleControls.smash_turn()` requests full backward input, reversing facing on
@@ -176,7 +196,8 @@ pending inputs.
 ### Input Montages
 
 `melee.bot.InputMontage` is the base class for short-lived controller sequences
-that need coordinated input over multiple game ticks. A bot creates a new montage
+that need coordinated input over multiple game ticks. Each montage accepts an
+optional name that defaults to its concrete class name. A bot creates a new montage
 for each attempt, calls `tick(simple_controls, player_state, opponent_state,
 game_state)` every tick, and retains the returned montage while work continues.
 
@@ -185,13 +206,16 @@ game_state)` every tick, and retains the returned montage while work continues.
   a follow-up or branch.
 - Returning `True` finishes successfully; returning `False`, aborting, cancelling,
   or timing out makes that montage instance terminal.
-- `add_pre_tick_listener(listener)` appends an observer with the same four inputs
+- `add_pre_tick_listener(listener)` adds an observer with the same four inputs
   as `on_tick`. Listeners run in insertion order immediately before `on_tick` and
   return `PreTickResult.CONTINUE`, `EARLY_COMPLETION`, or `ABORTED`. Every listener
   runs; precedence is abort, early completion, then continue. Abort neutralizes
   input and skips `on_tick`; early completion skips `on_tick` and follows the
   normal successful branch-selection path. `PreTickResult.combine()` exposes the
   same pairwise precedence used to aggregate listener results.
+  Named listeners replace an existing callback with the same identifier at its
+  original position; plain callables remain supported with generated IDs.
+  `get_pre_tick_listeners()` returns the private collection.
 - `frame_limit` counts active `on_tick` calls only. It is a safety boundary, not a
   substitute for an implementation detecting failure and returning `False`.
 - `cancel(...)` only cancels an active montage and returns its configured fallback,
@@ -199,7 +223,7 @@ game_state)` every tick, and retains the returned montage while work continues.
   it to choose a state-dependent cancellation montage.
 - `StatefulInputMontage.add_stateful_pre_tick_listener(listener)` preserves the
   same ordering and precedence while adding the current typed state as the fifth
-  callback argument.
+  callback argument. Named listener identifiers survive this adapter.
 
 Montages are intentionally single-use and should model relatively short sequences
 such as a multishine cycle, charge cancel, or one link in a combo. An implementation

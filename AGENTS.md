@@ -19,15 +19,40 @@ uv pip install --python .venv/bin/python .
   test that requires an external Melee ISO.
 - Forgejo is the `origin` remote. The LiveMindIO GitHub fork is `mirror`.
 
-## Bot Protocol
+## Bot Protocol And Base
 
-- `CrowdControl[A].game_tick` receives `custom: A` as its final argument. The
+- `BotProtocol[A].game_tick` receives `custom: A` as its final argument. The
   embedding application owns that payload's type and semantics; libmelee does
-  not interpret it.
+  not interpret it. `CrowdControl` is a deprecated compatibility alias.
+- New bots should subclass `BaseBot[A]`, which explicitly implements
+  `BotProtocol[A]`, and call `super().__init__()`. It owns
+  logger injection, `_active_strategy`, `_active_montage`, and private listener
+  collections exposed through `add_*_listener` / `get_*_listeners`. Setters notify
+  cached ordered listeners with `(previous, current)` after identity changes.
+  Its first strategy-change listener detaches from the previous strategy, subscribes
+  to the current strategy's montage changes, and mirrors that montage immediately.
+- `Strategy[A]` is a stateful abstract base. Implementations pass a name and
+  description to `super().__init__()` and implement `tick(...) -> Continue | Exit`.
+  Base `game_tick` notifies listeners registered through `add_exit_listener` with
+  the returned `Exit`. Each strategy also owns `_active_montage` and the same
+  montage getter, setter, and change-listener collection as `BaseBot`; strategy
+  instances may be created multiple times during a match and keep independent state.
+
+## Listeners
+
+- `Listener[P, R]` is a callable with a stable string `identifier`.
+  `Listener.create(identifier, callback)` returns a `SimpleListener`.
+- `ListenerOrCallable[P, R]` is the shared registration type for either a named
+  listener or a plain callable; listener-owning APIs must use this alias.
+- `Listeners[P, R]` stores listeners by identifier and caches an immutable tuple
+  in execution order. Lookup and `get_all()` are O(1); replacing an identifier
+  retains its position. Plain callables receive generated UUID identifiers.
 
 ## Input Montages
 
 - `melee.bot.InputMontage` instances are single-use, short-lived input sequences.
+- Each montage accepts an optional name and otherwise uses its concrete class name.
+  `StatefulInputMontage` and `AnonymousInputMontage` pass this name through.
 - Waiting does not consume `frame_limit`; each active `on_tick` call consumes one
   frame, and exactly `frame_limit` active calls are allowed.
 - Returning another montage directly from `on_tick()` marks the current node
@@ -37,7 +62,9 @@ uv pip install --python .venv/bin/python .
   `Finished` and returns the first branch whose `can_start()` returns true. The
   selected branch starts on the caller's next tick. If branches are configured but
   none can start, the completed segment aborts instead.
-- `add_pre_tick_listener()` appends callbacks with the same arguments as `on_tick`.
+- `add_pre_tick_listener()` accepts named listeners or plain callbacks with the
+  same arguments as `on_tick`. A repeated identifier replaces the existing listener
+  without changing its position. `get_pre_tick_listeners()` returns the collection.
   They all run in insertion order after the timeout and `should_abort()` checks but
   before `on_tick`. Aggregate `PreTickResult` precedence is `ABORTED` over
   `EARLY_COMPLETION` over `CONTINUE`. Abort neutralizes input and skips `on_tick`;
@@ -52,7 +79,8 @@ uv pip install --python .venv/bin/python .
   requires an explicit `frame_limit`.
 - `add_stateful_pre_tick_listener()` adapts a listener with the current typed state
   as its fifth argument into the base collection. Base and stateful listeners share
-  one insertion order and the same aggregate precedence.
+  one insertion order and the same aggregate precedence; named identifiers survive
+  the adapter so replacement works across stateful registrations.
 - `False` and `should_abort()` use `Aborted`; exhausting the safety limit uses
   `TimedOut`; cancelling an active montage uses `Cancelled` and may return a
   configured fallback montage. Timeout, abort, explicit failure, malformed return,

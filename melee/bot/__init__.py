@@ -7,6 +7,7 @@ against.
 """
 
 from melee.bot.anonymous_input_montage import AnonymousInputMontage
+from melee.bot.base_bot import BaseBot
 from melee.bot.character_state import (
     AttackType,
     CharacterState,
@@ -35,6 +36,7 @@ from melee.bot.character_state import (
     z_air_is_supported,
 )
 from melee.bot.input_montage import InputMontage, MontageState, PreTickResult
+from melee.bot.listener import Listener, ListenerOrCallable, Listeners, SimpleListener
 from melee.bot.logger import BotLogEntry, BotLogger
 from melee.bot.match_history import (
     MatchHistory,
@@ -43,7 +45,7 @@ from melee.bot.match_history import (
     OtherPlayerRelation,
     PlayerMatchRecord,
 )
-from melee.bot.protocol import CharacterSelection, CrowdControl
+from melee.bot.protocol import BotProtocol, CharacterSelection, CrowdControl
 from melee.bot.simple_controls import (
     AttackFrameData,
     Hold,
@@ -53,6 +55,7 @@ from melee.bot.simple_controls import (
     stick_coordinates,
 )
 from melee.bot.stateful_input_montage import StatefulInputMontage
+from melee.bot.strategy import Continue, Exit, Strategy
 from melee.bot.techskill import (
     InitiateDashMontage,
     LedgedashMontage,
@@ -68,17 +71,24 @@ __all__ = [
     "AnonymousInputMontage",
     "AttackFrameData",
     "AttackType",
+    "BaseBot",
     "BotLogEntry",
     "BotLogger",
+    "BotProtocol",
     "CharacterSelection",
     "CharacterState",
     "CharacterStatus",
+    "Continue",
     "CrowdControl",
-    "InitiateDashMontage",
+    "Exit",
     "Hold",
+    "InitiateDashMontage",
     "InputMontage",
     "LedgeRecoveryOption",
     "LedgedashMontage",
+    "Listener",
+    "ListenerOrCallable",
+    "Listeners",
     "MatchHistory",
     "MatchRoundOutcome",
     "MontageState",
@@ -90,9 +100,11 @@ __all__ = [
     "PreTickResult",
     "SDIMontage",
     "SimpleControls",
+    "SimpleListener",
     "SmashTurnJumpMontage",
     "StatefulInputMontage",
     "StickReferenceAxis",
+    "Strategy",
     "WavedashDirection",
     "WavedashMontage",
     "attack_is_holdable",
