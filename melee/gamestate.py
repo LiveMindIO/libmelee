@@ -148,7 +148,7 @@ class GameState:
     custom: dict = field(default_factory=dict)
     """(dict): Custom fields to be added by the user"""
 
-@dataclass(slots=True)
+@dataclass(frozen=True, slots=True)
 class UnknownAnimation:
     value: int = -1
 

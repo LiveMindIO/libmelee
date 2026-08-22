@@ -11,6 +11,7 @@ from melee.bot.input_montage import Abort, InputMontage
 from melee.bot.simple_controls import SimpleControls, StickReferenceAxis
 from melee.bot.stateful_input_montage import StatefulInputMontage
 from melee.bot.techskill.common import (
+    GROUND_MOVEMENT_ACTIONS,
     JUMP_SQUAT_FRAMES,
     SHINE_ACTIONS,
     is_interrupted,
@@ -131,7 +132,7 @@ class MultishineMontage(StatefulInputMontage[_MultishineState]):
         return (
             player_state_value is not None
             and player_state_value.character is Character.FOX
-            and player_state_value.action is Action.STANDING
+            and player_state_value.action in GROUND_MOVEMENT_ACTIONS
             and player_state_value.on_ground
             and not player_state_value.off_stage
         )
