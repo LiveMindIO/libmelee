@@ -1232,8 +1232,9 @@ class SimpleControls:
         """Return main-stick ``(x, y)`` for ``attack_type`` using ``player.facing``."""
         toward = 1.0 if player.facing else 0.0
         away = 0.0 if player.facing else 1.0
-        tilt_low = (1.0 - _TILT_ATTACK_MAGNITUDE) / 2.0
-        tilt_high = 1.0 - tilt_low
+        tilt_offset = _TILT_ATTACK_MAGNITUDE / 2.0
+        tilt_low = 0.5 - tilt_offset
+        tilt_high = 0.5 + tilt_offset
         tilt_toward = tilt_high if player.facing else tilt_low
 
         # DESNOTE(jbarber, 2026-08-22): Standing IASA checks smashes before tilts.
