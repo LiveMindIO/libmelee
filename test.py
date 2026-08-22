@@ -41,7 +41,9 @@ from melee.bot import (
     WavedashDirection,
     WavedashMontage,
     can_air_attack,
+    can_airdodge,
     can_attack,
+    can_dodge,
     can_grab,
     can_jump,
     stick_coordinates,
@@ -1447,6 +1449,125 @@ class SimpleControlsInputTests(unittest.TestCase):
                     controls.character_state.can_attack(attack_type),
                     expected,
                 )
+
+    def test_can_shield_requires_grounded_actionable_state(self) -> None:
+        cases = (
+            (melee.Action.STANDING, True, True),
+            (melee.Action.FALLING, False, False),
+            (melee.Action.KNEE_BEND, True, False),
+            (melee.Action.NEUTRAL_ATTACK_1, True, False),
+        )
+        for action, on_ground, expected in cases:
+            with self.subTest(action=action):
+                player = melee.PlayerState(
+                    character=melee.Character.MARTH,
+                    action=action,
+                    on_ground=on_ground,
+                )
+                controls, _ = self.controls(player)
+                self.assertEqual(controls.character_state.can_shield(), expected)
+
+    def test_tumbling_blocks_legacy_and_specific_attack_queries(self) -> None:
+        player = melee.PlayerState(
+            character=melee.Character.MARTH,
+            action=melee.Action.TUMBLING,
+            on_ground=False,
+            hitstun_frames_left=0,
+        )
+        controls, _ = self.controls(player)
+
+        self.assertIs(controls.character_state.get_state(), CharacterStatus.Tumbling)
+        self.assertFalse(controls.character_state.in_hitstun())
+        self.assertFalse(controls.character_state.can_attack())
+        self.assertFalse(controls.character_state.can_attack(AttackType.NAIR))
+
+        player.hitstun_frames_left = 2
+        self.assertIs(controls.character_state.get_state(), CharacterStatus.Hitstun)
+
+    def test_can_dodge_matches_direct_ground_escape_paths(self) -> None:
+        cases = (
+            (melee.Character.MARTH, melee.Action.STANDING, True, 0, True),
+            (melee.Character.MARTH, melee.Action.DASHING, True, 0, True),
+            (melee.Character.MARTH, melee.Action.SHIELD_START, True, 0, True),
+            (melee.Character.MARTH, melee.Action.SHIELD, True, 0, True),
+            (melee.Character.MARTH, melee.Action.SHIELD_RELEASE, True, 0, True),
+            (melee.Character.MARTH, melee.Action.SHIELD_REFLECT, True, 0, True),
+            (melee.Character.MARTH, melee.Action.SHIELD_STUN, True, 0, False),
+            (melee.Character.MARTH, melee.Action.WALK_SLOW, True, 0, False),
+            (melee.Character.MARTH, melee.Action.KNEE_BEND, True, 0, False),
+            (melee.Character.MARTH, melee.Action.STANDING, False, 0, False),
+            (melee.Character.MARTH, melee.Action.STANDING, True, 2, False),
+            (melee.Character.YOSHI, melee.Action(341), True, 0, True),
+            (melee.Character.YOSHI, melee.Action(342), True, 0, True),
+            (melee.Character.YOSHI, melee.Action(343), True, 0, True),
+            (melee.Character.YOSHI, melee.Action(344), True, 0, False),
+            (melee.Character.YOSHI, melee.Action(345), True, 0, True),
+        )
+        for character, action, on_ground, hitlag_left, expected in cases:
+            with self.subTest(character=character, action=action):
+                player = melee.PlayerState(
+                    character=character,
+                    action=action,
+                    on_ground=on_ground,
+                    hitlag_left=hitlag_left,
+                )
+                controls, _ = self.controls(player)
+                self.assertEqual(controls.character_state.can_dodge(), expected)
+                self.assertEqual(can_dodge(player, self.frame_data), expected)
+
+        absent = CharacterState(melee.GameState(), 1, frame_data=self.frame_data)
+        self.assertFalse(absent.can_dodge())
+
+    def test_can_airdodge_accepts_only_normal_jump_and_fall(self) -> None:
+        for action in (
+            melee.Action.JUMPING_FORWARD,
+            melee.Action.JUMPING_BACKWARD,
+            melee.Action.JUMPING_ARIAL_FORWARD,
+            melee.Action.JUMPING_ARIAL_BACKWARD,
+            melee.Action.FALLING,
+            melee.Action.FALLING_FORWARD,
+            melee.Action.FALLING_BACKWARD,
+            melee.Action.FALLING_AERIAL,
+            melee.Action.FALLING_AERIAL_FORWARD,
+            melee.Action.FALLING_AERIAL_BACKWARD,
+        ):
+            with self.subTest(action=action):
+                player = melee.PlayerState(action=action, on_ground=False)
+                controls, _ = self.controls(player)
+                self.assertTrue(controls.character_state.can_airdodge())
+                self.assertTrue(can_airdodge(player, self.frame_data))
+
+        for action in (
+            melee.Action.KNEE_BEND,
+            melee.Action.DEAD_FALL,
+            melee.Action.SPECIAL_FALL_FORWARD,
+            melee.Action.SPECIAL_FALL_BACK,
+            melee.Action.TUMBLING,
+            melee.Action.AIRDODGE,
+            melee.Action.NAIR,
+            melee.Action.UP_B_AIR,
+        ):
+            with self.subTest(action=action):
+                player = melee.PlayerState(action=action, on_ground=False)
+                controls, _ = self.controls(player)
+                self.assertFalse(controls.character_state.can_airdodge())
+                self.assertFalse(can_airdodge(player, self.frame_data))
+
+        hitlag = melee.PlayerState(
+            action=melee.Action.FALLING,
+            on_ground=False,
+            hitlag_left=2,
+        )
+        self.assertFalse(can_airdodge(hitlag, self.frame_data))
+        absent = CharacterState(melee.GameState(), 1, frame_data=self.frame_data)
+        self.assertFalse(absent.can_airdodge())
+
+    def test_airdodge_classifies_as_dodging(self) -> None:
+        player = melee.PlayerState(action=melee.Action.AIRDODGE, on_ground=False)
+        controls, _ = self.controls(player)
+
+        self.assertIs(controls.character_state.get_state(), CharacterStatus.Dodging)
+        self.assertTrue(controls.character_state.is_dodging())
 
     def test_legacy_attack_queries_are_deprecated_and_delegate(self) -> None:
         player = melee.PlayerState(

@@ -170,6 +170,14 @@ actionable ground jumps and remaining aerial jumps. It returns `True` throughout
 shield start, hold, reflect, stun, and release for every character except Yoshi,
 whose shield cannot be jumped out of.
 
+`CharacterState.can_dodge()` reports direct ground Escape paths from standing,
+early dash, and eligible shield phases; shield stun and `KNEE_BEND` are excluded.
+Early-dash and shield-release results are action-level eligibility because their
+remaining engine windows are not exposed by `PlayerState`.
+`CharacterState.can_airdodge()` accepts normal `JUMPING_*` / `FALLING*` actions
+and rejects active attacks, tumble, `AIRDODGE`, and helpless post-Up-B
+`DEAD_FALL` / `SPECIAL_FALL_*` states.
+
 For a short hop, press X or Y and release it before the character's
 `Action.KNEE_BEND` jump-squat animation ends. A character with `N` jump-squat
 frames has an `N - 1` frame short-hop hold window. Holding jump through the final

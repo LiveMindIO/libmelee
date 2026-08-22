@@ -180,6 +180,19 @@ uv pip install --python .venv/bin/python .
 - `CharacterState.can_jump()` and the module-level `can_jump()` allow actionable
   ground jumps and remaining aerial jumps. Every shield phase is jumpable for
   all characters except Yoshi, who cannot jump out of shield.
+- `CharacterState.can_shield()` requires a grounded actionable state and rejects
+  `KNEE_BEND`; an airborne shoulder input is an air dodge, not a shield.
+- `can_dodge()` models direct ground Escape paths from standing, early dash, and
+  eligible shield phases. Shield stun and `KNEE_BEND` are false; dash and shield
+  release remain action-level answers because their hidden engine windows are not
+  represented by `PlayerState`. Yoshi's raw 341-345 guard states are handled
+  character-aware.
+- `can_airdodge()` is true only in the ten normal `_ACTIONABLE_AIR` jump/fall
+  actions. It rejects tumble, active air dodge, attacks, and helpless post-Up-B
+  `DEAD_FALL` / `SPECIAL_FALL_*` states. A final-frame `KNEE_BEND` input used by
+  Wavedash schedules next-frame air dodge but is not itself eligible.
+- `Action.TUMBLING` classifies as `CharacterStatus.Tumbling` after reported
+  hitstun clears and remains blocked by attack/grab eligibility checks.
 - Short hops require releasing X/Y before `Action.KNEE_BEND` jump squat ends. For
   `N` jump-squat frames, hold jump for at most `N - 1` committed game frames;
   holding through the final frame produces a full hop. Controller input persists

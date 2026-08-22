@@ -396,6 +396,10 @@ class CharacterStatus(Enum):
     when a hit connects. The character is locked out of all input until hitlag
     clears; treated as a subset of hitstun by :func:`in_hitstun`."""
 
+    Tumbling = auto()
+    """Airborne knockback tumble (``TUMBLING``) after reported hitstun has
+    cleared. Blocks standard attack input until the action changes."""
+
     Shielding = auto()
     """Holding shield (``SHIELD`` / ``SHIELD_START`` / ``SHIELD_REFLECT`` /
     ``SHIELD_STUN`` / ``SHIELD_RELEASE``). Blocks attack/grab input but allows
@@ -408,12 +412,10 @@ class CharacterStatus(Enum):
     stun-locked for an extended duration; blocks all input."""
 
     Dodging = auto()
-    """A roll, spot-dodge, or air-dodge (caught via libmelee
-    ``FrameData.is_roll``: ``SPOTDODGE``, ``ROLL_FORWARD``,
-    ``ROLL_BACKWARD``, successful techs ``NEUTRAL_TECH`` / ``FORWARD_TECH``
-    / ``BACKWARD_TECH``, ledge rolls/getups if not caught earlier, etc.). The
-    character is intangible or has body-property invulnerability for part of
-    the animation. Also includes the 5 active roll-getup options from
+    """A roll, spot-dodge, or ``AIRDODGE``. Ground dodges and successful techs
+    are caught through libmelee ``FrameData.is_roll``; air dodge is classified
+    explicitly. The character is intangible or has body-property invulnerability
+    for part of the animation. Also includes the 5 active roll-getup options from
     knockdown (``GROUND_ROLL_*_UP`` / ``GROUND_ROLL_*_DOWN`` /
     ``GROUND_ROLL_SPOT_DOWN`` — see :data:`_GETUP_ROLL_ACTIONS`): once the
     player commits to a roll from knockdown they are dodging, not lying
@@ -477,6 +479,7 @@ _BLOCKS_ATTACK_INPUT: Final = frozenset(
     {
         CharacterStatus.HitLag,
         CharacterStatus.Hitstun,
+        CharacterStatus.Tumbling,
         CharacterStatus.GrabbedByEnemy,
         CharacterStatus.ShieldBroken,
         CharacterStatus.GrabbingLedge,
@@ -496,6 +499,7 @@ _BLOCKS_GRAB_INPUT: Final = frozenset(
     {
         CharacterStatus.HitLag,
         CharacterStatus.Hitstun,
+        CharacterStatus.Tumbling,
         CharacterStatus.GrabbedByEnemy,
         CharacterStatus.ShieldBroken,
         CharacterStatus.GrabbingLedge,
@@ -534,6 +538,21 @@ _AIR_ATTACKS: Final = frozenset(
         AttackType.DAIR,
     }
 )
+_GROUND_DODGE_ACTIONS: Final = frozenset(
+    {
+        Action.STANDING,
+        Action.DASHING,
+        Action.SHIELD_START,
+        Action.SHIELD,
+        Action.SHIELD_RELEASE,
+        Action.SHIELD_REFLECT,
+    }
+)
+# DESNOTE(jbarber, 2026-08-22): Yoshi's character-specific guard actions occupy
+# raw IDs whose canonical Action aliases describe unrelated moves. GuardOn,
+# GuardHold, GuardOff, and GuardOn_1 have Escape paths; GuardDamage (344) does not.
+# See https://github.com/doldecomp/melee/blob/master/src/melee/ft/chara/ftYoshi/ftYs_Init.c
+_YOSHI_DODGEABLE_SHIELD_ACTION_IDS: Final = frozenset({341, 342, 343, 345})
 _SPECIAL_ATTACKS: Final = frozenset(
     {
         AttackType.NEUTRAL_B,
@@ -991,6 +1010,20 @@ class CharacterState:
             return False
         return can_shield(target, self._frame_data)
 
+    def can_dodge(self) -> bool:
+        """Return whether a ground dodge has an input path from this state."""
+        target = self.player()
+        if target is None:
+            return False
+        return can_dodge(target, self._frame_data)
+
+    def can_airdodge(self) -> bool:
+        """Return whether an air dodge could start from this state."""
+        target = self.player()
+        if target is None:
+            return False
+        return can_airdodge(target, self._frame_data)
+
     def can_jump(self) -> bool:
         """Return whether a ground or remaining aerial jump could start."""
         target = self.player()
@@ -1089,6 +1122,8 @@ def get_state(player: LibPlayerState, frame_data: FrameData) -> CharacterStatus:
         return CharacterStatus.ShieldBroken
     if _in_real_hitstun(player, frame_data):
         return CharacterStatus.Hitstun
+    if player.action is Action.TUMBLING:
+        return CharacterStatus.Tumbling
     if isinstance(player.action, Action) and player.action in _GETUP_ROLL_ACTIONS:
         return CharacterStatus.Dodging
     if isinstance(player.action, Action) and player.action in _KNOCKDOWN_ACTIONS:
@@ -1101,6 +1136,8 @@ def get_state(player: LibPlayerState, frame_data: FrameData) -> CharacterStatus:
         player.character,
         player.action,
     ):
+        return CharacterStatus.Dodging
+    if player.action is Action.AIRDODGE:
         return CharacterStatus.Dodging
     if isinstance(player.action, Action) and player.action in _GRABBING_ENEMY_ACTIONS:
         return CharacterStatus.GrabbingEnemy
@@ -1159,7 +1196,7 @@ def is_grabbing_ledge(player: LibPlayerState, frame_data: FrameData) -> bool:
 
 
 def is_dodging(player: LibPlayerState, frame_data: FrameData) -> bool:
-    """Return whether ``player`` is in a roll or spot-dodge animation."""
+    """Return whether ``player`` is in a ground- or air-dodge animation."""
     return get_state(player, frame_data) is CharacterStatus.Dodging
 
 
@@ -1297,8 +1334,45 @@ def can_attack(
 
 
 def can_shield(player: LibPlayerState, frame_data: FrameData) -> bool:
-    """Return whether shield input is not blocked by combat state."""
-    return _can_attack_by_combat_state(player, frame_data)
+    """Return whether a grounded shield could start from the current state."""
+    if not player.on_ground or not isinstance(player.action, Action):
+        return False
+    if player.action is Action.KNEE_BEND:
+        return False
+    return (
+        _can_attack_by_combat_state(player, frame_data)
+        and player.action in _ACTIONABLE_GROUND
+    )
+
+
+def can_dodge(player: LibPlayerState, frame_data: FrameData) -> bool:
+    """Return whether the current action has a direct ground Escape path.
+
+    Early dash and shield-release paths depend on internal engine fields absent
+    from :class:`PlayerState`, so this reports action-level eligibility.
+    """
+    if not player.on_ground or not isinstance(player.action, Action):
+        return False
+    if player.hitlag_left > 0 or _in_real_hitstun(player, frame_data):
+        return False
+    if (
+        player.character is Character.YOSHI
+        and player.action.value in _YOSHI_DODGEABLE_SHIELD_ACTION_IDS
+    ):
+        return True
+    return player.action in _GROUND_DODGE_ACTIONS
+
+
+def can_airdodge(player: LibPlayerState, frame_data: FrameData) -> bool:
+    """Return whether an air dodge could start from a normal jump/fall state.
+
+    Helpless ``DEAD_FALL`` / ``SPECIAL_FALL_*`` states after Up-B are excluded.
+    """
+    if player.on_ground or not isinstance(player.action, Action):
+        return False
+    if player.hitlag_left > 0 or _in_real_hitstun(player, frame_data):
+        return False
+    return player.action in _ACTIONABLE_AIR
 
 
 def can_jump(player: LibPlayerState, frame_data: FrameData) -> bool:
@@ -1462,7 +1536,9 @@ __all__ = [
     "StickReferenceAxis",
     "attack_is_holdable",
     "can_air_attack",
+    "can_airdodge",
     "can_attack",
+    "can_dodge",
     "can_grab",
     "can_jump",
     "can_shield",
