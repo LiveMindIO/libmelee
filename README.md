@@ -146,7 +146,11 @@ and `LSPECIAL`/`RSPECIAL` when a bot should attack toward a screen direction wit
 translating through `PlayerState.facing`. Existing `FTILT`, `FSMASH`, and
 `SIDE_B` requests remain facing-relative. Aerials intentionally provide only
 facing-relative `FAIR`/`BAIR`, since their move behavior depends on character
-facing. Directional aerial attacks are issued through the C-stick only while
+facing. Ground tilts use half-strength cardinal input (`0.25`/`0.75` request
+coordinates), while smashes use full deflection. This keeps tilts above Melee's
+`0.25` tilt threshold and below its `0.8` horizontal and `0.6625` vertical smash
+thresholds; standing input handling checks smashes before tilts. Directional
+aerial attacks are issued through the C-stick only while
 retaining matching horizontal main-stick drift. `NAIR` uses `A` with neutral
 sticks because Melee has no neutral C-stick aerial input. Aerial requests start
 only from actionable air states. Grounded states, including `KNEE_BEND` jump

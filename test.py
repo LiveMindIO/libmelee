@@ -1398,8 +1398,8 @@ class SimpleControlsInputTests(unittest.TestCase):
 
     def test_absolute_ground_attacks_ignore_facing(self) -> None:
         cases = (
-            (AttackType.LTILT, 0.0, melee.Button.BUTTON_A, False),
-            (AttackType.RTILT, 1.0, melee.Button.BUTTON_A, False),
+            (AttackType.LTILT, 0.25, melee.Button.BUTTON_A, False),
+            (AttackType.RTILT, 0.75, melee.Button.BUTTON_A, False),
             (AttackType.LSMASH, 0.0, melee.Button.BUTTON_A, True),
             (AttackType.RSMASH, 1.0, melee.Button.BUTTON_A, True),
             (AttackType.LSPECIAL, 0.0, melee.Button.BUTTON_B, False),
@@ -1420,6 +1420,31 @@ class SimpleControlsInputTests(unittest.TestCase):
                     self.assertEqual(controller.main_stick, (stick_x, 0.5))
                     self.assertEqual(controller.buttons, {button})
                     self.assertEqual(result.charging, charging)
+
+    def test_ground_tilts_stay_below_smash_deflection(self) -> None:
+        cases = (
+            (True, AttackType.FTILT, AttackType.FSMASH, (0.75, 0.5), (1.0, 0.5)),
+            (False, AttackType.FTILT, AttackType.FSMASH, (0.25, 0.5), (0.0, 0.5)),
+            (True, AttackType.LTILT, AttackType.LSMASH, (0.25, 0.5), (0.0, 0.5)),
+            (True, AttackType.RTILT, AttackType.RSMASH, (0.75, 0.5), (1.0, 0.5)),
+            (True, AttackType.UTILT, AttackType.USMASH, (0.5, 0.75), (0.5, 1.0)),
+            (True, AttackType.DTILT, AttackType.DSMASH, (0.5, 0.25), (0.5, 0.0)),
+        )
+        for facing, tilt, smash, tilt_stick, smash_stick in cases:
+            with self.subTest(facing=facing, tilt=tilt, smash=smash):
+                player = melee.PlayerState(
+                    character=melee.Character.MARTH,
+                    action=melee.Action.STANDING,
+                    on_ground=True,
+                    facing=facing,
+                )
+                tilt_controls, tilt_controller = self.controls(player)
+                smash_controls, smash_controller = self.controls(player)
+
+                self.assertIsInstance(tilt_controls.attack(tilt), Hold)
+                self.assertIsInstance(smash_controls.attack(smash), Hold)
+                self.assertEqual(tilt_controller.main_stick, tilt_stick)
+                self.assertEqual(smash_controller.main_stick, smash_stick)
 
     def test_release_returns_expected_metadata_before_move_is_observed(self) -> None:
         player = melee.PlayerState(

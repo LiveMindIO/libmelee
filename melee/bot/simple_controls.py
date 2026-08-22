@@ -100,7 +100,7 @@ _INPUT_COMMIT_FRAMES: Final = 12
 _SMASH_MAX_CHARGE_FRAMES: Final = 60
 _NEUTRAL_B_MAX_CHARGE_FRAMES: Final = 120
 _AERIAL_COMMIT_FRAMES: Final = 8
-_TILT_TURN_MAGNITUDE: Final = 0.5
+_TILT_STICK_MAGNITUDE: Final = 0.5
 _DODGE_BUTTONS: Final = frozenset({Button.BUTTON_L, Button.BUTTON_R})
 _DIGITAL_BUTTONS: Final = frozenset(Button) - {
     Button.BUTTON_MAIN,
@@ -479,7 +479,7 @@ class SimpleControls:
         self.tilt_stick(
             self._character_state.backward_axis(),
             0.0,
-            magnitude=_TILT_TURN_MAGNITUDE,
+            magnitude=_TILT_STICK_MAGNITUDE,
         )
 
     def smash_turn(self) -> None:
@@ -1231,13 +1231,22 @@ class SimpleControls:
         """Return main-stick ``(x, y)`` for ``attack_type`` using ``player.facing``."""
         toward = 1.0 if player.facing else 0.0
         away = 0.0 if player.facing else 1.0
+        tilt_low = (1.0 - _TILT_STICK_MAGNITUDE) / 2.0
+        tilt_high = 1.0 - tilt_low
+        tilt_toward = tilt_high if player.facing else tilt_low
+
+        # DESNOTE(jbarber, 2026-08-22): Standing IASA checks smashes before tilts.
+        # NTSC 1.02 PlCo.dat thresholds are 0.25 for tilts, 0.8 for horizontal
+        # smashes, and 0.6625 for vertical smashes, so half strength is safely
+        # within the tilt-only range. See https://github.com/doldecomp/melee/blob/a983c0f9cd41d4a46001c493a1929891ac80f9ab/src/melee/ft/chara/ftCommon/ftCo_Wait.c#L43-L56
+        # and https://github.com/barrelofsulfuricacid-gif/ultra-performance-platform-fighter/blob/4012e3ed7c9e5c05f95f25f1beaf407d6d3b21ab/tools/import_ssbm_common_data.py#L108-L116
         mapping: dict[AttackType, tuple[float, float]] = {
             AttackType.JAB: (0.5, 0.5),
-            AttackType.FTILT: (toward, 0.5),
-            AttackType.LTILT: (0.0, 0.5),
-            AttackType.RTILT: (1.0, 0.5),
-            AttackType.UTILT: (0.5, 1.0),
-            AttackType.DTILT: (0.5, 0.0),
+            AttackType.FTILT: (tilt_toward, 0.5),
+            AttackType.LTILT: (tilt_low, 0.5),
+            AttackType.RTILT: (tilt_high, 0.5),
+            AttackType.UTILT: (0.5, tilt_high),
+            AttackType.DTILT: (0.5, tilt_low),
             AttackType.FSMASH: (toward, 0.5),
             AttackType.LSMASH: (0.0, 0.5),
             AttackType.RSMASH: (1.0, 0.5),
