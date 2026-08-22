@@ -18,7 +18,9 @@ compatibility and will be removed.
 from __future__ import annotations
 
 from enum import Enum, auto
-from typing import Final
+from typing import Final, overload
+
+from typing_extensions import deprecated
 
 from melee.bot.framedata_query import _SPECIAL_SLOT_ACTION_IDS
 from melee.enums import Action, Character
@@ -307,8 +309,7 @@ class AttackType(Enum):
     raw movement inputs before calling it; SimpleControls does not walk or dash
     on the bot's behalf.
 
-    Air-only (or grounded jump startup): ``NAIR``, ``FAIR``, ``BAIR``, ``UAIR``,
-    ``DAIR``.
+    Air-only: ``NAIR``, ``FAIR``, ``BAIR``, ``UAIR``, ``DAIR``.
 
     Specials (ground or air): ``NEUTRAL_B``, ``SIDE_B``, ``LSPECIAL``, ``RSPECIAL``,
     ``UP_B``, ``DOWN_B``. ``LEFT_B`` and ``RIGHT_B`` are deprecated aliases for
@@ -398,7 +399,8 @@ class CharacterStatus(Enum):
     Shielding = auto()
     """Holding shield (``SHIELD`` / ``SHIELD_START`` / ``SHIELD_REFLECT`` /
     ``SHIELD_STUN`` / ``SHIELD_RELEASE``). Blocks attack/grab input but allows
-    grab out of shield (``can_grab`` permits this as a special case)."""
+    grab out of shield (``can_attack(AttackType.GRAB)`` permits this as a
+    special case)."""
 
     ShieldBroken = auto()
     """Shield-break animation suite (``SHIELD_BREAK_FLY`` through
@@ -712,14 +714,14 @@ class CharacterState:
     """Read-only high-level state for one controller port.
 
     Construct with a :class:`melee.gamestate.GameState` snapshot, a port number,
-    and an optional shared :class:`melee.framedata.FrameData`. All public methods
-    accept an optional ``player`` override; when omitted they read the port bound
-    at construction.
+    and an optional shared :class:`melee.framedata.FrameData`. Public methods read
+    the port bound at construction; :meth:`can_attack` also receives the intended
+    :class:`AttackType`.
 
     :class:`SimpleControls` owns a :class:`CharacterState` (exposed via
     ``simple_controls.character_state``) and routes every state check through it.
-    Prefer ``simple_controls.character_state.can_attack(player)`` over the
-    deprecated ``simple_controls.can_attack(player)`` wrapper.
+    Prefer ``simple_controls.character_state.can_attack(attack_type)`` over the
+    deprecated ``simple_controls.can_attack()`` wrapper.
     """
 
     def __init__(
@@ -962,12 +964,25 @@ class CharacterState:
             return False
         return is_grabbing_ledge(target, self._frame_data)
 
-    def can_attack(self) -> bool:
-        """Return whether standard attack input is not blocked by combat state."""
+    @overload
+    @deprecated("Pass the intended AttackType to can_attack().")
+    def can_attack(self) -> bool: ...
+
+    @overload
+    def can_attack(self, attack_type: AttackType) -> bool: ...
+
+    def can_attack(self, attack_type: AttackType | None = None) -> bool:
+        """Return whether an attack could start from the current state.
+
+        The no-argument broad combat-state query is deprecated. Pass the exact
+        :class:`AttackType` the bot intends to request.
+        """
         target = self.player()
         if target is None:
             return False
-        return can_attack(target, self._frame_data)
+        if attack_type is None:
+            return _can_attack_by_combat_state(target, self._frame_data)
+        return can_attack(target, self._frame_data, attack_type)
 
     def can_shield(self) -> bool:
         """Return whether shield input is not blocked by combat state."""
@@ -983,26 +998,28 @@ class CharacterState:
             return False
         return can_jump(target, self._frame_data)
 
+    @deprecated("Use can_attack(AttackType.GRAB) instead.")
     def can_grab(self) -> bool:
-        """Return whether a grounded grab could start (including out of shield)."""
+        """Deprecated: use ``can_attack(AttackType.GRAB)``."""
         target = self.player()
         if target is None:
             return False
-        return can_grab(target, self._frame_data)
+        return can_attack(target, self._frame_data, AttackType.GRAB)
 
     def can_z_air(self) -> bool:
         """Return whether a tether Z Air could start in the current air state."""
         target = self.player()
         if target is None:
             return False
-        return can_z_air(target, self._frame_data)
+        return can_attack(target, self._frame_data, AttackType.Z_AIR)
 
+    @deprecated("Use can_attack() with the intended aerial type instead.")
     def can_air_attack(self) -> bool:
-        """Return whether an aerial could start from the current action state."""
+        """Deprecated: use ``can_attack`` with the intended aerial type."""
         target = self.player()
         if target is None:
             return False
-        return can_air_attack(target, self._frame_data)
+        return can_attack(target, self._frame_data, AttackType.NAIR)
 
     def is_taunting(self) -> bool:
         """Return whether the controlled port is in a taunt animation."""
@@ -1040,7 +1057,7 @@ def can_taunt(player: LibPlayerState, frame_data: FrameData) -> bool:
     """
     if is_taunting(player, frame_data):
         return False
-    if not can_attack(player, frame_data):
+    if not _can_attack_by_combat_state(player, frame_data):
         return False
     if not player.on_ground or player.off_stage:
         return False
@@ -1204,14 +1221,84 @@ def is_getting_up(player: LibPlayerState, frame_data: FrameData) -> bool:
     return player.action in _GETTING_UP_ACTIONS
 
 
-def can_attack(player: LibPlayerState, frame_data: FrameData) -> bool:
-    """Return whether standard attack input is not blocked by combat state."""
+def _can_attack_by_combat_state(
+    player: LibPlayerState,
+    frame_data: FrameData,
+) -> bool:
+    """Return the legacy broad combat-state eligibility result."""
     return get_state(player, frame_data) not in _BLOCKS_ATTACK_INPUT
+
+
+@overload
+@deprecated("Pass the intended AttackType to can_attack().")
+def can_attack(player: LibPlayerState, frame_data: FrameData) -> bool: ...
+
+
+@overload
+def can_attack(
+    player: LibPlayerState,
+    frame_data: FrameData,
+    attack_type: AttackType,
+) -> bool: ...
+
+
+def can_attack(
+    player: LibPlayerState,
+    frame_data: FrameData,
+    attack_type: AttackType | None = None,
+) -> bool:
+    """Return whether ``attack_type`` could start from ``player``'s state.
+
+    Calling without ``attack_type`` retains the deprecated broad combat-state
+    query for compatibility.
+    """
+    if attack_type is None:
+        return _can_attack_by_combat_state(player, frame_data)
+
+    match attack_type:
+        case AttackType.GRAB:
+            return _can_grab(player, frame_data)
+        case AttackType.Z_AIR:
+            return _can_z_air(player, frame_data)
+        case _:
+            pass
+
+    if not _can_attack_by_combat_state(player, frame_data):
+        return False
+    if not isinstance(player.action, Action):
+        return False
+
+    # DESNOTE(jbarber, 2026-08-21): KneeBend IASA directly checks only up-special,
+    # grab, and up-smash before short-hop detection. AttackAir starts in Jump IASA.
+    # See https://github.com/doldecomp/melee/blob/master/src/melee/ft/chara/ftCommon/ftCo_KneeBend.c
+    match attack_type, player.action, player.on_ground:
+        case attack, action, _ if attack in _GRAB_THROW_ATTACKS:
+            return action in _GRAB_THROW_INPUT_ACTIONS
+        case _, action, _ if action in _GRABBER_ACTIONS:
+            return False
+        case attack, Action.KNEE_BEND, True:
+            return attack in {AttackType.UP_B, AttackType.USMASH}
+        case AttackType.DASH_ATTACK, Action.DASHING, True:
+            return True
+        case AttackType.DASH_ATTACK, _, _:
+            return False
+        case attack, action, True if attack in _GROUND_ATTACKS:
+            return action in _ACTIONABLE_GROUND
+        case attack, action, False if attack in _AIR_ATTACKS:
+            return action in _ACTIONABLE_AIR
+        case attack, _, _ if attack in _GROUND_ATTACKS | _AIR_ATTACKS:
+            return False
+        case attack, action, True if attack in _SPECIAL_ATTACKS:
+            return action in _ACTIONABLE_GROUND
+        case attack, action, False if attack in _SPECIAL_ATTACKS:
+            return action in _ACTIONABLE_AIR
+        case _:
+            return False
 
 
 def can_shield(player: LibPlayerState, frame_data: FrameData) -> bool:
     """Return whether shield input is not blocked by combat state."""
-    return can_attack(player, frame_data)
+    return _can_attack_by_combat_state(player, frame_data)
 
 
 def can_jump(player: LibPlayerState, frame_data: FrameData) -> bool:
@@ -1223,14 +1310,20 @@ def can_jump(player: LibPlayerState, frame_data: FrameData) -> bool:
     """
     if is_shielding(player, frame_data):
         return player.character is not Character.YOSHI
-    if not can_attack(player, frame_data) or not isinstance(player.action, Action):
+    if not _can_attack_by_combat_state(player, frame_data) or not isinstance(player.action, Action):
         return False
     if player.on_ground:
         return player.action in _ACTIONABLE_GROUND
     return player.jumps_left > 0 and player.action in _ACTIONABLE_AIR
 
 
+@deprecated("Use can_attack(..., AttackType.GRAB) instead.")
 def can_grab(player: LibPlayerState, frame_data: FrameData) -> bool:
+    """Deprecated: use ``can_attack(..., AttackType.GRAB)``."""
+    return can_attack(player, frame_data, AttackType.GRAB)
+
+
+def _can_grab(player: LibPlayerState, frame_data: FrameData) -> bool:
     """Return whether a grounded grab could start (including out of shield)."""
     if get_state(player, frame_data) in _BLOCKS_GRAB_INPUT:
         return False
@@ -1243,6 +1336,11 @@ def can_grab(player: LibPlayerState, frame_data: FrameData) -> bool:
 
 def can_z_air(player: LibPlayerState, frame_data: FrameData) -> bool:
     """Return whether a tether Z Air could start in the current air state."""
+    return can_attack(player, frame_data, AttackType.Z_AIR)
+
+
+def _can_z_air(player: LibPlayerState, frame_data: FrameData) -> bool:
+    """Return whether a tether Z Air could start in the current air state."""
     if player.character not in _Z_AIR_CHARACTERS:
         return False
     if get_state(player, frame_data) in _BLOCKS_GRAB_INPUT:
@@ -1252,15 +1350,10 @@ def can_z_air(player: LibPlayerState, frame_data: FrameData) -> bool:
     return player.action in _ACTIONABLE_AIR
 
 
+@deprecated("Use can_attack() with the intended aerial type instead.")
 def can_air_attack(player: LibPlayerState, frame_data: FrameData) -> bool:
-    """Return whether an aerial could start from the current action state."""
-    if not can_attack(player, frame_data):
-        return False
-    if not isinstance(player.action, Action):
-        return False
-    if player.on_ground:
-        return player.action is Action.KNEE_BEND
-    return player.action in _ACTIONABLE_AIR
+    """Deprecated: use ``can_attack`` with the intended aerial type."""
+    return can_attack(player, frame_data, AttackType.NAIR)
 
 
 def _in_real_hitstun(player: LibPlayerState, frame_data: FrameData) -> bool:

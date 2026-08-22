@@ -144,8 +144,15 @@ facing-relative `FAIR`/`BAIR`, since their move behavior depends on character
 facing. Directional aerial attacks are issued through the C-stick only while
 retaining matching horizontal main-stick drift. `NAIR` uses `A` with neutral
 sticks because Melee has no neutral C-stick aerial input. Aerial requests start
-only from actionable air states or grounded `KNEE_BEND` jump startup; other
-grounded states reject them so C-stick input cannot become a grounded smash.
+only from actionable air states. Grounded states, including `KNEE_BEND` jump
+startup, reject them so their inputs cannot become grounded moves; Melee begins
+processing aerial inputs after jump squat ends.
+
+`CharacterState.can_attack(attack_type)` uses the same move-specific eligibility
+as `SimpleControls.attack()`, including ground/air compatibility, throws, tether
+Z-air, and jump-cancel options. During `KNEE_BEND`, only `UP_B`, `USMASH`, and
+`GRAB` are accepted. The no-argument `can_attack()`, `can_air_attack()`, and
+`can_grab()` forms are deprecated; pass the intended `AttackType` instead.
 
 `LEFT_B` and `RIGHT_B` remain deprecated aliases for `LSPECIAL` and `RSPECIAL`.
 

@@ -159,9 +159,20 @@ uv pip install --python .venv/bin/python .
 - Directional aerials use the C-stick without also pressing `A` and horizontal
   aerials retain matching main-stick drift. `NAIR` necessarily uses `A` because
   Melee has no neutral C-stick aerial input.
-- Aerial attacks may start only from actionable air states or grounded
-  `KNEE_BEND` jump startup. Other grounded states reject aerial requests instead
-  of converting C-stick input into a grounded smash.
+- Aerial attacks may start only from actionable air states. Grounded states,
+  including `KNEE_BEND` jump startup, reject aerial requests instead of converting
+  their inputs into grounded moves. The decomp's KneeBend IASA checks up-special,
+  grab, and up-smash; aerial input handling starts in Jump IASA after jump squat
+  ends.
+- `CharacterState.can_attack(attack_type)` is the canonical move-specific
+  eligibility query and matches `SimpleControls.attack()` start gating. During
+  `KNEE_BEND`, only `UP_B`, `USMASH`, and `GRAB` are accepted. No-argument
+  `can_attack()`, `can_air_attack()`, and `can_grab()` are deprecated compatibility
+  queries; pass the intended `AttackType` instead.
+- Runtime overloads carry PEP 702 deprecation metadata. The parent workspace's
+  strict stubs intentionally retain undecorated legacy signatures because
+  historical Database-owned bot sources are still validated with deprecations as
+  errors; new code follows the move-specific API documented here.
 - `Hold` is externally immutable and hash-compatible; successful `release()` sets
   framework-owned `released` and `release_frame` lifecycle fields so the token
   cannot be reused. Its returned metadata may still

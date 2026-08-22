@@ -9,9 +9,9 @@ into attacks, ledge get-ups, and taunts.
 
 Bots normally receive a :class:`SimpleControls` instance from the runtime on each
 ``game_tick`` call. For state-only reads prefer ``simple_controls.character_state``
-(e.g. ``simple_controls.character_state.can_attack()``) over the deprecated
-thin delegates on :class:`SimpleControls` itself — those wrappers remain only for
-backward compatibility and will be removed.
+(e.g. ``simple_controls.character_state.can_attack(AttackType.FTILT)``) over the
+deprecated thin delegates on :class:`SimpleControls` itself — those wrappers
+remain only for backward compatibility and will be removed.
 
 Typical loop::
 
@@ -46,10 +46,8 @@ from typing import TYPE_CHECKING, Final
 
 from melee.bot.character_state import (
     _ACTIONABLE_AIR,
-    _ACTIONABLE_GROUND,
     _ACTIONS_FOR_TYPE,
     _AERIAL_ATTACKS,
-    _AIR_ATTACKS,
     _GRAB_THROW_ATTACKS,
     _GRAB_THROW_INPUT_ACTIONS,
     _GRABBER_ACTIONS,
@@ -62,6 +60,7 @@ from melee.bot.character_state import (
     CharacterStatus,
     StickReferenceAxis,
     _actions_for_attack_type,
+    _can_attack_by_combat_state,
     _is_special_action,
     _relative_attack_type,
     attack_is_holdable,
@@ -312,11 +311,11 @@ class Hold:
     release_frame: int | None = field(default=None, compare=False, hash=False)
 
 
-def _warn_state_deprecated(name: str) -> None:
+def _warn_state_deprecated(name: str, replacement: str | None = None) -> None:
     """Emit a DeprecationWarning for a SimpleControls state-query delegate."""
+    target = replacement or f"simple_controls.character_state.{name}()"
     warnings.warn(
-        f"SimpleControls.{name}() is deprecated; use "
-        f"simple_controls.character_state.{name}() instead.",
+        f"SimpleControls.{name}() is deprecated; use {target} instead.",
         DeprecationWarning,
         stacklevel=3,
     )
@@ -584,7 +583,7 @@ class SimpleControls:
             return self._continue_attack(hold)
 
         player = self._player()
-        if player is None or not self._can_begin_attack(player, attack_type):
+        if player is None or not self._character_state.can_attack(attack_type):
             return None
 
         current = self._attack_frame_data(player, attack_type)
@@ -814,9 +813,15 @@ class SimpleControls:
         return self._character_state.is_grabbing_ledge()
 
     def can_attack(self) -> bool:
-        """Deprecated: use :attr:`character_state` :meth:`.can_attack`."""
-        _warn_state_deprecated("can_attack")
-        return self._character_state.can_attack()
+        """Deprecated: use ``character_state.can_attack(attack_type)``."""
+        _warn_state_deprecated(
+            "can_attack",
+            "simple_controls.character_state.can_attack(attack_type)",
+        )
+        player = self._player()
+        if player is None:
+            return False
+        return _can_attack_by_combat_state(player, self._frame_data)
 
     def can_shield(self) -> bool:
         """Deprecated: use :attr:`character_state` :meth:`.can_shield`."""
@@ -829,9 +834,12 @@ class SimpleControls:
         return self._character_state.can_jump()
 
     def can_grab(self) -> bool:
-        """Deprecated: use :attr:`character_state` :meth:`.can_grab`."""
-        _warn_state_deprecated("can_grab")
-        return self._character_state.can_grab()
+        """Deprecated: use ``character_state.can_attack(AttackType.GRAB)``."""
+        _warn_state_deprecated(
+            "can_grab",
+            "simple_controls.character_state.can_attack(AttackType.GRAB)",
+        )
+        return self._character_state.can_attack(AttackType.GRAB)
 
     def can_z_air(self) -> bool:
         """Deprecated: use :attr:`character_state` :meth:`.can_z_air`."""
@@ -839,9 +847,12 @@ class SimpleControls:
         return self._character_state.can_z_air()
 
     def can_air_attack(self) -> bool:
-        """Deprecated: use :attr:`character_state` :meth:`.can_air_attack`."""
-        _warn_state_deprecated("can_air_attack")
-        return self._character_state.can_air_attack()
+        """Deprecated: use ``character_state.can_attack(aerial_type)``."""
+        _warn_state_deprecated(
+            "can_air_attack",
+            "simple_controls.character_state.can_attack(aerial_type)",
+        )
+        return self._character_state.can_attack(AttackType.NAIR)
 
     def is_taunting(self) -> bool:
         """Deprecated: use :attr:`character_state` :meth:`.is_taunting`."""
@@ -1052,12 +1063,12 @@ class SimpleControls:
         during smash charge).
         """
         if hold.attack_type is AttackType.Z_AIR:
-            if not self._character_state.can_z_air():
+            if not self._character_state.can_attack(AttackType.Z_AIR):
                 return True
         elif hold.attack_type is AttackType.GRAB:
-            if not self._character_state.can_grab():
+            if not self._character_state.can_attack(AttackType.GRAB):
                 return True
-        elif not self._character_state.can_attack():
+        elif not _can_attack_by_combat_state(player, self._frame_data):
             return True
         if hold.attack_type in _GRAB_THROW_ATTACKS:
             if not isinstance(player.action, Action):
@@ -1078,53 +1089,6 @@ class SimpleControls:
                 return False
             if player.action != Action.DASHING:
                 return True
-        return False
-
-    def _can_begin_attack(self, player: LibPlayerState, attack_type: AttackType) -> bool:
-        """Return whether ``attack_type`` may start from ``player``'s current state.
-
-        Requires neutral-ish action states (see ``_ACTIONABLE_GROUND`` /
-        ``_ACTIONABLE_AIR``), no hitstun, no grab (except ``AttackType.GRAB``),
-        and ground/air compatibility for the requested move.
-        """
-        if attack_type is AttackType.Z_AIR:
-            return self._character_state.can_z_air()
-        if attack_type is AttackType.GRAB:
-            return self._character_state.can_grab()
-        if not self._character_state.can_attack():
-            return False
-        if attack_type in _GRAB_THROW_ATTACKS:
-            return isinstance(player.action, Action) and (
-                player.action in _GRAB_THROW_INPUT_ACTIONS
-            )
-        if player.action in _GRABBER_ACTIONS and attack_type not in {
-            AttackType.GRAB,
-            AttackType.Z_AIR,
-        }:
-            return False
-
-        if attack_type is AttackType.DASH_ATTACK:
-            return (
-                player.on_ground
-                and isinstance(player.action, Action)
-                and player.action == Action.DASHING
-            )
-
-        if attack_type in _GROUND_ATTACKS:
-            if not player.on_ground:
-                return False
-            if not isinstance(player.action, Action):
-                return False
-            return player.action in _ACTIONABLE_GROUND
-
-        if attack_type in _AIR_ATTACKS:
-            return self._character_state.can_air_attack()
-
-        if attack_type in _SPECIAL_ATTACKS:
-            if player.on_ground:
-                return isinstance(player.action, Action) and player.action in _ACTIONABLE_GROUND
-            return isinstance(player.action, Action) and player.action in _ACTIONABLE_AIR
-
         return False
 
     def _attack_frame_data(

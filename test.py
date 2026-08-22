@@ -40,6 +40,9 @@ from melee.bot import (
     Strategy,
     WavedashDirection,
     WavedashMontage,
+    can_air_attack,
+    can_attack,
+    can_grab,
     can_jump,
     stick_coordinates,
 )
@@ -55,6 +58,7 @@ from melee.bot.techskill.common import (
     clamp_wavedash_angle,
 )
 from melee.controller import fix_analog_stick
+from typing_extensions import get_overloads
 
 
 class RecordingBot(BaseBot[object]):
@@ -1347,11 +1351,12 @@ class SimpleControlsInputTests(unittest.TestCase):
                     hold,
                 )
 
-    def test_aerials_start_only_in_jump_squat_or_actionable_air(self) -> None:
+    def test_aerials_start_only_in_actionable_air(self) -> None:
         cases = (
             (melee.Action.STANDING, True, False),
             (melee.Action.CROUCHING, True, False),
-            (melee.Action.KNEE_BEND, True, True),
+            (melee.Action.KNEE_BEND, True, False),
+            (melee.Action.JUMPING_FORWARD, False, True),
             (melee.Action.FALLING, False, True),
         )
         for action, on_ground, expected in cases:
@@ -1363,11 +1368,121 @@ class SimpleControlsInputTests(unittest.TestCase):
                 )
                 controls, _ = self.controls(player)
 
-                self.assertEqual(controls.character_state.can_air_attack(), expected)
+                self.assertEqual(
+                    controls.character_state.can_attack(AttackType.NAIR),
+                    expected,
+                )
                 self.assertEqual(
                     isinstance(controls.attack(AttackType.NAIR), Hold),
                     expected,
                 )
+
+    def test_knee_bend_allows_only_jump_cancel_attacks(self) -> None:
+        player = melee.PlayerState(
+            character=melee.Character.MARTH,
+            action=melee.Action.KNEE_BEND,
+            on_ground=True,
+        )
+        controls, _ = self.controls(player)
+        allowed = {AttackType.UP_B, AttackType.USMASH, AttackType.GRAB}
+
+        for attack_type in AttackType:
+            with self.subTest(attack_type=attack_type):
+                expected = attack_type in allowed
+                self.assertEqual(
+                    controls.character_state.can_attack(attack_type),
+                    expected,
+                )
+                self.assertEqual(
+                    can_attack(player, self.frame_data, attack_type),
+                    expected,
+                )
+                self.assertEqual(controls.attack(attack_type) is not None, expected)
+
+    def test_specific_can_attack_handles_dash_throw_and_tether_states(self) -> None:
+        cases = (
+            (
+                melee.PlayerState(action=melee.Action.DASHING, on_ground=True),
+                AttackType.DASH_ATTACK,
+                True,
+            ),
+            (
+                melee.PlayerState(action=melee.Action.RUNNING, on_ground=True),
+                AttackType.DASH_ATTACK,
+                False,
+            ),
+            (
+                melee.PlayerState(action=melee.Action.GRAB_WAIT, on_ground=True),
+                AttackType.BTHROW,
+                True,
+            ),
+            (
+                melee.PlayerState(action=melee.Action.GRAB, on_ground=True),
+                AttackType.BTHROW,
+                False,
+            ),
+            (
+                melee.PlayerState(
+                    character=melee.Character.SAMUS,
+                    action=melee.Action.FALLING,
+                    on_ground=False,
+                ),
+                AttackType.Z_AIR,
+                True,
+            ),
+            (
+                melee.PlayerState(
+                    character=melee.Character.MARTH,
+                    action=melee.Action.FALLING,
+                    on_ground=False,
+                ),
+                AttackType.Z_AIR,
+                False,
+            ),
+        )
+        for player, attack_type, expected in cases:
+            with self.subTest(action=player.action, attack_type=attack_type):
+                controls, _ = self.controls(player)
+                self.assertEqual(
+                    controls.character_state.can_attack(attack_type),
+                    expected,
+                )
+
+    def test_legacy_attack_queries_are_deprecated_and_delegate(self) -> None:
+        player = melee.PlayerState(
+            character=melee.Character.MARTH,
+            action=melee.Action.FALLING,
+            on_ground=False,
+        )
+        controls, _ = self.controls(player)
+
+        method_overloads = get_overloads(CharacterState.can_attack)
+        function_overloads = get_overloads(can_attack)
+        self.assertEqual(
+            method_overloads[0].__deprecated__,
+            "Pass the intended AttackType to can_attack().",
+        )
+        self.assertEqual(
+            function_overloads[0].__deprecated__,
+            "Pass the intended AttackType to can_attack().",
+        )
+        self.assertTrue(controls.character_state.can_attack())
+        self.assertTrue(can_attack(player, self.frame_data))
+        with self.assertWarnsRegex(DeprecationWarning, "aerial"):
+            self.assertTrue(controls.character_state.can_air_attack())
+        with self.assertWarnsRegex(DeprecationWarning, "aerial"):
+            self.assertTrue(can_air_attack(player, self.frame_data))
+
+        grounded = melee.PlayerState(
+            character=melee.Character.MARTH,
+            action=melee.Action.STANDING,
+            on_ground=True,
+        )
+        grounded_controls, _ = self.controls(grounded)
+        with self.assertWarnsRegex(DeprecationWarning, "GRAB"):
+            self.assertTrue(grounded_controls.character_state.can_grab())
+        with self.assertWarnsRegex(DeprecationWarning, "GRAB"):
+            self.assertTrue(can_grab(grounded, self.frame_data))
 
     def test_unknown_animation_is_hashable_and_safe_to_classify(self) -> None:
         first = melee.UnknownAnimation(0x777)
