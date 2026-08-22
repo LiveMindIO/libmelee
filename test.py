@@ -1,4 +1,5 @@
 #!/usr/bin/python3
+import hashlib
 import inspect
 import math
 import sys
@@ -516,6 +517,56 @@ class SLPFile(unittest.TestCase):
                 self.assertEqual(set(slots), expected_slots)
                 action_ids = [action_id for values in slots.values() for action_id in values]
                 self.assertEqual(len(action_ids), len(set(action_ids)))
+
+    def test_special_action_ids_have_character_prefixed_aliases(self) -> None:
+        members = melee.Action.__members__
+
+        for character, slots in _SPECIAL_SLOT_ACTION_IDS.items():
+            prefix = f"{character.name}_"
+            for action_ids in slots.values():
+                for action_id in action_ids:
+                    aliases = {
+                        name: action
+                        for name, action in members.items()
+                        if name.startswith(prefix) and action.value == action_id
+                    }
+                    with self.subTest(character=character, action_id=action_id):
+                        self.assertTrue(aliases)
+                        self.assertTrue(
+                            all(
+                                action is melee.Action(action_id)
+                                for action in aliases.values()
+                            )
+                        )
+
+    def test_special_action_alias_catalog_matches_pinned_doldecomp_names(self) -> None:
+        prefixes = tuple(f"{character.name}_" for character in _SPECIAL_SLOT_ACTION_IDS)
+        aliases = sorted(
+            (name, int(action.value))
+            for name, action in melee.Action.__members__.items()
+            if name.startswith(prefixes)
+        )
+        payload = "\n".join(f"{name}={value}" for name, value in aliases).encode()
+
+        # DESNOTE(jbarber, 2026-08-21): This digest pins every source-derived
+        # name/value pair while keeping the already-large enum test concise.
+        # See https://github.com/doldecomp/melee/tree/68f92c47d697c98e80911a14218f74982915acc9/src/melee/ft/chara
+        self.assertEqual(len(aliases), 937)
+        self.assertEqual(
+            hashlib.sha256(payload).hexdigest(),
+            "b70c6916ec66809adfd7bd0b1c7203ccb7b8621a567279a4ed0ddcfe6e2fd269",
+        )
+
+    def test_special_action_alias_collisions_preserve_canonical_members(self) -> None:
+        raw_341 = melee.Action(341)
+        self.assertIs(raw_341, melee.Action.MEWTWO_SPECIAL_N_START)
+        self.assertIs(raw_341, melee.Action.FOX_SPECIAL_N_START)
+        self.assertEqual(raw_341.name, "LASER_GUN_PULL")
+
+        raw_369 = melee.Action(369)
+        self.assertIs(raw_369, melee.Action.DK_SPECIAL_N_START)
+        self.assertIs(raw_369, melee.Action.MARTH_SPECIAL_LW)
+        self.assertEqual(raw_369.name, "MARTH_COUNTER")
 
     def test_special_slot_resolution_filters_to_available_framedata(self) -> None:
         framedata = melee.FrameData()

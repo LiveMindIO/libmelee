@@ -112,10 +112,10 @@ _SMASH_CHARGE_ACTIONS: Final = frozenset(
 )
 _MEWTWO_SHADOW_BALL_CHARGE_ACTIONS: Final = frozenset(
     {
-        Action(341),
-        Action(342),
-        Action(346),
-        Action(347),
+        Action.MEWTWO_SPECIAL_N_START,
+        Action.MEWTWO_SPECIAL_N_LOOP,
+        Action.MEWTWO_SPECIAL_AIR_N_START,
+        Action.MEWTWO_SPECIAL_AIR_N_LOOP,
     }
 )
 

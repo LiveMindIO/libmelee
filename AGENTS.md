@@ -192,6 +192,12 @@ uv pip install --python .venv/bin/python .
 - `Action` explicitly covers Kirby's contiguous 398-543 Stone-end and copied
   neutral-special range. Values outside the declared enum remain
   `UnknownAnimation`; do not replace that boundary with an open-ended fallback.
+- Every special-action row in the pinned doldecomp MotionState audit also has a
+  duplicate-value `Action` alias prefixed by the actual `Character` enum name.
+  The suffix comes directly from the decomp identifier after stripping its
+  `ft..._MS_` prefix and converting CamelCase to uppercase snake case. Keep these
+  aliases after existing declarations: Python preserves the first member as the
+  identity and canonical `.name` returned by `Action(raw)`.
 - `SimpleControls` recognition and `CharacterState` classification use the same
   character-aware special-slot table. Shared `Action` names are character-relative,
   so do not flatten those IDs into the character-agnostic `_ALL_ATTACK_ACTIONS`.
