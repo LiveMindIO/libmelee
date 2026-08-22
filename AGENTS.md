@@ -200,6 +200,15 @@ uv pip install --python .venv/bin/python .
   `PLATFORM_DROP`. It rejects tumble, active air dodge, attacks, and helpless post-Up-B
   `DEAD_FALL` / `SPECIAL_FALL_*` states. A final-frame `KNEE_BEND` input used by
   Wavedash schedules next-frame air dodge but is not itself eligible.
+- `HorizontalStickReferenceAxis` is the strict `LEFT | RIGHT` subset returned by
+  `CharacterState.forward_axis()` / `backward_axis()` and required by
+  `SimpleControls.dodge()`, so strict typing rejects vertical roll directions.
+- `SimpleControls.dodge(HorizontalStickReferenceAxis)` sets absolute roll input for the next committed frame;
+  `air_dodge(axis, angle_degrees=0, magnitude=1)` uses the shared absolute angular
+  convention for arbitrary air-dodge vectors. Both default to digital L, accept
+  digital R, clear pending inputs only after their corresponding state query
+  succeeds, return whether input was applied, and never flush. The stick and
+  shoulder remain latched until the caller replaces or clears them later.
 - `can_jump()` accepts direct common ground jump paths and a remaining aerial
   jump from normal air, tumble, platform drop, and helpless FallSpecial states.
   It rejects `KNEE_BEND`, landing, shield stun, and hitlag.

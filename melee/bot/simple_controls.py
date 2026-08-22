@@ -5,7 +5,7 @@
 classification ("am I in hitstun?", "can a grab start?", "what motion state am I
 in?") lives on :class:`CharacterState`; :class:`SimpleControls` consults it via
 ``self._character_state`` and adds the controller writes that turn those checks
-into attacks, ledge get-ups, and taunts.
+into attacks, dodges, ledge get-ups, and taunts.
 
 Bots normally receive a :class:`SimpleControls` instance from the runtime on each
 ``game_tick`` call. For state-only reads prefer ``simple_controls.character_state``
@@ -58,6 +58,7 @@ from melee.bot.character_state import (
     AttackType,
     CharacterState,
     CharacterStatus,
+    HorizontalStickReferenceAxis,
     StickReferenceAxis,
     _actions_for_attack_type,
     _can_attack_by_combat_state,
@@ -100,6 +101,7 @@ _SMASH_MAX_CHARGE_FRAMES: Final = 60
 _NEUTRAL_B_MAX_CHARGE_FRAMES: Final = 120
 _AERIAL_COMMIT_FRAMES: Final = 8
 _TILT_TURN_MAGNITUDE: Final = 0.5
+_DODGE_BUTTONS: Final = frozenset({Button.BUTTON_L, Button.BUTTON_R})
 _DIGITAL_BUTTONS: Final = frozenset(Button) - {
     Button.BUTTON_MAIN,
     Button.BUTTON_C,
@@ -365,7 +367,7 @@ def _commit_frame_limit(hold: Hold) -> int:
 
 
 class SimpleControls:
-    """Apply common Melee attack inputs from a single game-state snapshot.
+    """Apply common Melee inputs from a single game-state snapshot.
 
     Construct a fresh instance each frame (the live-match handler does this
     automatically and passes it into ``BotProtocol.game_tick``). Inputs are
@@ -487,6 +489,86 @@ class SimpleControls:
         dash if held. Existing pending buttons and C-stick input are preserved.
         """
         self.tilt_stick(self._character_state.backward_axis(), 0.0)
+
+    def dodge(
+        self,
+        direction: HorizontalStickReferenceAxis,
+        *,
+        dodge_button: Button = Button.BUTTON_L,
+    ) -> bool:
+        """Apply left- or right-roll input for the next committed frame.
+
+        The pending stick and shoulder remain latched until a later frame replaces
+        or clears them; this method does not schedule an automatic release.
+
+        Args:
+            direction: Absolute :attr:`StickReferenceAxis.LEFT` or
+                :attr:`StickReferenceAxis.RIGHT` roll direction.
+            dodge_button: Digital L or R shoulder button.
+
+        Returns:
+            ``True`` if roll inputs were applied; ``False`` when the current
+            character state has no direct ground-dodge transition.
+
+        Raises:
+            ValueError: If ``direction`` is not left/right or ``dodge_button``
+                is not L/R.
+        """
+        if direction not in {StickReferenceAxis.LEFT, StickReferenceAxis.RIGHT}:
+            raise ValueError("direction must be StickReferenceAxis.LEFT or StickReferenceAxis.RIGHT")
+        self._validate_dodge_button(dodge_button)
+        if not self._character_state.can_dodge():
+            return False
+
+        self._controller.release_all()
+        self.tilt_stick(direction, 0.0)
+        self.press_button(dodge_button)
+        return True
+
+    def air_dodge(
+        self,
+        reference_axis: StickReferenceAxis,
+        angle_degrees: float = 0.0,
+        *,
+        magnitude: float = 1.0,
+        dodge_button: Button = Button.BUTTON_L,
+    ) -> bool:
+        """Apply directional air-dodge input for the next committed frame.
+
+        ``reference_axis``, ``angle_degrees``, and ``magnitude`` use the same
+        absolute stick-direction convention as :meth:`tilt_stick`.
+        The pending stick and shoulder remain latched until a later frame replaces
+        or clears them; this method does not schedule an automatic release.
+
+        Args:
+            reference_axis: Absolute controller/screen axis at zero degrees.
+            angle_degrees: Signed rotation; positive is counter-clockwise and
+                negative is clockwise.
+            magnitude: Request-space radial magnitude from ``0.0`` through
+                ``1.0``.
+            dodge_button: Digital L or R shoulder button.
+
+        Returns:
+            ``True`` if air-dodge inputs were applied; ``False`` when the current
+            character state cannot air dodge.
+
+        Raises:
+            ValueError: If ``dodge_button`` is not L/R, an angle or magnitude is
+                non-finite, or ``magnitude`` is outside ``[0, 1]``.
+        """
+        self._validate_dodge_button(dodge_button)
+        stick_x, stick_y = stick_coordinates(
+            reference_axis,
+            angle_degrees,
+            magnitude=magnitude,
+        )
+        if not self._character_state.can_airdodge():
+            return False
+
+        self._controller.release_all()
+        self._controller.tilt_analog(Button.BUTTON_MAIN, stick_x, stick_y)
+        self.press_button(dodge_button)
+        return True
 
     def down_left(self, angle_degrees: float, *, magnitude: float = 1.0, stick: Button = Button.BUTTON_MAIN) -> None:
         """Tilt from down toward left by an angle from 0 through 90 degrees."""
@@ -874,6 +956,12 @@ class SimpleControls:
         """Return the controlled port's ``PlayerState``, if present."""
         return self._game_state.players.get(self._port)
 
+    @staticmethod
+    def _validate_dodge_button(dodge_button: Button) -> None:
+        """Reject buttons that cannot initiate a dodge."""
+        if dodge_button not in _DODGE_BUTTONS:
+            raise ValueError("dodge_button must be Button.BUTTON_L or Button.BUTTON_R")
+
     def _can_ledge_recovery(self, player: LibPlayerState) -> bool:
         """Return whether ``ledge_recovery`` may act on ``player``."""
         if not isinstance(player.action, Action):
@@ -911,11 +999,7 @@ class SimpleControls:
 
     def _hold_matches(self, hold: Hold, attack_type: AttackType) -> bool:
         """Return whether ``hold`` belongs to this port and ``attack_type``."""
-        return (
-            hold.attack_type == attack_type
-            and hold.port == self._port
-            and not hold.released
-        )
+        return hold.attack_type == attack_type and hold.port == self._port and not hold.released
 
     def _continue_attack(self, hold: Hold) -> None | Hold | AttackFrameData:
         """Apply the next frame of inputs for an in-progress ``hold``.
@@ -968,11 +1052,7 @@ class SimpleControls:
     ) -> Hold:
         """Start a smash or chargeable neutral-B hold (``charging=True``)."""
         action = _primary_action(player.character, attack_type)
-        max_hold = (
-            _NEUTRAL_B_MAX_CHARGE_FRAMES
-            if attack_type is AttackType.NEUTRAL_B
-            else _SMASH_MAX_CHARGE_FRAMES
-        )
+        max_hold = _NEUTRAL_B_MAX_CHARGE_FRAMES if attack_type is AttackType.NEUTRAL_B else _SMASH_MAX_CHARGE_FRAMES
         hold = Hold(
             attack_type=attack_type,
             character=player.character,
@@ -1208,6 +1288,7 @@ __all__ = [
     "CharacterState",
     "CharacterStatus",
     "Hold",
+    "HorizontalStickReferenceAxis",
     "LedgeRecoveryOption",
     "SimpleControls",
     "StickReferenceAxis",

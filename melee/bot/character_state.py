@@ -18,7 +18,7 @@ compatibility and will be removed.
 from __future__ import annotations
 
 from enum import Enum, auto
-from typing import Final, overload
+from typing import Final, Literal, TypeAlias, overload
 
 from typing_extensions import deprecated
 
@@ -299,6 +299,12 @@ class StickReferenceAxis(Enum):
     RIGHT = 0.0
     DOWN = 270.0
     LEFT = 180.0
+
+
+HorizontalStickReferenceAxis: TypeAlias = Literal[
+    StickReferenceAxis.LEFT,
+    StickReferenceAxis.RIGHT,
+]
 
 
 class AttackType(Enum):
@@ -1028,7 +1034,7 @@ class CharacterState:
         """
         return self._game_state.players.get(self._port)
 
-    def forward_axis(self) -> StickReferenceAxis:
+    def forward_axis(self) -> HorizontalStickReferenceAxis:
         """Return the absolute horizontal axis the bound player faces.
 
         Defaults to right when the port is absent, matching
@@ -1039,7 +1045,7 @@ class CharacterState:
             return StickReferenceAxis.RIGHT
         return StickReferenceAxis.LEFT
 
-    def backward_axis(self) -> StickReferenceAxis:
+    def backward_axis(self) -> HorizontalStickReferenceAxis:
         """Return the absolute horizontal axis behind the bound player.
 
         Defaults to left when the port is absent, opposite the default forward
@@ -1747,6 +1753,7 @@ __all__ = [
     "AttackType",
     "CharacterState",
     "CharacterStatus",
+    "HorizontalStickReferenceAxis",
     "StickReferenceAxis",
     "attack_is_holdable",
     "can_air_attack",

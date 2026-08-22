@@ -4,6 +4,7 @@ import inspect
 import math
 import sys
 import unittest
+from typing import get_args, get_type_hints
 from uuid import UUID
 
 import melee
@@ -22,6 +23,7 @@ from melee.bot import (
     CrowdControl,
     Exit,
     Hold,
+    HorizontalStickReferenceAxis,
     InitiateDashMontage,
     InputMontage,
     LedgedashMontage,
@@ -1096,11 +1098,17 @@ class RecordingSimpleController:
         self.main_stick = (0.5, 0.5)
         self.c_stick = (0.5, 0.5)
         self.buttons = set()
+        self.shoulders = {
+            melee.Button.BUTTON_L: 0.0,
+            melee.Button.BUTTON_R: 0.0,
+        }
 
     def release_all(self) -> None:
         self.main_stick = (0.5, 0.5)
         self.c_stick = (0.5, 0.5)
         self.buttons.clear()
+        self.shoulders[melee.Button.BUTTON_L] = 0.0
+        self.shoulders[melee.Button.BUTTON_R] = 0.0
 
     def tilt_analog(self, button, x, y) -> None:
         if button is melee.Button.BUTTON_MAIN:
@@ -1143,6 +1151,24 @@ class SimpleControlsInputTests(unittest.TestCase):
                 self.assertIs(character_state.forward_axis(), forward)
                 self.assertIs(character_state.backward_axis(), backward)
 
+    def test_horizontal_axis_type_restricts_facing_and_dodge_apis(self) -> None:
+        self.assertEqual(
+            set(get_args(HorizontalStickReferenceAxis)),
+            {StickReferenceAxis.LEFT, StickReferenceAxis.RIGHT},
+        )
+        self.assertEqual(
+            get_type_hints(CharacterState.forward_axis)["return"],
+            HorizontalStickReferenceAxis,
+        )
+        self.assertEqual(
+            get_type_hints(CharacterState.backward_axis)["return"],
+            HorizontalStickReferenceAxis,
+        )
+        self.assertEqual(
+            get_type_hints(SimpleControls.dodge)["direction"],
+            HorizontalStickReferenceAxis,
+        )
+
     def test_character_state_axes_use_default_facing_when_port_is_absent(self) -> None:
         character_state = CharacterState(melee.GameState(), 1, frame_data=self.frame_data)
 
@@ -1171,6 +1197,132 @@ class SimpleControlsInputTests(unittest.TestCase):
                 self.assertEqual(controller.main_stick, smash_coordinates)
                 self.assertEqual(controller.c_stick, (0.0, 1.0))
                 self.assertEqual(controller.buttons, {melee.Button.BUTTON_A})
+
+    def test_dodge_applies_absolute_left_and_right_roll_inputs(self) -> None:
+        for direction, dodge_button, expected_stick in (
+            (StickReferenceAxis.LEFT, melee.Button.BUTTON_L, (0.0, 0.5)),
+            (StickReferenceAxis.RIGHT, melee.Button.BUTTON_R, (1.0, 0.5)),
+        ):
+            with self.subTest(direction=direction, dodge_button=dodge_button):
+                player = melee.PlayerState(action=melee.Action.STANDING, on_ground=True)
+                controls, controller = self.controls(player)
+                controller.c_stick = (1.0, 1.0)
+                controller.buttons.add(melee.Button.BUTTON_A)
+                controller.shoulders[melee.Button.BUTTON_L] = 0.75
+                controller.shoulders[melee.Button.BUTTON_R] = 0.25
+
+                self.assertTrue(controls.dodge(direction, dodge_button=dodge_button))
+                self.assertEqual(controller.main_stick, expected_stick)
+                self.assertEqual(controller.c_stick, (0.5, 0.5))
+                self.assertEqual(controller.buttons, {dodge_button})
+                self.assertEqual(
+                    controller.shoulders,
+                    {
+                        melee.Button.BUTTON_L: 0.0,
+                        melee.Button.BUTTON_R: 0.0,
+                    },
+                )
+
+    def test_dodge_rejects_invalid_direction_and_button(self) -> None:
+        player = melee.PlayerState(action=melee.Action.STANDING, on_ground=True)
+        controls, controller = self.controls(player)
+        controller.main_stick = (0.25, 0.75)
+        controller.c_stick = (0.75, 0.25)
+        controller.buttons.add(melee.Button.BUTTON_A)
+        controller.shoulders[melee.Button.BUTTON_R] = 0.25
+
+        for direction in (StickReferenceAxis.UP, StickReferenceAxis.DOWN):
+            with self.subTest(direction=direction), self.assertRaisesRegex(ValueError, "LEFT or"):
+                controls.dodge(direction)
+        with self.assertRaisesRegex(ValueError, "BUTTON_L or Button.BUTTON_R"):
+            controls.dodge(StickReferenceAxis.LEFT, dodge_button=melee.Button.BUTTON_A)
+        self.assertEqual(controller.main_stick, (0.25, 0.75))
+        self.assertEqual(controller.c_stick, (0.75, 0.25))
+        self.assertEqual(controller.buttons, {melee.Button.BUTTON_A})
+        self.assertEqual(controller.shoulders[melee.Button.BUTTON_R], 0.25)
+
+    def test_dodge_preserves_pending_inputs_when_state_is_ineligible(self) -> None:
+        player = melee.PlayerState(action=melee.Action.WALK_SLOW, on_ground=True)
+        controls, controller = self.controls(player)
+        controller.main_stick = (0.25, 0.75)
+        controller.c_stick = (0.75, 0.25)
+        controller.buttons.add(melee.Button.BUTTON_A)
+        controller.shoulders[melee.Button.BUTTON_L] = 0.75
+
+        self.assertFalse(controls.dodge(StickReferenceAxis.LEFT))
+        self.assertEqual(controller.main_stick, (0.25, 0.75))
+        self.assertEqual(controller.c_stick, (0.75, 0.25))
+        self.assertEqual(controller.buttons, {melee.Button.BUTTON_A})
+        self.assertEqual(controller.shoulders[melee.Button.BUTTON_L], 0.75)
+
+    def test_air_dodge_applies_arbitrary_stick_direction(self) -> None:
+        player = melee.PlayerState(action=melee.Action.FALLING, on_ground=False)
+        controls, controller = self.controls(player)
+        controller.c_stick = (1.0, 1.0)
+        controller.buttons.add(melee.Button.BUTTON_A)
+        controller.shoulders[melee.Button.BUTTON_L] = 0.75
+        controller.shoulders[melee.Button.BUTTON_R] = 0.25
+        expected = stick_coordinates(
+            StickReferenceAxis.DOWN,
+            -45.0,
+            magnitude=0.8,
+        )
+
+        self.assertTrue(
+            controls.air_dodge(
+                StickReferenceAxis.DOWN,
+                -45.0,
+                magnitude=0.8,
+                dodge_button=melee.Button.BUTTON_R,
+            )
+        )
+        self.assertAlmostEqual(controller.main_stick[0], expected[0])
+        self.assertAlmostEqual(controller.main_stick[1], expected[1])
+        self.assertEqual(controller.c_stick, (0.5, 0.5))
+        self.assertEqual(controller.buttons, {melee.Button.BUTTON_R})
+        self.assertEqual(
+            controller.shoulders,
+            {
+                melee.Button.BUTTON_L: 0.0,
+                melee.Button.BUTTON_R: 0.0,
+            },
+        )
+
+    def test_air_dodge_preserves_pending_inputs_when_state_is_ineligible(self) -> None:
+        player = melee.PlayerState(action=melee.Action.TUMBLING, on_ground=False)
+        controls, controller = self.controls(player)
+        controller.main_stick = (0.25, 0.75)
+        controller.c_stick = (0.75, 0.25)
+        controller.buttons.add(melee.Button.BUTTON_A)
+        controller.shoulders[melee.Button.BUTTON_R] = 0.25
+
+        self.assertFalse(controls.air_dodge(StickReferenceAxis.UP))
+        self.assertEqual(controller.main_stick, (0.25, 0.75))
+        self.assertEqual(controller.c_stick, (0.75, 0.25))
+        self.assertEqual(controller.buttons, {melee.Button.BUTTON_A})
+        self.assertEqual(controller.shoulders[melee.Button.BUTTON_R], 0.25)
+
+    def test_air_dodge_validates_stick_and_button_inputs(self) -> None:
+        player = melee.PlayerState(action=melee.Action.FALLING, on_ground=False)
+        controls, controller = self.controls(player)
+        controller.main_stick = (0.25, 0.75)
+        controller.c_stick = (0.75, 0.25)
+        controller.buttons.add(melee.Button.BUTTON_A)
+        controller.shoulders[melee.Button.BUTTON_L] = 0.75
+
+        with self.assertRaisesRegex(ValueError, "angle_degrees must be finite"):
+            controls.air_dodge(StickReferenceAxis.UP, math.nan)
+        with self.assertRaisesRegex(ValueError, "magnitude must be between"):
+            controls.air_dodge(StickReferenceAxis.UP, magnitude=1.01)
+        with self.assertRaisesRegex(ValueError, "BUTTON_L or Button.BUTTON_R"):
+            controls.air_dodge(
+                StickReferenceAxis.UP,
+                dodge_button=melee.Button.BUTTON_Z,
+            )
+        self.assertEqual(controller.main_stick, (0.25, 0.75))
+        self.assertEqual(controller.c_stick, (0.75, 0.25))
+        self.assertEqual(controller.buttons, {melee.Button.BUTTON_A})
+        self.assertEqual(controller.shoulders[melee.Button.BUTTON_L], 0.75)
 
     def test_directional_stick_helpers_rotate_toward_named_axis(self) -> None:
         cases = (

@@ -124,6 +124,11 @@ emulator, game, hardware, or physical-gate outputs. Exact downstream output is
 outside `stick_coordinates`' contract; the helper performs no gate calibration
 or downstream-processing emulation.
 
+`HorizontalStickReferenceAxis` is the strict `LEFT | RIGHT` subset used by
+horizontal-only APIs. `CharacterState.forward_axis()` and `backward_axis()`
+return this type, and `SimpleControls.dodge()` requires it, so strict type
+checking rejects `UP` and `DOWN` before runtime.
+
 ### Note on Controller Input
 Dolphin will accept whatever your last button input was each frame. So if you press A, and then release A on the same frame, only the last action will matter and A will never be seen as pressed to the game.
 
@@ -184,6 +189,14 @@ remaining engine windows are not exposed by `PlayerState`.
 `CharacterState.can_airdodge()` accepts normal `JUMPING_*` / `FALLING*` actions
 plus `PLATFORM_DROP`, and rejects active attacks, tumble, `AIRDODGE`, and helpless post-Up-B
 `DEAD_FALL` / `SPECIAL_FALL_*` states.
+`SimpleControls.dodge(HorizontalStickReferenceAxis)` sets absolute roll input for
+the next committed frame when `can_dodge()` succeeds.
+`SimpleControls.air_dodge(axis, angle_degrees=0, magnitude=1)` sets the
+corresponding absolute main-stick vector when `can_airdodge()` succeeds. Both
+reset pending inputs before pressing digital L by
+default, optionally accept digital R, return whether input was applied, and never
+flush the controller. Their stick and shoulder remain latched until the caller
+replaces or clears them on a later frame.
 
 For a short hop, press X or Y and release it before the character's
 `Action.KNEE_BEND` jump-squat animation ends. A character with `N` jump-squat
