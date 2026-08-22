@@ -16,6 +16,7 @@ from melee.bot import (
     BotProtocol,
     CharacterSelection,
     CharacterState,
+    CharacterStatus,
     Continue,
     CrowdControl,
     Exit,
@@ -1275,6 +1276,23 @@ class SimpleControlsInputTests(unittest.TestCase):
                 with self.subTest(action_id=action_id, attack_type=attack_type):
                     action = controls._current_attack_action(player, attack_type)
                     self.assertEqual(action is not None, action_id in slot_ids)
+
+    def test_mewtwo_special_actions_classify_as_attacking(self) -> None:
+        grounded_action_ids = frozenset((*range(341, 346), 351, 353, 354, 355, 359))
+
+        for action_id in range(341, 361):
+            with self.subTest(action_id=action_id):
+                player = melee.PlayerState(
+                    character=melee.Character.MEWTWO,
+                    action=melee.Action(action_id),
+                    on_ground=action_id in grounded_action_ids,
+                )
+                controls, _ = self.controls(player)
+
+                self.assertIs(
+                    controls.character_state.get_state(),
+                    CharacterStatus.Attacking,
+                )
 
     def test_deprecated_absolute_special_aliases_remain_compatible(self) -> None:
         self.assertIs(AttackType.LEFT_B, AttackType.LSPECIAL)

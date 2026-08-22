@@ -188,6 +188,9 @@ uv pip install --python .venv/bin/python .
   names are character-relative aliases. Framedata special-slot queries likewise
   use authoritative raw IDs for Luigi and Mewtwo, filtered to rows present in
   `framedata.csv`; do not restore label-order inference for those characters.
+  Doldecomp identifies all 20 Mewtwo IDs as SpecialN/S/Hi/Lw motion states, so
+  `CharacterState` classifies them as attacking through a character-aware check.
+  Do not add the entire range to the character-agnostic `_ALL_ATTACK_ACTIONS`.
 - `UnknownAnimation` is an immutable, hashable value object so parser-preserved
   unknown IDs are safe in state-classification set membership. `FrameData.is_bmove`
   returns `False` for these values rather than relying on a nonexistent enum member.

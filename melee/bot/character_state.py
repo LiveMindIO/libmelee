@@ -660,9 +660,10 @@ _ACTIONS_FOR_TYPE: Final = {
 }
 
 # DESNOTE(jbarber, 2026-08-21): Action names are aliases for character-relative
-# raw IDs. Mewtwo's 341-360 range does not follow the Fox/Marth names exposed by
-# Action, so generic named sets misclassify Shadow Ball, Confusion, Teleport, and
-# Disable. Keep these IDs aligned with bot/data/ssbm_action_state.json.
+# raw IDs. Doldecomp maps Mewtwo's entire 341-360 range to SpecialN/S/Hi/Lw, so
+# classify it with Mewtwo's identity rather than adding every ID to the global
+# set and changing other fighters' meanings. See
+# https://github.com/doldecomp/melee/blob/master/src/melee/ft/chara/ftMewtwo/ftMt_Init.c
 _MEWTWO_SPECIAL_ACTIONS: Final[dict[AttackType, frozenset[Action]]] = {
     AttackType.NEUTRAL_B: _action_id_set(341, 350),
     AttackType.SIDE_B: _action_id_set(351, 352),
@@ -684,6 +685,22 @@ def _actions_for_attack_type(
 _ALL_ATTACK_ACTIONS: Final = frozenset(
     action for actions in _ACTIONS_FOR_TYPE.values() for action in actions
 )
+_MEWTWO_ALL_SPECIAL_ACTIONS: Final[frozenset[Action]] = frozenset(
+    action for actions in _MEWTWO_SPECIAL_ACTIONS.values() for action in actions
+)
+
+
+def _is_attack_action(
+    character: Character,
+    action: Action,
+    frame_data: FrameData,
+) -> bool:
+    """Return whether a character-relative action is an attack or special."""
+    return (
+        action in _ALL_ATTACK_ACTIONS
+        or (character is Character.MEWTWO and action in _MEWTWO_ALL_SPECIAL_ACTIONS)
+        or frame_data.is_attack(character, action)
+    )
 
 
 class CharacterState:
@@ -1065,9 +1082,10 @@ def get_state(player: LibPlayerState, frame_data: FrameData) -> CharacterStatus:
         return CharacterStatus.Dodging
     if isinstance(player.action, Action) and player.action in _GRABBING_ENEMY_ACTIONS:
         return CharacterStatus.GrabbingEnemy
-    if isinstance(player.action, Action) and (
-        player.action in _ALL_ATTACK_ACTIONS
-        or frame_data.is_attack(player.character, player.action)
+    if isinstance(player.action, Action) and _is_attack_action(
+        player.character,
+        player.action,
+        frame_data,
     ):
         return CharacterStatus.Attacking
     if player.on_ground and isinstance(player.action, Action):
@@ -1257,9 +1275,7 @@ def _stale_hitstun_is_actionable(player: LibPlayerState, frame_data: FrameData) 
         return True
     if action in _ACTIONABLE_AIR:
         return True
-    if action in _ALL_ATTACK_ACTIONS:
-        return True
-    if frame_data.is_attack(player.character, action):
+    if _is_attack_action(player.character, action, frame_data):
         return True
     if frame_data.is_shield(action):
         return True
