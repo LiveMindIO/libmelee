@@ -154,10 +154,12 @@ uv pip install --python .venv/bin/python .
   `LTILT`/`RTILT`, `LSMASH`/`RSMASH`, and `LSPECIAL`/`RSPECIAL` request an absolute
   screen direction. Aerials remain facing-relative because fair/back-air behavior
   is character-relative; there are no left/right aerial helpers.
-- Ground tilts use half-strength cardinal input (`0.25`/`0.75` request
-  coordinates), not full deflection. NTSC 1.02 checks smashes before tilts and
-  uses thresholds `0.25` for tilts, `0.8` for horizontal smashes, and `0.6625`
-  for vertical smashes. Keep tilt inputs inside that tilt-only range.
+- Ground tilts use a `0.35` centered cardinal magnitude (`0.325`/`0.675`
+  request coordinates), not full deflection. NTSC 1.02 checks smashes before
+  tilts and independently uses `+0.6625` for up-smash and `-0.6625` for
+  down-smash, in addition to `+/-0.8` horizontal smash and `+/-0.25` tilt
+  thresholds. The chosen magnitude stays strictly inside the tilt-only range
+  after Dolphin quantization with analog correction enabled or disabled.
 - `LEFT_B`/`RIGHT_B` are deprecated aliases for `LSPECIAL`/`RSPECIAL`; new bots
   must use the canonical special names.
 - Directional aerials use the C-stick without also pressing `A` and horizontal

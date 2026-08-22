@@ -146,11 +146,16 @@ and `LSPECIAL`/`RSPECIAL` when a bot should attack toward a screen direction wit
 translating through `PlayerState.facing`. Existing `FTILT`, `FSMASH`, and
 `SIDE_B` requests remain facing-relative. Aerials intentionally provide only
 facing-relative `FAIR`/`BAIR`, since their move behavior depends on character
-facing. Ground tilts use half-strength cardinal input (`0.25`/`0.75` request
-coordinates), while smashes use full deflection. This keeps tilts above Melee's
-`0.25` tilt threshold and below its `0.8` horizontal and `0.6625` vertical smash
-thresholds; standing input handling checks smashes before tilts. Directional
-aerial attacks are issued through the C-stick only while
+facing. Ground tilts use a `0.35` centered cardinal magnitude (`0.325`/`0.675`
+request coordinates), while smashes use full deflection. With default analog
+correction, the game observes `-0.35`/`+0.35`; without correction, Dolphin's pipe
+quantization yields approximately `-0.5625`/`+0.55`. Both remain strictly above
+the directional `-0.25`/`+0.25` tilt thresholds while staying inside the
+`-0.8`/`+0.8` horizontal, `+0.6625` up-smash, and `-0.6625` down-smash
+boundaries. These are integer-quantized raw-stick values with at least eight raw
+units of margin, not values placed directly on a floating-point threshold.
+Standing input handling checks smashes before tilts. Directional aerial attacks
+are issued through the C-stick only while
 retaining matching horizontal main-stick drift. `NAIR` uses `A` with neutral
 sticks because Melee has no neutral C-stick aerial input. Aerial requests start
 only from actionable air states. Grounded states, including `KNEE_BEND` jump

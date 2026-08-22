@@ -100,7 +100,8 @@ _INPUT_COMMIT_FRAMES: Final = 12
 _SMASH_MAX_CHARGE_FRAMES: Final = 60
 _NEUTRAL_B_MAX_CHARGE_FRAMES: Final = 120
 _AERIAL_COMMIT_FRAMES: Final = 8
-_TILT_STICK_MAGNITUDE: Final = 0.5
+_TILT_ATTACK_MAGNITUDE: Final = 0.35
+_TILT_TURN_MAGNITUDE: Final = 0.5
 _DODGE_BUTTONS: Final = frozenset({Button.BUTTON_L, Button.BUTTON_R})
 _DIGITAL_BUTTONS: Final = frozenset(Button) - {
     Button.BUTTON_MAIN,
@@ -479,7 +480,7 @@ class SimpleControls:
         self.tilt_stick(
             self._character_state.backward_axis(),
             0.0,
-            magnitude=_TILT_STICK_MAGNITUDE,
+            magnitude=_TILT_TURN_MAGNITUDE,
         )
 
     def smash_turn(self) -> None:
@@ -1231,14 +1232,20 @@ class SimpleControls:
         """Return main-stick ``(x, y)`` for ``attack_type`` using ``player.facing``."""
         toward = 1.0 if player.facing else 0.0
         away = 0.0 if player.facing else 1.0
-        tilt_low = (1.0 - _TILT_STICK_MAGNITUDE) / 2.0
+        tilt_low = (1.0 - _TILT_ATTACK_MAGNITUDE) / 2.0
         tilt_high = 1.0 - tilt_low
         tilt_toward = tilt_high if player.facing else tilt_low
 
         # DESNOTE(jbarber, 2026-08-22): Standing IASA checks smashes before tilts.
-        # NTSC 1.02 PlCo.dat thresholds are 0.25 for tilts, 0.8 for horizontal
-        # smashes, and 0.6625 for vertical smashes, so half strength is safely
-        # within the tilt-only range. See https://github.com/doldecomp/melee/blob/a983c0f9cd41d4a46001c493a1929891ac80f9ab/src/melee/ft/chara/ftCommon/ftCo_Wait.c#L43-L56
+        # NTSC 1.02 PlCo.dat uses +/-0.25 tilt thresholds, +/-0.8 horizontal
+        # smash thresholds, +0.6625 for up-smash, and -0.6625 for down-smash.
+        # A 0.35 centered magnitude stays strictly inside that tilt-only range
+        # after Dolphin quantization with analog correction enabled (+/-28 raw)
+        # or disabled (-45/+44 raw); the nearest directional boundaries are
+        # +/-20 for tilts and conservatively +/-53 for vertical smashes.
+        # See https://github.com/doldecomp/melee/blob/a983c0f9cd41d4a46001c493a1929891ac80f9ab/src/melee/ft/chara/ftCommon/ftCo_Wait.c#L43-L56
+        # https://github.com/doldecomp/melee/blob/a983c0f9cd41d4a46001c493a1929891ac80f9ab/src/melee/ft/chara/ftCommon/ftCo_AttackHi4.c#L25-L35
+        # https://github.com/doldecomp/melee/blob/a983c0f9cd41d4a46001c493a1929891ac80f9ab/src/melee/ft/chara/ftCommon/ftCo_AttackLw4.c#L22-L31
         # and https://github.com/barrelofsulfuricacid-gif/ultra-performance-platform-fighter/blob/4012e3ed7c9e5c05f95f25f1beaf407d6d3b21ab/tools/import_ssbm_common_data.py#L108-L116
         mapping: dict[AttackType, tuple[float, float]] = {
             AttackType.JAB: (0.5, 0.5),
