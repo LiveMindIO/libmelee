@@ -151,7 +151,12 @@ processing aerial inputs after jump squat ends.
 `CharacterState.can_attack(attack_type)` uses the same move-specific eligibility
 as `SimpleControls.attack()`, including ground/air compatibility, throws, tether
 Z-air, and jump-cancel options. During `KNEE_BEND`, only `UP_B`, `USMASH`, and
-`GRAB` are accepted. The no-argument `can_attack()`, `can_air_attack()`, and
+`GRAB` are accepted. Common movement states use their own direct IASA rules:
+turning excludes neutral-B, dash permits horizontal smash and side-B, running
+permits dash attack and specials, and full crouch/crouch release permit normals
+plus up/down-special but not grab. Landing states remain locked. Throws start
+from `GRAB_WAIT`, not the pummel animation. Character-owned action states are
+reported conservatively. The no-argument `can_attack()`, `can_air_attack()`, and
 `can_grab()` forms are deprecated; pass the intended `AttackType` instead.
 
 `LEFT_B` and `RIGHT_B` remain deprecated aliases for `LSPECIAL` and `RSPECIAL`.
@@ -166,16 +171,18 @@ game-state snapshot when observed startup matters. An accepted release marks the
 token as `released` and records `release_frame`; do not reuse it.
 
 `CharacterState.can_jump()` (also available as `melee.bot.can_jump`) reports
-actionable ground jumps and remaining aerial jumps. It returns `True` throughout
-shield start, hold, reflect, stun, and release for every character except Yoshi,
-whose shield cannot be jumped out of.
+direct common ground jumps and remaining aerial jumps, including tumble,
+platform drop, and helpless `DEAD_FALL` / `SPECIAL_FALL_*`. It returns `True`
+throughout shield start, hold, reflect, and release for every character except
+Yoshi, whose shield cannot be jumped out of. Shield stun and hitlag are not
+actionable, and jump squat itself cannot begin another jump.
 
 `CharacterState.can_dodge()` reports direct ground Escape paths from standing,
 early dash, and eligible shield phases; shield stun and `KNEE_BEND` are excluded.
 Early-dash and shield-release results are action-level eligibility because their
 remaining engine windows are not exposed by `PlayerState`.
 `CharacterState.can_airdodge()` accepts normal `JUMPING_*` / `FALLING*` actions
-and rejects active attacks, tumble, `AIRDODGE`, and helpless post-Up-B
+plus `PLATFORM_DROP`, and rejects active attacks, tumble, `AIRDODGE`, and helpless post-Up-B
 `DEAD_FALL` / `SPECIAL_FALL_*` states.
 
 For a short hop, press X or Y and release it before the character's

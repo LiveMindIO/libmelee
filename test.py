@@ -148,9 +148,7 @@ class BotProtocolTests(unittest.TestCase):
     def test_strategy_metadata_and_exit_listener(self):
         strategy = RecordingStrategy(Exit("spacing lost"))
         exits = []
-        exit_listener = strategy.add_exit_listener(
-            lambda result: exits.append(result.reason)
-        )
+        exit_listener = strategy.add_exit_listener(lambda result: exits.append(result.reason))
 
         result = strategy.game_tick(None, None, None, None, None, None, None, None, None)
 
@@ -202,9 +200,7 @@ class BotProtocolTests(unittest.TestCase):
             strategy.get_montage_changed_listeners().clear()
 
         strategy.add_montage_changed_listener(clear_listeners)
-        strategy.add_montage_changed_listener(
-            lambda previous, current: calls.append("second")
-        )
+        strategy.add_montage_changed_listener(lambda previous, current: calls.append("second"))
 
         strategy.set_active_montage(montage)
         strategy.set_active_montage(None)
@@ -276,9 +272,7 @@ class BotProtocolTests(unittest.TestCase):
         second = RecordingMontage()
         changes = []
         strategy.set_active_montage(first)
-        bot.add_montage_changed_listener(
-            lambda previous, current: changes.append((previous, current))
-        )
+        bot.add_montage_changed_listener(lambda previous, current: changes.append((previous, current)))
 
         bot.set_active_strategy(strategy)
         strategy.set_active_montage(second)
@@ -293,9 +287,7 @@ class BotProtocolTests(unittest.TestCase):
         montage = RecordingMontage()
         observed_montages = []
         strategy.set_active_montage(montage)
-        bot.add_strategy_changed_listener(
-            lambda previous, current: observed_montages.append(bot.get_active_montage())
-        )
+        bot.add_strategy_changed_listener(lambda previous, current: observed_montages.append(bot.get_active_montage()))
 
         bot.set_active_strategy(strategy)
 
@@ -339,9 +331,7 @@ class BotProtocolTests(unittest.TestCase):
             bot.get_strategy_changed_listeners().clear()
 
         bot.add_strategy_changed_listener(clear_listeners)
-        bot.add_strategy_changed_listener(
-            lambda previous, current: calls.append("second")
-        )
+        bot.add_strategy_changed_listener(lambda previous, current: calls.append("second"))
 
         bot.set_active_strategy(strategy)
         bot.set_active_strategy(None)
@@ -437,13 +427,16 @@ class SLPFile(unittest.TestCase):
     Test cases that can be run automatically in the Github cloud environment
     In particular, there are no live dolphin tests here.
     """
+
     def test_read_file(self):
         """
         Load and parse SLP file
         """
-        console = melee.Console(is_dolphin=False,
-                                allow_old_version=False,
-                                path="test_artifacts/test_game_1.slp")
+        console = melee.Console(
+            is_dolphin=False,
+            allow_old_version=False,
+            path="test_artifacts/test_game_1.slp",
+        )
         self.assertTrue(console.connect())
         framecount = 0
         while True:
@@ -462,14 +455,15 @@ class SLPFile(unittest.TestCase):
                 self.assertEqual(int(gamestate.players[1].percent), 17)
                 self.assertEqual(gamestate.players[2].percent, 0)
 
-
     def test_read_old_file(self):
         """
         Load and parse old SLP file
         """
-        console = melee.Console(is_dolphin=False,
-                                allow_old_version=True,
-                                path="test_artifacts/test_game_2.slp")
+        console = melee.Console(
+            is_dolphin=False,
+            allow_old_version=True,
+            path="test_artifacts/test_game_2.slp",
+        )
         self.assertTrue(console.connect())
         framecount = 0
         while True:
@@ -538,19 +532,12 @@ class SLPFile(unittest.TestCase):
                     }
                     with self.subTest(character=character, action_id=action_id):
                         self.assertTrue(aliases)
-                        self.assertTrue(
-                            all(
-                                action is melee.Action(action_id)
-                                for action in aliases.values()
-                            )
-                        )
+                        self.assertTrue(all(action is melee.Action(action_id) for action in aliases.values()))
 
     def test_special_action_alias_catalog_matches_pinned_doldecomp_names(self) -> None:
         prefixes = tuple(f"{character.name}_" for character in _SPECIAL_SLOT_ACTION_IDS)
         aliases = sorted(
-            (name, int(action.value))
-            for name, action in melee.Action.__members__.items()
-            if name.startswith(prefixes)
+            (name, int(action.value)) for name, action in melee.Action.__members__.items() if name.startswith(prefixes)
         )
         payload = "\n".join(f"{name}={value}" for name, value in aliases).encode()
 
@@ -587,9 +574,10 @@ class SLPFile(unittest.TestCase):
                         expected_action_ids.append(action_id)
 
                 if not expected_action_ids:
-                    with self.subTest(
-                        character=character, special=special
-                    ), self.assertRaises(FramedataQueryError):
+                    with (
+                        self.subTest(character=character, special=special),
+                        self.assertRaises(FramedataQueryError),
+                    ):
                         get_framedata(int(character.value), special)
                     continue
                 with self.subTest(character=character, special=special):
@@ -644,6 +632,7 @@ class SLPFile(unittest.TestCase):
         self.assertEqual(len({action.value for action in actions}), 146)
         with self.assertRaises(ValueError):
             melee.Action(544)
+
 
 class MenuEventCostumeTests(unittest.TestCase):
     def test_offline_css_reads_port_one_costume(self) -> None:
@@ -806,6 +795,7 @@ class MenuEventCostumeTests(unittest.TestCase):
         payload = bytearray(0x50)
         payload[0x1:0x3] = (0x0108).to_bytes(2, byteorder="big")
         import struct
+
         struct.pack_into(">f", payload, 0x31, 9.0)
         struct.pack_into(">f", payload, 0x35, 8.0)
 
@@ -923,8 +913,18 @@ class AngularStickTests(unittest.TestCase):
     def test_representative_angles_and_magnitudes(self) -> None:
         cases = (
             (StickReferenceAxis.UP, 30.0, 0.5, (0.375, 0.5 + math.sqrt(3) / 8)),
-            (StickReferenceAxis.RIGHT, -60.0, 0.75, (0.6875, 0.5 - 0.75 * math.sqrt(3) / 4)),
-            (StickReferenceAxis.DOWN, 225.0, 0.4, (0.5 - math.sqrt(2) / 10, 0.5 + math.sqrt(2) / 10)),
+            (
+                StickReferenceAxis.RIGHT,
+                -60.0,
+                0.75,
+                (0.6875, 0.5 - 0.75 * math.sqrt(3) / 4),
+            ),
+            (
+                StickReferenceAxis.DOWN,
+                225.0,
+                0.4,
+                (0.5 - math.sqrt(2) / 10, 0.5 + math.sqrt(2) / 10),
+            ),
         )
         for axis, angle, magnitude, expected in cases:
             with self.subTest(axis=axis, angle=angle, magnitude=magnitude):
@@ -1188,13 +1188,22 @@ class SimpleControlsInputTests(unittest.TestCase):
             for angle_degrees in (0.0, 15.0, 90.0):
                 for magnitude in (0.0, 0.4, 1.0):
                     for stick in (melee.Button.BUTTON_MAIN, melee.Button.BUTTON_C):
-                        with self.subTest(method=method_name, angle=angle_degrees, magnitude=magnitude, stick=stick):
+                        with self.subTest(
+                            method=method_name,
+                            angle=angle_degrees,
+                            magnitude=magnitude,
+                            stick=stick,
+                        ):
                             controls, controller = self.controls(player)
                             method = getattr(controls, method_name)
 
                             method(angle_degrees, magnitude=magnitude, stick=stick)
 
-                            expected = stick_coordinates(reference_axis, sign * angle_degrees, magnitude=magnitude)
+                            expected = stick_coordinates(
+                                reference_axis,
+                                sign * angle_degrees,
+                                magnitude=magnitude,
+                            )
                             actual = controller.main_stick if stick is melee.Button.BUTTON_MAIN else controller.c_stick
                             other = controller.c_stick if stick is melee.Button.BUTTON_MAIN else controller.main_stick
                             self.assertEqual(actual, expected)
@@ -1217,13 +1226,15 @@ class SimpleControlsInputTests(unittest.TestCase):
         for method_name in method_names:
             method = getattr(controls, method_name)
             for angle_degrees in (math.nan, math.inf, -math.inf, -0.0001, 90.0001):
-                with self.subTest(method=method_name, angle=angle_degrees), self.assertRaisesRegex(
-                    ValueError, "between 0 and 90"
+                with (
+                    self.subTest(method=method_name, angle=angle_degrees),
+                    self.assertRaisesRegex(ValueError, "between 0 and 90"),
                 ):
                     method(angle_degrees)
             for magnitude in (math.nan, math.inf, -math.inf, -0.0001, 1.0001):
-                with self.subTest(method=method_name, magnitude=magnitude), self.assertRaisesRegex(
-                    ValueError, "magnitude must"
+                with (
+                    self.subTest(method=method_name, magnitude=magnitude),
+                    self.assertRaisesRegex(ValueError, "magnitude must"),
                 ):
                     method(15.0, magnitude=magnitude)
 
@@ -1411,7 +1422,7 @@ class SimpleControlsInputTests(unittest.TestCase):
             (
                 melee.PlayerState(action=melee.Action.RUNNING, on_ground=True),
                 AttackType.DASH_ATTACK,
-                False,
+                True,
             ),
             (
                 melee.PlayerState(action=melee.Action.GRAB_WAIT, on_ground=True),
@@ -1420,6 +1431,11 @@ class SimpleControlsInputTests(unittest.TestCase):
             ),
             (
                 melee.PlayerState(action=melee.Action.GRAB, on_ground=True),
+                AttackType.BTHROW,
+                False,
+            ),
+            (
+                melee.PlayerState(action=melee.Action.GRAB_PUMMEL, on_ground=True),
                 AttackType.BTHROW,
                 False,
             ),
@@ -1453,6 +1469,15 @@ class SimpleControlsInputTests(unittest.TestCase):
     def test_can_shield_requires_grounded_actionable_state(self) -> None:
         cases = (
             (melee.Action.STANDING, True, True),
+            (melee.Action.WALK_MIDDLE, True, True),
+            (melee.Action.TURNING, True, True),
+            (melee.Action.DASHING, True, True),
+            (melee.Action.RUNNING, True, True),
+            (melee.Action.CROUCHING, True, True),
+            (melee.Action.TURNING_RUN, True, False),
+            (melee.Action.RUN_BRAKE, True, False),
+            (melee.Action.LANDING, True, False),
+            (melee.Action.LANDING_SPECIAL, True, False),
             (melee.Action.FALLING, False, False),
             (melee.Action.KNEE_BEND, True, False),
             (melee.Action.NEUTRAL_ATTACK_1, True, False),
@@ -1467,19 +1492,146 @@ class SimpleControlsInputTests(unittest.TestCase):
                 controls, _ = self.controls(player)
                 self.assertEqual(controls.character_state.can_shield(), expected)
 
-    def test_tumbling_blocks_legacy_and_specific_attack_queries(self) -> None:
+    def test_common_actions_use_capability_specific_iasa_rules(self) -> None:
+        cases = (
+            (melee.Action.TURNING_RUN, AttackType.JAB, False),
+            (melee.Action.TURNING_RUN, AttackType.NEUTRAL_B, False),
+            (melee.Action.RUN_BRAKE, AttackType.JAB, False),
+            (melee.Action.RUN_BRAKE, AttackType.DOWN_B, False),
+            (melee.Action.LANDING, AttackType.JAB, False),
+            (melee.Action.NAIR_LANDING, AttackType.NAIR, False),
+            (melee.Action.KNEE_BEND, AttackType.JAB, False),
+            (melee.Action.TURNING, AttackType.JAB, True),
+            (melee.Action.TURNING, AttackType.NEUTRAL_B, False),
+            (melee.Action.TURNING, AttackType.SIDE_B, True),
+            (melee.Action.DASHING, AttackType.JAB, False),
+            (melee.Action.DASHING, AttackType.FSMASH, True),
+            (melee.Action.DASHING, AttackType.NEUTRAL_B, False),
+            (melee.Action.DASHING, AttackType.SIDE_B, True),
+            (melee.Action.RUNNING, AttackType.JAB, False),
+            (melee.Action.RUNNING, AttackType.DASH_ATTACK, True),
+            (melee.Action.RUNNING, AttackType.NEUTRAL_B, True),
+            (melee.Action.CROUCH_END, AttackType.JAB, True),
+            (melee.Action.CROUCH_END, AttackType.NEUTRAL_B, False),
+            (melee.Action.CROUCH_END, AttackType.UP_B, True),
+            (melee.Action.CROUCHING, AttackType.NEUTRAL_B, False),
+            (melee.Action.CROUCHING, AttackType.SIDE_B, False),
+            (melee.Action.CROUCHING, AttackType.UP_B, True),
+            (melee.Action.CROUCHING, AttackType.DOWN_B, True),
+            (melee.Action.CROUCHING, AttackType.GRAB, False),
+            (melee.Action.EDGE_TEETERING, AttackType.JAB, True),
+            (melee.Action.EDGE_TEETERING, AttackType.NEUTRAL_B, True),
+        )
+        for action, attack_type, expected in cases:
+            with self.subTest(action=action, attack_type=attack_type):
+                player = melee.PlayerState(action=action, on_ground=True)
+                self.assertEqual(
+                    can_attack(player, self.frame_data, attack_type),
+                    expected,
+                )
+
+    def test_non_attack_capabilities_use_their_own_action_sets(self) -> None:
+        cases = (
+            (melee.Action.TURNING_RUN, True, False, False, False),
+            (melee.Action.RUN_BRAKE, True, False, False, False),
+            (melee.Action.KNEE_BEND, False, True, False, False),
+            (melee.Action.LANDING, False, False, False, False),
+            (melee.Action.NAIR_LANDING, False, False, False, False),
+            (melee.Action.CROUCH_END, True, False, True, True),
+            (melee.Action.EDGE_TEETERING, True, True, True, True),
+        )
+        for action, jump, grab, shield, taunt in cases:
+            with self.subTest(action=action):
+                player = melee.PlayerState(action=action, on_ground=True)
+                controls, _ = self.controls(player)
+                self.assertEqual(controls.character_state.can_jump(), jump)
+                self.assertEqual(
+                    controls.character_state.can_attack(AttackType.GRAB),
+                    grab,
+                )
+                self.assertEqual(controls.character_state.can_shield(), shield)
+                self.assertEqual(controls.character_state.can_taunt(), taunt)
+
+    def test_full_crouch_attack_matrix_matches_squat_wait_iasa(self) -> None:
+        player = melee.PlayerState(action=melee.Action.CROUCHING, on_ground=True)
+        allowed = {
+            AttackType.JAB,
+            AttackType.FTILT,
+            AttackType.LTILT,
+            AttackType.RTILT,
+            AttackType.UTILT,
+            AttackType.DTILT,
+            AttackType.FSMASH,
+            AttackType.LSMASH,
+            AttackType.RSMASH,
+            AttackType.USMASH,
+            AttackType.DSMASH,
+            AttackType.UP_B,
+            AttackType.DOWN_B,
+        }
+
+        for attack_type in AttackType:
+            with self.subTest(attack_type=attack_type):
+                self.assertEqual(
+                    can_attack(player, self.frame_data, attack_type),
+                    attack_type in allowed,
+                )
+
+    def test_platform_drop_and_helpless_fall_capabilities(self) -> None:
+        platform_drop = melee.PlayerState(
+            character=melee.Character.SAMUS,
+            action=melee.Action.PLATFORM_DROP,
+            on_ground=False,
+            jumps_left=1,
+        )
+        self.assertTrue(can_attack(platform_drop, self.frame_data, AttackType.NAIR))
+        self.assertTrue(can_attack(platform_drop, self.frame_data, AttackType.DOWN_B))
+        self.assertTrue(can_attack(platform_drop, self.frame_data, AttackType.Z_AIR))
+        self.assertTrue(can_jump(platform_drop, self.frame_data))
+        self.assertTrue(can_airdodge(platform_drop, self.frame_data))
+
+        for action in (
+            melee.Action.DEAD_FALL,
+            melee.Action.SPECIAL_FALL_FORWARD,
+            melee.Action.SPECIAL_FALL_BACK,
+        ):
+            with self.subTest(action=action):
+                helpless = melee.PlayerState(
+                    action=action,
+                    on_ground=False,
+                    jumps_left=1,
+                )
+                self.assertTrue(can_jump(helpless, self.frame_data))
+                self.assertFalse(can_attack(helpless, self.frame_data, AttackType.NAIR))
+                self.assertFalse(can_airdodge(helpless, self.frame_data))
+
+    def test_tumbling_allows_aerial_offense_but_not_airdodge(self) -> None:
         player = melee.PlayerState(
             character=melee.Character.MARTH,
             action=melee.Action.TUMBLING,
             on_ground=False,
             hitstun_frames_left=0,
+            jumps_left=1,
         )
         controls, _ = self.controls(player)
 
         self.assertIs(controls.character_state.get_state(), CharacterStatus.Tumbling)
         self.assertFalse(controls.character_state.in_hitstun())
-        self.assertFalse(controls.character_state.can_attack())
-        self.assertFalse(controls.character_state.can_attack(AttackType.NAIR))
+        self.assertTrue(controls.character_state.can_attack())
+        self.assertTrue(controls.character_state.can_attack(AttackType.NAIR))
+        self.assertTrue(controls.character_state.can_attack(AttackType.DOWN_B))
+        self.assertTrue(controls.character_state.can_jump())
+        self.assertFalse(controls.character_state.can_airdodge())
+        self.assertFalse(controls.character_state.can_attack(AttackType.GRAB))
+
+        samus = melee.PlayerState(
+            character=melee.Character.SAMUS,
+            action=melee.Action.TUMBLING,
+            on_ground=False,
+            hitstun_frames_left=0,
+        )
+        samus_controls, _ = self.controls(samus)
+        self.assertTrue(samus_controls.character_state.can_attack(AttackType.Z_AIR))
 
         player.hitstun_frames_left = 2
         self.assertIs(controls.character_state.get_state(), CharacterStatus.Hitstun)
@@ -1530,6 +1682,7 @@ class SimpleControlsInputTests(unittest.TestCase):
             melee.Action.FALLING_AERIAL,
             melee.Action.FALLING_AERIAL_FORWARD,
             melee.Action.FALLING_AERIAL_BACKWARD,
+            melee.Action.PLATFORM_DROP,
         ):
             with self.subTest(action=action):
                 player = melee.PlayerState(action=action, on_ground=False)
@@ -1562,12 +1715,21 @@ class SimpleControlsInputTests(unittest.TestCase):
         absent = CharacterState(melee.GameState(), 1, frame_data=self.frame_data)
         self.assertFalse(absent.can_airdodge())
 
-    def test_airdodge_classifies_as_dodging(self) -> None:
-        player = melee.PlayerState(action=melee.Action.AIRDODGE, on_ground=False)
-        controls, _ = self.controls(player)
+    def test_airdodge_classifies_as_dodging_with_stale_hitstun(self) -> None:
+        for hitstun_frames_left in (0, 5):
+            with self.subTest(hitstun_frames_left=hitstun_frames_left):
+                player = melee.PlayerState(
+                    action=melee.Action.AIRDODGE,
+                    on_ground=False,
+                    hitstun_frames_left=hitstun_frames_left,
+                )
+                controls, _ = self.controls(player)
 
-        self.assertIs(controls.character_state.get_state(), CharacterStatus.Dodging)
-        self.assertTrue(controls.character_state.is_dodging())
+                self.assertIs(
+                    controls.character_state.get_state(),
+                    CharacterStatus.Dodging,
+                )
+                self.assertTrue(controls.character_state.is_dodging())
 
     def test_legacy_attack_queries_are_deprecated_and_delegate(self) -> None:
         player = melee.PlayerState(
@@ -1662,7 +1824,9 @@ class SimpleControlsInputTests(unittest.TestCase):
         self.assertIs(AttackType.LEFT_B, AttackType.LSPECIAL)
         self.assertIs(AttackType.RIGHT_B, AttackType.RSPECIAL)
 
-    def test_directional_aerials_use_only_c_stick_and_remain_facing_relative(self) -> None:
+    def test_directional_aerials_use_only_c_stick_and_remain_facing_relative(
+        self,
+    ) -> None:
         for facing in (False, True):
             toward = 1.0 if facing else 0.0
             away = 0.0 if facing else 1.0
@@ -1700,7 +1864,7 @@ class SimpleControlsInputTests(unittest.TestCase):
         self.assertEqual(controller.c_stick, (0.5, 0.5))
         self.assertEqual(controller.buttons, {melee.Button.BUTTON_A})
 
-    def test_can_jump_during_all_shield_phases_except_yoshi(self) -> None:
+    def test_can_jump_during_actionable_shield_phases_except_yoshi(self) -> None:
         shield_actions = (
             melee.Action.SHIELD,
             melee.Action.SHIELD_START,
@@ -1709,11 +1873,9 @@ class SimpleControlsInputTests(unittest.TestCase):
             melee.Action.SHIELD_RELEASE,
         )
         for action in shield_actions:
-            for character, expected in (
-                (melee.Character.MARTH, True),
-                (melee.Character.YOSHI, False),
-            ):
+            for character in (melee.Character.MARTH, melee.Character.YOSHI):
                 with self.subTest(action=action, character=character):
+                    expected = character is not melee.Character.YOSHI and action is not melee.Action.SHIELD_STUN
                     player = melee.PlayerState(
                         character=character,
                         action=action,
@@ -1722,6 +1884,55 @@ class SimpleControlsInputTests(unittest.TestCase):
                     controls, _ = self.controls(player)
                     self.assertEqual(can_jump(player, self.frame_data), expected)
                     self.assertEqual(controls.character_state.can_jump(), expected)
+
+        hitlag = melee.PlayerState(
+            character=melee.Character.MARTH,
+            action=melee.Action.SHIELD,
+            on_ground=True,
+            hitlag_left=1,
+        )
+        self.assertFalse(can_jump(hitlag, self.frame_data))
+
+        airborne = melee.PlayerState(
+            character=melee.Character.MARTH,
+            action=melee.Action.SHIELD,
+            on_ground=False,
+        )
+        self.assertFalse(can_jump(airborne, self.frame_data))
+
+    def test_grab_during_common_shield_phases(self) -> None:
+        for action, expected in (
+            (melee.Action.SHIELD_START, True),
+            (melee.Action.SHIELD, True),
+            (melee.Action.SHIELD_REFLECT, True),
+            (melee.Action.SHIELD_RELEASE, True),
+            (melee.Action.SHIELD_STUN, False),
+        ):
+            with self.subTest(action=action):
+                player = melee.PlayerState(action=action, on_ground=True)
+                self.assertEqual(
+                    can_attack(player, self.frame_data, AttackType.GRAB),
+                    expected,
+                )
+
+    def test_yoshi_guard_grab_excludes_guard_off(self) -> None:
+        for action_id, expected in (
+            (341, True),
+            (342, True),
+            (343, False),
+            (344, False),
+            (345, True),
+        ):
+            with self.subTest(action_id=action_id):
+                player = melee.PlayerState(
+                    character=melee.Character.YOSHI,
+                    action=melee.Action(action_id),
+                    on_ground=True,
+                )
+                self.assertEqual(
+                    can_attack(player, self.frame_data, AttackType.GRAB),
+                    expected,
+                )
 
     def test_can_jump_requires_actionable_state_and_remaining_air_jump(self) -> None:
         standing = melee.PlayerState(
@@ -1933,9 +2144,7 @@ class InputMontageTests(unittest.TestCase):
         abort = Abort("target moved out of range")
         montage = RecordingMontage(results=(abort,))
         observed = []
-        montage.add_abort_listener(
-            Listener.create("observer", lambda result: observed.append(("first", result)))
-        )
+        montage.add_abort_listener(Listener.create("observer", lambda result: observed.append(("first", result))))
         replacement = Listener.create(
             "observer",
             lambda result: observed.append(("replacement", result)),
@@ -1956,10 +2165,7 @@ class InputMontageTests(unittest.TestCase):
 
         self.assertEqual(
             captured.output,
-            [
-                "WARNING:melee.bot.input_montage:Input montage unsafe approach "
-                "aborted: spacing became unsafe"
-            ],
+            ["WARNING:melee.bot.input_montage:Input montage unsafe approach aborted: spacing became unsafe"],
         )
 
     def test_should_abort_prevents_input_tick(self):
@@ -1976,9 +2182,7 @@ class InputMontageTests(unittest.TestCase):
         calls = []
         montage = RecordingMontage(abort=True)
         montage.add_pre_tick_listener(
-            lambda controls, player_state, opponent_state, state: (
-                calls.append("listener") or PreTickResult.CONTINUE
-            )
+            lambda controls, player_state, opponent_state, state: calls.append("listener") or PreTickResult.CONTINUE
         )
 
         with self.assertWarnsRegex(
@@ -2037,9 +2241,7 @@ class InputMontageTests(unittest.TestCase):
         ignored = RecordingMontage(results=(True,))
         montage = RecordingMontage(results=(True,))
         self.assertIs(
-            montage.add_branch(unavailable)
-            .add_branch(selected)
-            .add_branch(ignored),
+            montage.add_branch(unavailable).add_branch(selected).add_branch(ignored),
             montage,
         )
 
@@ -2123,17 +2325,33 @@ class InputMontageTests(unittest.TestCase):
     def test_pre_tick_result_combines_by_precedence(self):
         for left, right, expected in (
             (PreTickResult.CONTINUE, PreTickResult.CONTINUE, PreTickResult.CONTINUE),
-            (PreTickResult.CONTINUE, PreTickResult.EARLY_COMPLETION, PreTickResult.EARLY_COMPLETION),
+            (
+                PreTickResult.CONTINUE,
+                PreTickResult.EARLY_COMPLETION,
+                PreTickResult.EARLY_COMPLETION,
+            ),
             (PreTickResult.CONTINUE, PreTickResult.ABORTED, PreTickResult.ABORTED),
-            (PreTickResult.EARLY_COMPLETION, PreTickResult.CONTINUE, PreTickResult.EARLY_COMPLETION),
+            (
+                PreTickResult.EARLY_COMPLETION,
+                PreTickResult.CONTINUE,
+                PreTickResult.EARLY_COMPLETION,
+            ),
             (
                 PreTickResult.EARLY_COMPLETION,
                 PreTickResult.EARLY_COMPLETION,
                 PreTickResult.EARLY_COMPLETION,
             ),
-            (PreTickResult.EARLY_COMPLETION, PreTickResult.ABORTED, PreTickResult.ABORTED),
+            (
+                PreTickResult.EARLY_COMPLETION,
+                PreTickResult.ABORTED,
+                PreTickResult.ABORTED,
+            ),
             (PreTickResult.ABORTED, PreTickResult.CONTINUE, PreTickResult.ABORTED),
-            (PreTickResult.ABORTED, PreTickResult.EARLY_COMPLETION, PreTickResult.ABORTED),
+            (
+                PreTickResult.ABORTED,
+                PreTickResult.EARLY_COMPLETION,
+                PreTickResult.ABORTED,
+            ),
             (PreTickResult.ABORTED, PreTickResult.ABORTED, PreTickResult.ABORTED),
         ):
             with self.subTest(left=left, right=right):
@@ -2175,9 +2393,7 @@ class InputMontageTests(unittest.TestCase):
         montage = RecordingMontage(results=(True,))
 
         def listener(name):
-            return lambda controls, player_state, opponent_state, state: (
-                calls.append(name) or PreTickResult.CONTINUE
-            )
+            return lambda controls, player_state, opponent_state, state: calls.append(name) or PreTickResult.CONTINUE
 
         montage.add_pre_tick_listener(Listener.create("shared", listener("first")))
         montage.add_pre_tick_listener(Listener.create("middle", listener("middle")))
@@ -2253,9 +2469,7 @@ class InputMontageTests(unittest.TestCase):
         montage = RecordingMontage(results=(False,))
         montage.add_pre_tick_listener(
             lambda controls, player_state, opponent_state, state: PreTickResult.EARLY_COMPLETION
-        ).add_pre_tick_listener(
-            lambda controls, player_state, opponent_state, state: PreTickResult.CONTINUE
-        )
+        ).add_pre_tick_listener(lambda controls, player_state, opponent_state, state: PreTickResult.CONTINUE)
 
         self.assertIs(self.tick(montage), True)
         self.assertEqual(montage.get_montage_state(), MontageState.Finished)
@@ -2324,12 +2538,8 @@ class InputMontageTests(unittest.TestCase):
                 calls.append((name, input_state)) or PreTickResult.CONTINUE
             )
 
-        montage.add_stateful_pre_tick_listener(
-            Listener.create("shared", listener("first"))
-        )
-        montage.add_stateful_pre_tick_listener(
-            Listener.create("shared", listener("replacement"))
-        )
+        montage.add_stateful_pre_tick_listener(Listener.create("shared", listener("first")))
+        montage.add_stateful_pre_tick_listener(Listener.create("shared", listener("replacement")))
 
         self.assertIs(self.tick(montage), True)
         self.assertEqual(calls, [("replacement", 10)])
@@ -2375,9 +2585,7 @@ class InputMontageTests(unittest.TestCase):
             frame_limit=2,
             initial_state=20,
             name="anonymous",
-            can_start=lambda controls, player_state, opponent_state, state: (
-                calls.append(("can_start", None)) or True
-            ),
+            can_start=lambda controls, player_state, opponent_state, state: calls.append(("can_start", None)) or True,
             on_tick=on_tick,
             should_abort=lambda controls, player_state, opponent_state, state, input_state: (
                 calls.append(("should_abort", input_state)) or None
@@ -2527,11 +2735,7 @@ class TechniqueMontageTests(unittest.TestCase):
         *,
         stick=melee.Button.BUTTON_MAIN,
     ):
-        requests = [
-            call
-            for call in calls
-            if call[0] == "tilt_stick" and call[4] is stick
-        ]
+        requests = [call for call in calls if call[0] == "tilt_stick" and call[4] is stick]
         self.assertTrue(requests)
         _, axis, angle, magnitude, _ = requests[-1]
         return stick_coordinates(axis, angle, magnitude=magnitude)
@@ -2601,7 +2805,9 @@ class TechniqueMontageTests(unittest.TestCase):
             game_state,
         )
 
-    def test_initiate_dash_neutralizes_before_smashing_in_current_movement_direction(self):
+    def test_initiate_dash_neutralizes_before_smashing_in_current_movement_direction(
+        self,
+    ):
         for direction, speed_ground_x_self in (
             (StickReferenceAxis.LEFT, -1.0),
             (StickReferenceAxis.RIGHT, 1.0),
@@ -2645,7 +2851,9 @@ class TechniqueMontageTests(unittest.TestCase):
                 self.assertEqual(self.controls.take_calls(), [])
                 self.assertEqual(montage.get_montage_state(), MontageState.Finished)
 
-    def test_initiate_dash_skips_neutral_when_stationary_or_moving_opposite_direction(self):
+    def test_initiate_dash_skips_neutral_when_stationary_or_moving_opposite_direction(
+        self,
+    ):
         for direction, speed_ground_x_self in (
             (StickReferenceAxis.LEFT, 0.0),
             (StickReferenceAxis.LEFT, 1.0),
@@ -2986,9 +3194,12 @@ class TechniqueMontageTests(unittest.TestCase):
 
     def test_smash_turn_jump_validates_jump_button(self):
         for jump_button in (melee.Button.BUTTON_A, melee.Button.BUTTON_L):
-            with self.subTest(jump_button=jump_button), self.assertRaisesRegex(
-                ValueError,
-                "jump_button",
+            with (
+                self.subTest(jump_button=jump_button),
+                self.assertRaisesRegex(
+                    ValueError,
+                    "jump_button",
+                ),
             ):
                 SmashTurnJumpMontage(jump_button=jump_button)
 
@@ -3283,9 +3494,12 @@ class TechniqueMontageTests(unittest.TestCase):
 
     def test_multishine_validates_shine_count(self):
         for shine_count in (True, 0, 1):
-            with self.subTest(shine_count=shine_count), self.assertRaisesRegex(
-                ValueError,
-                "shine_count",
+            with (
+                self.subTest(shine_count=shine_count),
+                self.assertRaisesRegex(
+                    ValueError,
+                    "shine_count",
+                ),
             ):
                 MultishineMontage(shine_count=shine_count)
 
@@ -3656,9 +3870,7 @@ class TechniqueMontageTests(unittest.TestCase):
                     ),
                     montage,
                 )
-                coordinates = self.requested_stick_coordinates(
-                    self.controls.take_calls()
-                )
+                coordinates = self.requested_stick_coordinates(self.controls.take_calls())
                 requested_component = coordinates[component_index] - 0.5
                 self.assertGreater(expected_sign * requested_component, 0.0)
 
@@ -4458,5 +4670,6 @@ class TechniqueMontageTests(unittest.TestCase):
                 )
                 self.assertEqual(self.controls.take_calls(), [("release_all",)])
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     unittest.main()
