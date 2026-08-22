@@ -20,6 +20,7 @@ from __future__ import annotations
 from enum import Enum, auto
 from typing import Final
 
+from melee.bot.framedata_query import _SPECIAL_SLOT_ACTION_IDS
 from melee.enums import Action, Character
 from melee.framedata import FrameData
 from melee.gamestate import GameState, UnknownAnimation
@@ -557,11 +558,6 @@ def _action_set(*names: str) -> frozenset[Action]:
     return frozenset(getattr(Action, name) for name in names)
 
 
-def _action_id_set(first: int, last: int) -> frozenset[Action]:
-    """Build a contiguous action set from raw character-specific IDs."""
-    return frozenset(Action(action_id) for action_id in range(first, last + 1))
-
-
 def _relative_attack_type(attack_type: AttackType) -> AttackType:
     """Resolve an absolute horizontal request to its facing-relative move."""
     if attack_type in {AttackType.LTILT, AttackType.RTILT}:
@@ -660,15 +656,27 @@ _ACTIONS_FOR_TYPE: Final = {
 }
 
 # DESNOTE(jbarber, 2026-08-21): Action names are aliases for character-relative
-# raw IDs. Doldecomp maps Mewtwo's entire 341-360 range to SpecialN/S/Hi/Lw, so
-# classify it with Mewtwo's identity rather than adding every ID to the global
-# set and changing other fighters' meanings. See
-# https://github.com/doldecomp/melee/blob/master/src/melee/ft/chara/ftMewtwo/ftMt_Init.c
-_MEWTWO_SPECIAL_ACTIONS: Final[dict[AttackType, frozenset[Action]]] = {
-    AttackType.NEUTRAL_B: _action_id_set(341, 350),
-    AttackType.SIDE_B: _action_id_set(351, 352),
-    AttackType.UP_B: _action_id_set(353, 358),
-    AttackType.DOWN_B: _action_id_set(359, 360),
+# raw IDs. Use each doldecomp MotionState table's move-ID assignment rather than
+# adding raw ranges to the global set and changing other fighters' meanings. See
+# https://github.com/doldecomp/melee/tree/68f92c47d697c98e80911a14218f74982915acc9/src/melee/ft/chara
+_SPECIAL_SLOT_FOR_ATTACK_TYPE: Final[dict[AttackType, str]] = {
+    AttackType.NEUTRAL_B: "neutral-special",
+    AttackType.SIDE_B: "side-special",
+    AttackType.UP_B: "up-special",
+    AttackType.DOWN_B: "down-special",
+}
+_CHARACTER_SPECIAL_ACTIONS: Final[dict[Character, dict[str, frozenset[Action]]]] = {
+    character: {
+        slot: frozenset(Action(action_id) for action_id in action_ids)
+        for slot, action_ids in slots.items()
+    }
+    for character, slots in _SPECIAL_SLOT_ACTION_IDS.items()
+}
+_CHARACTER_ALL_SPECIAL_ACTIONS: Final[dict[Character, frozenset[Action]]] = {
+    character: frozenset(
+        action for actions in slots.values() for action in actions
+    )
+    for character, slots in _CHARACTER_SPECIAL_ACTIONS.items()
 }
 
 
@@ -678,18 +686,15 @@ def _actions_for_attack_type(
 ) -> frozenset[Action]:
     """Return active actions for a move, including character-specific aliases."""
     relative_attack_type = _relative_attack_type(attack_type)
-    if character is Character.MEWTWO and relative_attack_type in _MEWTWO_SPECIAL_ACTIONS:
-        return _MEWTWO_SPECIAL_ACTIONS[relative_attack_type]
+    special_slot = _SPECIAL_SLOT_FOR_ATTACK_TYPE.get(relative_attack_type)
+    character_specials = _CHARACTER_SPECIAL_ACTIONS.get(character)
+    if special_slot is not None and character_specials is not None:
+        return character_specials[special_slot]
     return _ACTIONS_FOR_TYPE[relative_attack_type]
 
 _ALL_ATTACK_ACTIONS: Final = frozenset(
     action for actions in _ACTIONS_FOR_TYPE.values() for action in actions
 )
-_MEWTWO_ALL_SPECIAL_ACTIONS: Final[frozenset[Action]] = frozenset(
-    action for actions in _MEWTWO_SPECIAL_ACTIONS.values() for action in actions
-)
-
-
 def _is_attack_action(
     character: Character,
     action: Action,
@@ -698,7 +703,7 @@ def _is_attack_action(
     """Return whether a character-relative action is an attack or special."""
     return (
         action in _ALL_ATTACK_ACTIONS
-        or (character is Character.MEWTWO and action in _MEWTWO_ALL_SPECIAL_ACTIONS)
+        or action in _CHARACTER_ALL_SPECIAL_ACTIONS.get(character, ())
         or frame_data.is_attack(character, action)
     )
 

@@ -42,7 +42,11 @@ from melee.bot import (
     can_jump,
     stick_coordinates,
 )
-from melee.bot.framedata_query import get_framedata
+from melee.bot.framedata_query import (
+    _SPECIAL_SLOT_ACTION_IDS,
+    FramedataQueryError,
+    get_framedata,
+)
 from melee.bot.techskill.common import (
     GROUND_MOVEMENT_ACTIONS,
     WAVEDASH_MAX_ANGLE_DEGREES,
@@ -497,25 +501,92 @@ class SLPFile(unittest.TestCase):
             )
         )
 
-    def test_luigi_and_mewtwo_special_slots_use_character_action_ids(self) -> None:
-        cases = {
-            ("luigi", "neutral-special"): (341, 342),
-            ("luigi", "side-special"): (343, 346, 347, 348, 349, 351, 352, 353, 354),
-            ("luigi", "up-special"): (355, 356),
-            ("luigi", "down-special"): (357, 358),
-            ("mewtwo", "neutral-special"): (341, 342, 343, 344, 345, 346, 347, 348, 350),
-            ("mewtwo", "side-special"): (351, 352),
-            ("mewtwo", "up-special"): (353, 356, 357, 358),
-            ("mewtwo", "down-special"): (359, 360),
+    def test_special_slot_table_covers_framedata_roster(self) -> None:
+        framedata = melee.FrameData()
+        expected_slots = {
+            "neutral-special",
+            "side-special",
+            "up-special",
+            "down-special",
         }
 
-        for (character, special), expected_action_ids in cases.items():
-            with self.subTest(character=character, special=special):
-                result = get_framedata(character, special)
+        self.assertEqual(set(_SPECIAL_SLOT_ACTION_IDS), set(framedata.framedata))
+        for character, slots in _SPECIAL_SLOT_ACTION_IDS.items():
+            with self.subTest(character=character):
+                self.assertEqual(set(slots), expected_slots)
+                action_ids = [action_id for values in slots.values() for action_id in values]
+                self.assertEqual(len(action_ids), len(set(action_ids)))
+
+    def test_special_slot_resolution_filters_to_available_framedata(self) -> None:
+        framedata = melee.FrameData()
+
+        for character, slots in _SPECIAL_SLOT_ACTION_IDS.items():
+            available_actions = framedata.framedata[character]
+            for special, source_action_ids in slots.items():
+                expected_action_ids: list[int] = []
+                for action_id in source_action_ids:
+                    action = melee.Action(action_id)
+                    if action in available_actions:
+                        expected_action_ids.append(action_id)
+
+                if not expected_action_ids:
+                    with self.subTest(
+                        character=character, special=special
+                    ), self.assertRaises(FramedataQueryError):
+                        get_framedata(int(character.value), special)
+                    continue
+                with self.subTest(character=character, special=special):
+                    result = get_framedata(int(character.value), special)
+                    self.assertEqual(
+                        tuple(action.action_id for action in result.resolved_actions),
+                        tuple(expected_action_ids),
+                    )
+
+    def test_special_slot_table_preserves_doldecomp_edge_cases(self) -> None:
+        self.assertEqual(
+            _SPECIAL_SLOT_ACTION_IDS[melee.Character.PEACH],
+            {
+                "neutral-special": tuple(range(365, 369)),
+                "side-special": tuple(range(354, 361)),
+                "up-special": tuple(range(361, 365)),
+                "down-special": (352, 353),
+            },
+        )
+        self.assertEqual(
+            _SPECIAL_SLOT_ACTION_IDS[melee.Character.SAMUS]["down-special"],
+            (355, 356),
+        )
+        self.assertIn(
+            543,
+            _SPECIAL_SLOT_ACTION_IDS[melee.Character.KIRBY]["neutral-special"],
+        )
+        self.assertIn(
+            363,
+            _SPECIAL_SLOT_ACTION_IDS[melee.Character.GANONDORF]["down-special"],
+        )
+        for clone, original in (
+            (melee.Character.NANA, melee.Character.POPO),
+            (melee.Character.DOC, melee.Character.MARIO),
+            (melee.Character.FALCO, melee.Character.FOX),
+            (melee.Character.PICHU, melee.Character.PIKACHU),
+            (melee.Character.YLINK, melee.Character.LINK),
+            (melee.Character.GANONDORF, melee.Character.CPTFALCON),
+            (melee.Character.ROY, melee.Character.MARTH),
+        ):
+            with self.subTest(clone=clone, original=original):
                 self.assertEqual(
-                    tuple(action.action_id for action in result.resolved_actions),
-                    expected_action_ids,
+                    _SPECIAL_SLOT_ACTION_IDS[clone],
+                    _SPECIAL_SLOT_ACTION_IDS[original],
                 )
+
+    def test_action_enum_covers_all_kirby_copy_states(self) -> None:
+        actions = tuple(melee.Action(action_id) for action_id in range(398, 544))
+
+        self.assertEqual(actions[0], melee.Action.KIRBY_STONE_UNFORMING)
+        self.assertEqual(actions[-1], melee.Action.KIRBY_GIGA_BOWSER_FIRE_BREATH_AIR_END)
+        self.assertEqual(len({action.value for action in actions}), 146)
+        with self.assertRaises(ValueError):
+            melee.Action(544)
 
 class MenuEventCostumeTests(unittest.TestCase):
     def test_offline_css_reads_port_one_costume(self) -> None:
@@ -1258,41 +1329,47 @@ class SimpleControlsInputTests(unittest.TestCase):
         controls.character_state.get_state()
         controls.character_state.can_attack()
 
-    def test_mewtwo_special_actions_are_recognized_by_move_slot(self) -> None:
-        expected_ids = {
-            AttackType.NEUTRAL_B: frozenset(range(341, 351)),
-            AttackType.SIDE_B: frozenset(range(351, 353)),
-            AttackType.UP_B: frozenset(range(353, 359)),
-            AttackType.DOWN_B: frozenset(range(359, 361)),
+    def test_special_actions_are_recognized_by_character_move_slot(self) -> None:
+        attack_types = {
+            "neutral-special": AttackType.NEUTRAL_B,
+            "side-special": AttackType.SIDE_B,
+            "up-special": AttackType.UP_B,
+            "down-special": AttackType.DOWN_B,
         }
 
-        for action_id in range(341, 361):
-            player = melee.PlayerState(
-                character=melee.Character.MEWTWO,
-                action=melee.Action(action_id),
-            )
-            controls, _ = self.controls(player)
-            for attack_type, slot_ids in expected_ids.items():
-                with self.subTest(action_id=action_id, attack_type=attack_type):
-                    action = controls._current_attack_action(player, attack_type)
-                    self.assertEqual(action is not None, action_id in slot_ids)
+        for character, slots in _SPECIAL_SLOT_ACTION_IDS.items():
+            for expected_slot, action_ids in slots.items():
+                for action_id in action_ids:
+                    player = melee.PlayerState(
+                        character=character,
+                        action=melee.Action(action_id),
+                    )
+                    controls, _ = self.controls(player)
+                    for requested_slot, attack_type in attack_types.items():
+                        with self.subTest(
+                            character=character,
+                            action_id=action_id,
+                            requested_slot=requested_slot,
+                        ):
+                            action = controls._current_attack_action(player, attack_type)
+                            self.assertEqual(action is not None, requested_slot == expected_slot)
 
-    def test_mewtwo_special_actions_classify_as_attacking(self) -> None:
-        grounded_action_ids = frozenset((*range(341, 346), 351, 353, 354, 355, 359))
+    def test_special_actions_classify_as_combat_states(self) -> None:
+        for character, slots in _SPECIAL_SLOT_ACTION_IDS.items():
+            for action_ids in slots.values():
+                for action_id in action_ids:
+                    with self.subTest(character=character, action_id=action_id):
+                        player = melee.PlayerState(
+                            character=character,
+                            action=melee.Action(action_id),
+                            on_ground=True,
+                        )
+                        controls, _ = self.controls(player)
 
-        for action_id in range(341, 361):
-            with self.subTest(action_id=action_id):
-                player = melee.PlayerState(
-                    character=melee.Character.MEWTWO,
-                    action=melee.Action(action_id),
-                    on_ground=action_id in grounded_action_ids,
-                )
-                controls, _ = self.controls(player)
-
-                self.assertIs(
-                    controls.character_state.get_state(),
-                    CharacterStatus.Attacking,
-                )
+                        self.assertIn(
+                            controls.character_state.get_state(),
+                            {CharacterStatus.Attacking, CharacterStatus.Dodging},
+                        )
 
     def test_deprecated_absolute_special_aliases_remain_compatible(self) -> None:
         self.assertIs(AttackType.LEFT_B, AttackType.LSPECIAL)

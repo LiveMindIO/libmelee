@@ -184,13 +184,17 @@ uv pip install --python .venv/bin/python .
   named cardinal toward the second. Their angle is inclusive from 0 through 90
   degrees, their magnitude is inclusive from 0 through 1, and they support either
   the main stick or C-stick.
-- Mewtwo's special recognition uses raw action IDs 341-360 because shared `Action`
-  names are character-relative aliases. Framedata special-slot queries likewise
-  use authoritative raw IDs for Luigi and Mewtwo, filtered to rows present in
-  `framedata.csv`; do not restore label-order inference for those characters.
-  Doldecomp identifies all 20 Mewtwo IDs as SpecialN/S/Hi/Lw motion states, so
-  `CharacterState` classifies them as attacking through a character-aware check.
-  Do not add the entire range to the character-agnostic `_ALL_ATTACK_ACTIONS`.
+- Framedata special-slot queries use every playable fighter's authoritative
+  doldecomp `MotionState` table `FtMoveId_SpecialN/S/Hi/Lw` assignments, then
+  filter to rows available in `framedata.csv`. Do not restore formatted-label
+  grouping: slot blocks vary in order and range, and include exceptions such as
+  Kirby copy powers, Popo/Nana partner states, and Samus default-tagged states.
+- `Action` explicitly covers Kirby's contiguous 398-543 Stone-end and copied
+  neutral-special range. Values outside the declared enum remain
+  `UnknownAnimation`; do not replace that boundary with an open-ended fallback.
+- `SimpleControls` recognition and `CharacterState` classification use the same
+  character-aware special-slot table. Shared `Action` names are character-relative,
+  so do not flatten those IDs into the character-agnostic `_ALL_ATTACK_ACTIONS`.
 - `UnknownAnimation` is an immutable, hashable value object so parser-preserved
   unknown IDs are safe in state-classification set membership. `FrameData.is_bmove`
   returns `False` for these values rather than relying on a nonexistent enum member.
