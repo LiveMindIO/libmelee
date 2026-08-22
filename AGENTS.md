@@ -207,9 +207,9 @@ uv pip install --python .venv/bin/python .
   `DEAD_FALL` / `SPECIAL_FALL_*` states. A final-frame `KNEE_BEND` input used by
   Wavedash schedules next-frame air dodge but is not itself eligible.
 - `HorizontalStickReferenceAxis` is the strict `LEFT | RIGHT` subset returned by
-  `CharacterState.forward_axis()` / `backward_axis()` and required by
-  `SimpleControls.dodge()`, so strict typing rejects vertical roll directions.
-- `SimpleControls.dodge(HorizontalStickReferenceAxis)` sets absolute roll input for the next committed frame;
+  `CharacterState.forward_axis()` / `backward_axis()`. `GroundDodgeStickReferenceAxis`
+  additionally accepts `DOWN` for spot dodging while rejecting `UP`.
+- `SimpleControls.dodge(GroundDodgeStickReferenceAxis)` sets absolute roll or spot-dodge input for the next committed frame;
   `air_dodge(axis, angle_degrees=0, magnitude=1)` uses the shared absolute angular
   convention for arbitrary air-dodge vectors. Both default to digital L, accept
   digital R, clear pending inputs only after their corresponding state query

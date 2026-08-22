@@ -198,8 +198,9 @@ remaining engine windows are not exposed by `PlayerState`.
 `CharacterState.can_airdodge()` accepts normal `JUMPING_*` / `FALLING*` actions
 plus `PLATFORM_DROP`, and rejects active attacks, tumble, `AIRDODGE`, and helpless post-Up-B
 `DEAD_FALL` / `SPECIAL_FALL_*` states.
-`SimpleControls.dodge(HorizontalStickReferenceAxis)` sets absolute roll input for
-the next committed frame when `can_dodge()` succeeds.
+`SimpleControls.dodge(GroundDodgeStickReferenceAxis)` sets absolute roll input
+for `LEFT`/`RIGHT` or spot-dodge input for `DOWN` on the next committed frame
+when `can_dodge()` succeeds.
 `SimpleControls.air_dodge(axis, angle_degrees=0, magnitude=1)` sets the
 corresponding absolute main-stick vector when `can_airdodge()` succeeds. Both
 reset pending inputs before pressing digital L by
