@@ -201,8 +201,9 @@ plus `PLATFORM_DROP`, and rejects active attacks, tumble, `AIRDODGE`, and helple
 `SimpleControls.shield(strength)` applies analog shield pressure without replacing
 stick or non-shoulder button input. `0` always releases; positive values below
 Melee's first usable trigger step (`43/140`, after its inclusive `0.3` deadzone)
-clamp to that minimum, while values through `1` are preserved. Positive requests
-act only when shielding can start or continue.
+clamp to exported `MIN_SHIELD`, while values through `1` are preserved. Full
+depression also presses digital L; positive requests act only when shielding can
+start or continue.
 `SimpleControls.dodge(GroundDodgeStickReferenceAxis)` sets absolute roll input
 for `LEFT`/`RIGHT` or spot-dodge input for `DOWN` on the next committed frame
 when `can_dodge()` succeeds.

@@ -199,8 +199,9 @@ uv pip install --python .venv/bin/python .
   landing states; an airborne shoulder input is an air dodge, not a shield.
 - `SimpleControls.shield(strength)` uses analog L while clearing digital L/R and
   analog R so the requested pressure is authoritative. Zero always releases;
-  positive values clamp to Melee's first usable trigger step (`43/140`) through
-  `1.0`, and act only when Guard can start or is already active (including stun).
+  positive values clamp to exported `MIN_SHIELD` (`43/140`) through `1.0`, and act
+  only when Guard can start or is already active (including stun). Full depression
+  additionally presses digital L to represent the trigger click.
 - `can_dodge()` models direct ground Escape paths from standing, early dash, and
   eligible shield phases. Shield stun and `KNEE_BEND` are false; dash and shield
   release remain action-level answers because their hidden engine windows are not

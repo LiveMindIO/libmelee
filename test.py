@@ -30,6 +30,7 @@ from melee.bot import (
     LedgedashMontage,
     Listener,
     Listeners,
+    MIN_SHIELD,
     MontageState,
     MultishineMontage,
     PerfectPivotMontage,
@@ -1215,8 +1216,8 @@ class SimpleControlsInputTests(unittest.TestCase):
 
     def test_shield_clamps_positive_strength_to_first_usable_trigger_step(self) -> None:
         for strength, expected in (
-            (0.0001, 43.0 / 140.0),
-            (0.3, 43.0 / 140.0),
+            (0.0001, MIN_SHIELD),
+            (0.3, MIN_SHIELD),
             (0.5, 0.5),
             (1.0, 1.0),
         ):
@@ -1237,9 +1238,15 @@ class SimpleControlsInputTests(unittest.TestCase):
                 self.assertTrue(controls.shield(strength))
                 self.assertEqual(controller.main_stick, (0.25, 0.75))
                 self.assertEqual(controller.c_stick, (0.75, 0.25))
-                self.assertEqual(controller.buttons, {melee.Button.BUTTON_A})
+                expected_buttons = {melee.Button.BUTTON_A}
+                if strength == 1.0:
+                    expected_buttons.add(melee.Button.BUTTON_L)
+                self.assertEqual(controller.buttons, expected_buttons)
                 self.assertEqual(controller.shoulders[melee.Button.BUTTON_L], expected)
                 self.assertEqual(controller.shoulders[melee.Button.BUTTON_R], 0.0)
+
+    def test_min_shield_is_exported_from_bot_api(self) -> None:
+        self.assertEqual(MIN_SHIELD, 43.0 / 140.0)
 
     def test_shield_zero_releases_in_any_character_state(self) -> None:
         player = melee.PlayerState(action=melee.Action.FALLING, on_ground=False)

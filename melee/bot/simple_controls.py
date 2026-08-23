@@ -111,7 +111,7 @@ _DODGE_BUTTONS: Final = frozenset({Button.BUTTON_L, Button.BUTTON_R})
 # https://github.com/doldecomp/melee/blob/a983c0f9cd41d4a46001c493a1929891ac80f9ab/src/melee/gm/gmmain.c#L59-L72
 # https://github.com/doldecomp/melee/blob/a983c0f9cd41d4a46001c493a1929891ac80f9ab/src/melee/ft/types.dox#L35-L45
 # https://github.com/doldecomp/melee/blob/a983c0f9cd41d4a46001c493a1929891ac80f9ab/src/melee/ft/fighter.c#L1831-L1885
-_MIN_SHIELD_TRIGGER: Final = 43.0 / 140.0
+MIN_SHIELD: Final = 43.0 / 140.0
 _DIGITAL_BUTTONS: Final = frozenset(Button) - {
     Button.BUTTON_MAIN,
     Button.BUTTON_C,
@@ -505,9 +505,10 @@ class SimpleControls:
 
         ``0.0`` always releases both shoulder inputs. Positive strengths below
         Melee's first usable analog-trigger step are raised to that minimum;
-        larger values are preserved through ``1.0``. Digital L/R are released
-        because either one would force the effective trigger to full strength.
-        Main-stick, C-stick, and non-shoulder button inputs are preserved.
+        larger values are preserved through ``1.0``. Below full depression,
+        digital L/R are released because either would force full strength. At
+        ``1.0``, digital L is pressed as the trigger click. Main-stick, C-stick,
+        and non-shoulder button inputs are preserved.
 
         Returns:
             ``True`` when shoulder inputs were applied. Positive requests return
@@ -532,8 +533,10 @@ class SimpleControls:
         if strength > 0.0:
             self._controller.press_shoulder(
                 Button.BUTTON_L,
-                max(strength, _MIN_SHIELD_TRIGGER),
+                max(strength, MIN_SHIELD),
             )
+            if strength == 1.0:
+                self._controller.press_button(Button.BUTTON_L)
         return True
 
     def dodge(
@@ -1361,6 +1364,7 @@ __all__ = [
     "Hold",
     "HorizontalStickReferenceAxis",
     "LedgeRecoveryOption",
+    "MIN_SHIELD",
     "SimpleControls",
     "StickReferenceAxis",
     # Re-exported from melee.bot.character_state for backward compatibility with
