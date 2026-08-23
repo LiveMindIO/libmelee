@@ -138,15 +138,16 @@ uv pip install --python .venv/bin/python .
   before its down-inward air dodge. It presses jump for exactly one input frame and
   leaves X/Y neutral throughout the rise; confirmed jumps remain confirmed through
   apex, but landing or leaving neutral aerial movement before clearance aborts the route.
-  `SmashAttackMontage(axis)` maps each cardinal axis to one absolute-direction
-  smash, retains its charging `Hold` until active cancellation releases all input,
-  and returns a hardcoded one-tick release-input montage rather than accepting a
-  caller fallback. It exposes `get_framedata()` after the hold begins. Its 61-tick
-  default safety limit covers initial input plus Melee's 60-frame maximum charge.
-  `LinkForwardSmashMontage(direction)` is Link-only, releases an uncharged
-  absolute-left/right first slash, then queues a fresh one-frame A press while
-  observing animation frame 18 so it commits at frame 19. It succeeds after
-  action 341 confirms the second slash and aborts if that exact request frame is missed.
+  `SmashAttackMontage(axis, max_charge_frames=60)` bounds A+stick retention from
+  zero (minimum charge) through Melee's 60-frame maximum. `release_charge()`
+  idempotently queues an earlier release for the next active tick; cancellation
+  abandons the attack instead. The montage confirms startup before succeeding.
+  `LinkForwardSmashMontage(direction, max_charge_frames=0)` inherits charge release.
+  Chained `.followup()` requests the first valid second slash. Delayed callers use
+  a pre-tick listener to gate `.followup()` with `can_followup(player_state)`, true
+  only on observable frames 18-48 without hitlag. Those inputs commit during the
+  script/decomp-backed game window at frames 19-49; action 341 confirms success.
+  First-slash hitlag extends the safety budget one-for-one so late timing remains valid.
   `SDIMontage` excludes attacker and grab hitlag, alternates diagonal main-stick
   pulses during damage hitlag, ignores vertical shield windows, uses target-neutral
   pulses for horizontal shield SDI, queues cardinal C-stick ASDI as damage hitlag

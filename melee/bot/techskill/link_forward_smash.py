@@ -1,79 +1,166 @@
-"""Link forward-smash double-slash input montage."""
+"""Caller-timed Link forward-smash follow-up montage."""
 
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
-from enum import Enum, auto
-from typing import Final
+from typing import Final, Self
 
-from melee.bot.character_state import (
-    AttackType,
-    CharacterState,
-    HorizontalStickReferenceAxis,
+from melee.bot.character_state import CharacterState, HorizontalStickReferenceAxis
+from melee.bot.input_montage import Abort, InputMontage, MontageState
+from melee.bot.simple_controls import SimpleControls, StickReferenceAxis
+from melee.bot.techskill.common import player
+from melee.bot.techskill.smash_attack import (
+    SmashAttackMontage,
+    _SmashAttackPhase,
+    _SmashAttackState,
 )
-from melee.bot.input_montage import Abort, InputMontage
-from melee.bot.simple_controls import (
-    AttackFrameData,
-    Hold,
-    SimpleControls,
-    StickReferenceAxis,
-)
-from melee.bot.stateful_input_montage import StatefulInputMontage
-from melee.bot.techskill.common import is_interrupted, player
 from melee.enums import Action, Button, Character
 from melee.gamestate import GameState
 
 
-class _LinkForwardSmashPhase(Enum):
-    FirstSlashRequested = auto()
-    FirstSlashReleased = auto()
-    SecondSlashRequested = auto()
-
-
-@dataclass(frozen=True)
-class _LinkForwardSmashState:
-    phase: _LinkForwardSmashPhase
-    hold: Hold | None = None
-
-
-_ATTACK_BY_DIRECTION: Final[dict[HorizontalStickReferenceAxis, AttackType]] = {
-    StickReferenceAxis.LEFT: AttackType.LSMASH,
-    StickReferenceAxis.RIGHT: AttackType.RSMASH,
-}
 _FIRST_SLASH_ACTION: Final = Action.FSMASH_MID
 _SECOND_SLASH_ACTION: Final = Action(341)
-# DESNOTE(jbarber, 2026-08-22): Link's first-slash script opens its continuation
-# at frame 19. Controller input queued while observing frame 18 commits on that
-# frame; the common IASA path then requires the newly pressed A edge and enters
-# Link's character-relative action 341.
-# See https://www.ssbwiki.com/Link_(SSBM)/Forward_smash and
-# https://github.com/doldecomp/melee/blob/a983c0f9cd41d4a46001c493a1929891ac80f9ab/src/melee/ft/ftattacks4combo.c#L8-L46
-_COMBO_REQUEST_FRAME: Final = 18
-_DEFAULT_FRAME_LIMIT: Final = 40
+# DESNOTE(jbarber, 2026-08-22): Link's first-slash subaction sets command variable
+# 0 at frame 19 and clears it at frame 50. doldecomp's IASA path enters action
+# 341 only while that variable is nonzero and A has a fresh pressed edge. Since
+# controller input queued by a bot commits on the next Console.step, callers may
+# request the follow-up while observing frames 18 through 48, committing it on
+# valid game frames 19 through 49. Attacker hitlag must clear before the request
+# or the edge can expire while IASA is frozen.
+# See https://github.com/doldecomp/melee/blob/a983c0f9cd41d4a46001c493a1929891ac80f9ab/src/melee/ft/ftattacks4combo.c#L8-L46
+# and https://www.ssbwiki.com/Link_(SSBM)/Forward_smash
+_FIRST_FOLLOWUP_REQUEST_FRAME: Final = 18
+_LAST_FOLLOWUP_REQUEST_FRAME: Final = 48
+_FIRST_SLASH_FRAME_BUDGET: Final = 52
 
 
-class LinkForwardSmashMontage(StatefulInputMontage[_LinkForwardSmashState]):
-    """Perform Link's uncharged forward smash and earliest second slash.
+class LinkForwardSmashMontage(SmashAttackMontage):
+    """Perform Link's first forward smash with an optional caller-timed follow-up.
 
-    ``direction`` is an absolute screen direction. The montage releases the
-    initial smash input on the following game frame, then presses A for exactly
-    one input frame while observing frame 18 so it commits on frame 19.
+    ``direction`` is absolute left or right. ``max_charge_frames`` has the same
+    contract as :class:`SmashAttackMontage`: 0 (the default) releases on the
+    first safe tick for minimum charge, while values through 60 retain A+stick
+    for at most that many post-initiation ticks. :meth:`release_charge` is
+    inherited and can request an earlier release regardless of that cap.
+
+    Follow-up timing is opt-in and caller-controlled:
+
+    * Call ``montage.followup()`` immediately after construction to request the
+      fastest valid second slash. The request remains pending through startup,
+      charging, release, and hitlag; the montage sends A on the first tick for
+      which :meth:`can_followup` is true.
+    * For a delayed second slash, do not call ``followup()`` initially. Register
+      a pre-tick listener that checks its own timing condition and
+      ``montage.can_followup(player_state)`` before calling ``montage.followup()``.
+      Because pre-tick listeners run before this montage's input tick, a request
+      made there is applied in that same bot tick and committed by the next
+      ``Console.step``.
+    * If no follow-up is requested, the montage finishes successfully when no
+      further follow-up can be queued. A requested follow-up that misses the
+      valid window aborts instead of emitting a late A input.
+
+    ``can_followup(player_state)`` describes the *request* window visible to bot
+    code, not the hidden game-frame window: it is true only while this montage
+    is awaiting the first slash, Link is in ``FSMASH_MID`` on observed frames
+    18 through 48 inclusive, attacker hitlag is zero, and no follow-up input has
+    already been sent. Input queued then commits on game frames 19 through 49,
+    while the first slash's command variable is enabled. The follow-up succeeds
+    only after character-relative action 341 is observed. Each observed
+    first-slash attacker-hitlag tick extends the montage safety budget by one, so
+    hitlag cannot consume a caller's later valid follow-up opportunity.
+
+    Fast follow-up example::
+
+        montage = LinkForwardSmashMontage(StickReferenceAxis.RIGHT).followup()
+
+    Delayed follow-up example::
+
+        montage = LinkForwardSmashMontage(StickReferenceAxis.RIGHT)
+
+        def delay_followup(controls, player_state, opponent_state, game_state):
+            del controls, opponent_state, game_state
+            player = player_state.player()
+            if (
+                player is not None
+                and player.action_frame >= 30
+                and montage.can_followup(player_state)
+            ):
+                montage.followup()
+            return PreTickResult.CONTINUE
+
+        montage.add_pre_tick_listener(delay_followup)
+
+    Args:
+        direction: Absolute ``StickReferenceAxis.LEFT`` or
+            ``StickReferenceAxis.RIGHT`` first-slash direction.
+        max_charge_frames: Maximum post-initiation ticks to retain A+stick,
+            from 0 (minimum charge) through 60 (Melee's maximum).
     """
 
     def __init__(
         self,
         direction: HorizontalStickReferenceAxis,
-        frame_limit: int = _DEFAULT_FRAME_LIMIT,
+        max_charge_frames: int = 0,
     ) -> None:
-        if direction not in _ATTACK_BY_DIRECTION:
+        if direction not in {StickReferenceAxis.LEFT, StickReferenceAxis.RIGHT}:
             raise ValueError(
                 "direction must be StickReferenceAxis.LEFT or StickReferenceAxis.RIGHT"
             )
-        super().__init__(
-            frame_limit,
-            _LinkForwardSmashState(_LinkForwardSmashPhase.FirstSlashRequested),
+        super().__init__(direction, max_charge_frames=max_charge_frames)
+        self._frame_limit += _FIRST_SLASH_FRAME_BUDGET
+        self._followup_requested = False
+        self._followup_input_sent = False
+
+    def followup(self) -> Self:
+        """Request the second slash on the next valid follow-up tick.
+
+        The request is sticky and idempotent. Calling this immediately after
+        construction configures the fastest follow-up. Calling it from a
+        pre-tick listener after :meth:`can_followup` and a caller-owned delay
+        condition are both true schedules a delayed follow-up through the same
+        API. This method records intent only; controller input is emitted by the
+        next active montage tick whose observed state can safely commit A inside
+        Link's game window.
+
+        Calling this after the follow-up input has already been sent or after
+        terminal completion has no effect. A pending request that outlives the
+        valid window aborts rather than turning into another attack after the
+        first slash ends.
+        """
+        if (
+            self.get_montage_state() in {MontageState.Waiting, MontageState.Active}
+            and not self._followup_input_sent
+        ):
+            self._followup_requested = True
+        return self
+
+    def can_followup(self, player_state: CharacterState) -> bool:
+        """Return whether calling :meth:`followup` can queue A on this bot tick.
+
+        ``True`` means all observable requirements are currently satisfied:
+        this montage has released and confirmed Link's first slash, no follow-up
+        input has been sent, the current action is ``FSMASH_MID``, its observed
+        frame is 18 through 48 inclusive, and attacker hitlag is zero. The A edge
+        written during this tick will therefore commit on game frame 19 through
+        49, where doldecomp's command-variable check accepts it.
+
+        This method is pure: it neither requests nor emits the follow-up. Use it
+        in delayed pre-tick listeners, then call :meth:`followup` when both this
+        result and the caller's desired timing condition are true.
+        """
+        player_state_value = player(player_state)
+        return (
+            self.get_montage_state() is MontageState.Active
+            and self._input_state.phase
+            in {_SmashAttackPhase.Released, _SmashAttackPhase.Started}
+            and not self._followup_input_sent
+            and player_state_value is not None
+            and player_state_value.character is Character.LINK
+            and player_state_value.action is _FIRST_SLASH_ACTION
+            and _FIRST_FOLLOWUP_REQUEST_FRAME
+            <= player_state_value.action_frame
+            <= _LAST_FOLLOWUP_REQUEST_FRAME
+            and player_state_value.hitlag_left == 0
         )
-        self._attack_type = _ATTACK_BY_DIRECTION[direction]
 
     def can_start(
         self,
@@ -82,96 +169,62 @@ class LinkForwardSmashMontage(StatefulInputMontage[_LinkForwardSmashState]):
         opponent_state: CharacterState,
         state: GameState,
     ) -> bool:
-        del controls, opponent_state, state
+        """Return whether Link can start the configured first forward smash."""
         player_state_value = player(player_state)
         return (
             player_state_value is not None
             and player_state_value.character is Character.LINK
             and player_state_value.on_ground
             and not player_state_value.off_stage
-            and player_state.can_attack(self._attack_type)
+            and super().can_start(
+                controls,
+                player_state,
+                opponent_state,
+                state,
+            )
         )
 
-    def stateful_should_abort(
+    def _after_smash_started(
         self,
         controls: SimpleControls,
         player_state: CharacterState,
-        opponent_state: CharacterState,
-        state: GameState,
-        input_state: _LinkForwardSmashState,
-    ) -> Abort | None:
-        del controls, opponent_state, state, input_state
+        input_state: _SmashAttackState,
+    ) -> tuple[_SmashAttackState, InputMontage | bool | Abort]:
         player_state_value = player(player_state)
         if player_state_value is None:
-            return Abort("player state became unavailable")
-        if player_state_value.character is not Character.LINK:
-            return Abort("player is no longer Link")
-        if player_state_value.off_stage:
-            return Abort("player moved offstage")
-        if is_interrupted(player_state, player_state_value, include_hitlag=False):
-            return Abort("player was interrupted")
-        return None
-
-    def stateful_on_tick(
-        self,
-        controls: SimpleControls,
-        player_state: CharacterState,
-        opponent_state: CharacterState,
-        state: GameState,
-        input_state: _LinkForwardSmashState,
-    ) -> tuple[_LinkForwardSmashState, InputMontage | bool | Abort]:
-        del opponent_state, state
-        player_state_value = player(player_state)
-        if player_state_value is None:
-            controls.release_all()
             return input_state, Abort("player state became unavailable")
 
-        match input_state.phase:
-            case _LinkForwardSmashPhase.FirstSlashRequested:
-                if input_state.hold is not None:
-                    if not isinstance(controls.release(input_state.hold), AttackFrameData):
-                        return input_state, Abort(
-                            "first forward-smash input could not be released"
-                        )
-                    return (
-                        replace(
-                            input_state,
-                            phase=_LinkForwardSmashPhase.FirstSlashReleased,
-                        ),
-                        self,
-                    )
-                result = controls.attack(self._attack_type)
-                if not isinstance(result, Hold):
-                    return input_state, Abort(
-                        "first forward-smash input was not accepted"
-                    )
-                return replace(input_state, hold=result), self
-            case _LinkForwardSmashPhase.FirstSlashReleased:
-                if player_state_value.action is not _FIRST_SLASH_ACTION:
-                    controls.release_all()
-                    return input_state, Abort("first forward slash did not start")
-                controls.release_all()
-                if player_state_value.action_frame < _COMBO_REQUEST_FRAME:
-                    return input_state, self
-                if player_state_value.action_frame > _COMBO_REQUEST_FRAME:
-                    return input_state, Abort("earliest second-slash input frame was missed")
-                if player_state_value.hitlag_left == 0:
-                    controls.press_button(Button.BUTTON_A)
-                    return (
-                        replace(input_state, phase=_LinkForwardSmashPhase.SecondSlashRequested),
-                        self,
-                    )
+        controls.release_all()
+        if (
+            player_state_value.action is _FIRST_SLASH_ACTION
+            and player_state_value.hitlag_left > 0
+        ):
+            self._frame_limit += 1
+        if self._followup_input_sent:
+            if player_state_value.action is _SECOND_SLASH_ACTION:
+                return input_state, True
+            if (
+                player_state_value.action is _FIRST_SLASH_ACTION
+                and player_state_value.action_frame < 50
+            ):
                 return input_state, self
-            case _LinkForwardSmashPhase.SecondSlashRequested:
-                controls.release_all()
-                if player_state_value.action is _SECOND_SLASH_ACTION:
-                    return input_state, True
-                if (
-                    player_state_value.action is _FIRST_SLASH_ACTION
-                    and player_state_value.action_frame <= _COMBO_REQUEST_FRAME
-                ):
-                    return input_state, self
-                return input_state, Abort("second forward slash did not start")
+            return input_state, Abort("second forward slash did not start")
+
+        if player_state_value.action is not _FIRST_SLASH_ACTION:
+            if self._followup_requested:
+                return input_state, Abort("requested follow-up window was missed")
+            return input_state, True
+
+        if self._followup_requested and self.can_followup(player_state):
+            controls.press_button(Button.BUTTON_A)
+            self._followup_input_sent = True
+            return input_state, self
+
+        if player_state_value.action_frame > _LAST_FOLLOWUP_REQUEST_FRAME:
+            if self._followup_requested:
+                return input_state, Abort("requested follow-up window was missed")
+            return input_state, True
+        return input_state, self
 
 
 __all__ = ["LinkForwardSmashMontage"]

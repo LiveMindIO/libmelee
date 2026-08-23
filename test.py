@@ -3144,142 +3144,45 @@ class TechniqueMontageTests(unittest.TestCase):
             game_state,
         )
 
-    def test_smash_attack_maps_every_axis_and_holds_until_cancelled(self):
-        cases = (
-            (StickReferenceAxis.UP, AttackType.USMASH, melee.Action.UPSMASH),
-            (StickReferenceAxis.DOWN, AttackType.DSMASH, melee.Action.DOWNSMASH),
-            (StickReferenceAxis.LEFT, AttackType.LSMASH, melee.Action.FSMASH_MID),
-            (StickReferenceAxis.RIGHT, AttackType.RSMASH, melee.Action.FSMASH_MID),
-        )
-        for axis, attack_type, action in cases:
-            with self.subTest(axis=axis):
-                montage = SmashAttackMontage(axis)
-                hold = Hold(
-                    attack_type=attack_type,
-                    character=melee.Character.FOX,
-                    action=action,
-                    frame_data=self.frame_data,
-                    max_hold_frames=60,
-                    started_frame=self.frame,
-                    stick_x=0.5,
-                    stick_y=0.5,
-                    port=1,
-                    charging=True,
-                )
-                self.controls.attack_result = hold
-
-                self.assertIsNone(montage.get_framedata())
-                self.assertIs(self.tick(montage, melee.Action.STANDING), montage)
-                self.assertEqual(
-                    self.controls.take_calls(),
-                    [("attack", attack_type, None)],
-                )
-                frame_data = montage.get_framedata()
-                self.assertIsNotNone(frame_data)
-                self.assertEqual(frame_data.character, melee.Character.FOX)
-                self.assertEqual(frame_data.action, action)
-                self.assertIs(frame_data.frame_data, self.frame_data)
-
-                observed = AttackFrameData(
-                    character=melee.Character.FOX,
-                    action=action,
-                    frame_data=self.frame_data,
-                )
-                self.controls.attack_result = observed
-                self.assertIs(self.tick(montage, action), montage)
-                self.assertEqual(
-                    self.controls.take_calls(),
-                    [
-                        ("attack", attack_type, hold),
-                        ("release_all",),
-                        (
-                            "tilt_stick",
-                            axis,
-                            0.0,
-                            1.0,
-                            melee.Button.BUTTON_MAIN,
-                        ),
-                        ("press_button", melee.Button.BUTTON_A),
-                    ],
-                )
-                self.assertIs(montage.get_framedata(), observed)
-                self.assertEqual(montage.get_montage_state(), MontageState.Active)
-
-                cancel_montage = montage.cancel(
-                    self.controls,
-                    self.player_state,
-                    self.opponent_state,
-                    self.game_state,
-                )
-                self.assertIsInstance(cancel_montage, InputMontage)
-                self.assertEqual(self.controls.take_calls(), [("release_all",)])
-                self.assertEqual(montage.get_montage_state(), MontageState.Cancelled)
-                self.assertIs(
-                    cancel_montage.tick(
-                        self.controls,
-                        self.player_state,
-                        self.opponent_state,
-                        self.game_state,
-                    ),
-                    True,
-                )
-                self.assertEqual(self.controls.take_calls(), [("release_all",)])
-                self.assertEqual(cancel_montage.get_montage_state(), MontageState.Finished)
-
-    def test_smash_attack_waits_for_an_actionable_ground_state(self):
-        montage = SmashAttackMontage(StickReferenceAxis.DOWN)
-
-        self.assertIs(
-            self.tick(montage, melee.Action.FALLING, on_ground=False),
-            montage,
-        )
-        self.assertEqual(self.controls.take_calls(), [])
-        self.assertEqual(montage.get_montage_state(), MontageState.Waiting)
-
-    def test_smash_attack_aborts_if_attack_cannot_continue(self):
-        montage = SmashAttackMontage(StickReferenceAxis.RIGHT)
-        self.controls.attack_result = None
-
-        self.assertEqual(
-            self.tick(montage, melee.Action.STANDING),
-            Abort("smash attack could not start or continue"),
-        )
-        self.assertEqual(
-            self.controls.take_calls(),
-            [
-                ("attack", AttackType.RSMASH, None),
-                ("release_all",),
-            ],
-        )
-        self.assertEqual(montage.get_montage_state(), MontageState.Aborted)
-
-    def test_smash_attack_validates_axis(self):
-        with self.assertRaisesRegex(ValueError, "axis must be a StickReferenceAxis"):
-            SmashAttackMontage("up")
-
-    def test_link_forward_smash_requests_earliest_second_slash(self):
-        montage = LinkForwardSmashMontage(StickReferenceAxis.RIGHT)
-        hold = Hold(
-            attack_type=AttackType.RSMASH,
-            character=melee.Character.LINK,
-            action=melee.Action.FSMASH_MID,
+    def smash_hold(
+        self,
+        attack_type,
+        action,
+        *,
+        character=melee.Character.FOX,
+    ):
+        return Hold(
+            attack_type=attack_type,
+            character=character,
+            action=action,
             frame_data=self.frame_data,
             max_hold_frames=60,
             started_frame=self.frame,
-            stick_x=1.0,
+            stick_x=0.5,
             stick_y=0.5,
             port=1,
             charging=True,
         )
-        self.controls.attack_result = hold
 
+    def start_link_forward_smash(self, montage, *, direction=StickReferenceAxis.RIGHT):
+        attack_type = (
+            AttackType.RSMASH
+            if direction is StickReferenceAxis.RIGHT
+            else AttackType.LSMASH
+        )
+        hold = self.smash_hold(
+            attack_type,
+            melee.Action.FSMASH_MID,
+            character=melee.Character.LINK,
+        )
+        self.controls.attack_result = hold
         self.assertIs(
             self.tick(montage, melee.Action.STANDING, character=melee.Character.LINK),
             montage,
         )
         self.assertEqual(
             self.controls.take_calls(),
-            [("attack", AttackType.RSMASH, None)],
+            [("attack", attack_type, None)],
         )
 
         self.controls.release_result = AttackFrameData(
@@ -3303,12 +3206,198 @@ class TechniqueMontageTests(unittest.TestCase):
                 montage,
                 melee.Action.FSMASH_MID,
                 character=melee.Character.LINK,
-                action_frame=17,
+                action_frame=2,
             ),
             montage,
         )
         self.assertEqual(self.controls.take_calls(), [("release_all",)])
+        return hold
 
+    def test_smash_attack_maps_every_axis_and_zero_is_minimum_charge(self):
+        cases = (
+            (StickReferenceAxis.UP, AttackType.USMASH, melee.Action.UPSMASH),
+            (StickReferenceAxis.DOWN, AttackType.DSMASH, melee.Action.DOWNSMASH),
+            (StickReferenceAxis.LEFT, AttackType.LSMASH, melee.Action.FSMASH_MID),
+            (StickReferenceAxis.RIGHT, AttackType.RSMASH, melee.Action.FSMASH_MID),
+        )
+        for axis, attack_type, action in cases:
+            with self.subTest(axis=axis):
+                montage = SmashAttackMontage(axis, max_charge_frames=0)
+                hold = self.smash_hold(attack_type, action)
+                self.controls.attack_result = hold
+
+                self.assertIsNone(montage.get_framedata())
+                self.assertIs(self.tick(montage, melee.Action.STANDING), montage)
+                self.assertEqual(
+                    self.controls.take_calls(),
+                    [("attack", attack_type, None)],
+                )
+                frame_data = montage.get_framedata()
+                self.assertIsNotNone(frame_data)
+                self.assertEqual(frame_data.character, melee.Character.FOX)
+                self.assertEqual(frame_data.action, action)
+                self.assertIs(frame_data.frame_data, self.frame_data)
+
+                released = AttackFrameData(
+                    character=melee.Character.FOX,
+                    action=action,
+                    frame_data=self.frame_data,
+                )
+                self.controls.release_result = released
+                self.assertIs(self.tick(montage, action), montage)
+                self.assertEqual(
+                    self.controls.take_calls(),
+                    [("release", hold)],
+                )
+                self.assertIs(montage.get_framedata(), released)
+                self.assertIs(
+                    self.tick(montage, action),
+                    True,
+                )
+                self.assertEqual(self.controls.take_calls(), [])
+                self.assertEqual(montage.get_montage_state(), MontageState.Finished)
+
+    def test_smash_attack_honors_charge_cap_and_early_release(self):
+        montage = SmashAttackMontage(
+            StickReferenceAxis.RIGHT,
+            max_charge_frames=2,
+        )
+        hold = self.smash_hold(AttackType.RSMASH, melee.Action.FSMASH_MID)
+        self.controls.attack_result = hold
+        self.assertIs(self.tick(montage, melee.Action.STANDING), montage)
+        self.controls.take_calls()
+
+        self.assertIs(self.tick(montage, melee.Action.STANDING), montage)
+        self.assertEqual(
+            self.controls.take_calls(),
+            [("attack", AttackType.RSMASH, hold)],
+        )
+
+        observed = AttackFrameData(
+            character=melee.Character.FOX,
+            action=melee.Action.FSMASH_MID,
+            frame_data=self.frame_data,
+        )
+        self.controls.attack_result = observed
+        self.assertIs(self.tick(montage, melee.Action.FSMASH_MID), montage)
+        self.assertEqual(
+            self.controls.take_calls(),
+            [
+                ("attack", AttackType.RSMASH, hold),
+                ("release_all",),
+                (
+                    "tilt_stick",
+                    StickReferenceAxis.RIGHT,
+                    0.0,
+                    1.0,
+                    melee.Button.BUTTON_MAIN,
+                ),
+                ("press_button", melee.Button.BUTTON_A),
+            ],
+        )
+
+        self.controls.release_result = observed
+        self.assertIs(self.tick(montage, melee.Action.FSMASH_MID), montage)
+        self.assertEqual(self.controls.take_calls(), [("release", hold)])
+
+        early = SmashAttackMontage(StickReferenceAxis.LEFT)
+        self.assertIs(early.release_charge(), early)
+        early_hold = self.smash_hold(AttackType.LSMASH, melee.Action.FSMASH_MID)
+        self.controls.attack_result = early_hold
+        self.assertIs(self.tick(early, melee.Action.STANDING), early)
+        self.controls.take_calls()
+        self.controls.release_result = observed
+        self.assertIs(self.tick(early, melee.Action.FSMASH_MID), early)
+        self.assertEqual(self.controls.take_calls(), [("release", early_hold)])
+
+    def test_smash_attack_holds_exactly_sixty_frames_before_release(self):
+        montage = SmashAttackMontage(
+            StickReferenceAxis.UP,
+            max_charge_frames=60,
+        )
+        hold = self.smash_hold(AttackType.USMASH, melee.Action.UPSMASH)
+        self.controls.attack_result = hold
+        self.assertIs(self.tick(montage, melee.Action.STANDING), montage)
+        self.controls.take_calls()
+
+        for _ in range(60):
+            self.assertIs(self.tick(montage, melee.Action.STANDING), montage)
+            self.assertEqual(
+                self.controls.take_calls(),
+                [("attack", AttackType.USMASH, hold)],
+            )
+
+        released = AttackFrameData(
+            character=melee.Character.FOX,
+            action=melee.Action.UPSMASH,
+            frame_data=self.frame_data,
+        )
+        self.controls.release_result = released
+        self.assertIs(self.tick(montage, melee.Action.UPSMASH), montage)
+        self.assertEqual(self.controls.take_calls(), [("release", hold)])
+
+    def test_smash_attack_aborts_when_requested_release_fails(self):
+        montage = SmashAttackMontage(
+            StickReferenceAxis.DOWN,
+            max_charge_frames=0,
+        )
+        hold = self.smash_hold(AttackType.DSMASH, melee.Action.DOWNSMASH)
+        self.controls.attack_result = hold
+        self.assertIs(self.tick(montage, melee.Action.STANDING), montage)
+        self.controls.take_calls()
+        self.controls.release_result = None
+
+        self.assertEqual(
+            self.tick(montage, melee.Action.DOWNSMASH),
+            Abort("smash attack could not be released"),
+        )
+        self.assertEqual(
+            self.controls.take_calls(),
+            [("release", hold), ("release_all",)],
+        )
+
+    def test_smash_attack_waits_for_an_actionable_ground_state(self):
+        montage = SmashAttackMontage(StickReferenceAxis.DOWN)
+
+        self.assertIs(
+            self.tick(montage, melee.Action.FALLING, on_ground=False),
+            montage,
+        )
+        self.assertEqual(self.controls.take_calls(), [])
+        self.assertEqual(montage.get_montage_state(), MontageState.Waiting)
+
+    def test_smash_attack_aborts_if_attack_cannot_continue(self):
+        montage = SmashAttackMontage(StickReferenceAxis.RIGHT, max_charge_frames=1)
+        self.controls.attack_result = None
+
+        self.assertEqual(
+            self.tick(montage, melee.Action.STANDING),
+            Abort("smash attack input was not accepted"),
+        )
+        self.assertEqual(
+            self.controls.take_calls(),
+            [
+                ("attack", AttackType.RSMASH, None),
+                ("release_all",),
+            ],
+        )
+        self.assertEqual(montage.get_montage_state(), MontageState.Aborted)
+
+    def test_smash_attack_validates_axis_and_charge_cap(self):
+        with self.assertRaisesRegex(ValueError, "axis must be a StickReferenceAxis"):
+            SmashAttackMontage("up")
+        for value in (-1, 61, 1.5, True):
+            with self.subTest(value=value):
+                with self.assertRaisesRegex(
+                    ValueError,
+                    "max_charge_frames must be an integer between 0 and 60",
+                ):
+                    SmashAttackMontage(StickReferenceAxis.UP, max_charge_frames=value)
+
+    def test_link_forward_smash_fluent_followup_uses_first_valid_tick(self):
+        montage = LinkForwardSmashMontage(StickReferenceAxis.RIGHT).followup()
+        self.assertIs(montage.release_charge(), montage)
+        self.start_link_forward_smash(montage)
         self.assertIs(
             self.tick(
                 montage,
@@ -3349,20 +3438,26 @@ class TechniqueMontageTests(unittest.TestCase):
         )
         self.assertEqual(self.controls.take_calls(), [("release_all",)])
         self.assertEqual(montage.get_montage_state(), MontageState.Finished)
+        self.assertIs(montage.followup(), montage)
+        self.assertIs(montage.release_charge(), montage)
+        self.assertFalse(montage.can_followup(self.player_state))
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action.FSMASH_MID,
+                character=melee.Character.LINK,
+                action_frame=30,
+            ),
+            False,
+        )
+        self.assertEqual(self.controls.take_calls(), [])
 
-    def test_link_forward_smash_aborts_without_late_combo_input(self):
-        montage = LinkForwardSmashMontage(StickReferenceAxis.RIGHT)
-        hold = Hold(
-            attack_type=AttackType.RSMASH,
+    def test_link_forward_smash_uses_final_window_frame_on_first_confirmation(self):
+        montage = LinkForwardSmashMontage(StickReferenceAxis.RIGHT).followup()
+        hold = self.smash_hold(
+            AttackType.RSMASH,
+            melee.Action.FSMASH_MID,
             character=melee.Character.LINK,
-            action=melee.Action.FSMASH_MID,
-            frame_data=self.frame_data,
-            max_hold_frames=60,
-            started_frame=self.frame,
-            stick_x=1.0,
-            stick_y=0.5,
-            port=1,
-            charging=True,
         )
         self.controls.attack_result = hold
         self.assertIs(
@@ -3380,22 +3475,193 @@ class TechniqueMontageTests(unittest.TestCase):
                 montage,
                 melee.Action.FSMASH_MID,
                 character=melee.Character.LINK,
+                action_frame=1,
             ),
             montage,
         )
         self.controls.take_calls()
 
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action.FSMASH_MID,
+                character=melee.Character.LINK,
+                action_frame=48,
+            ),
+            montage,
+        )
+        self.assertEqual(
+            self.controls.take_calls(),
+            [("release_all",), ("press_button", melee.Button.BUTTON_A)],
+        )
+
+    def test_link_forward_smash_delays_followup_with_pre_tick_listener(self):
+        montage = LinkForwardSmashMontage(StickReferenceAxis.LEFT)
+        requested_frames = []
+
+        def delayed_followup(controls, player_state, opponent_state, state):
+            del controls, opponent_state, state
+            player = player_state.player()
+            if (
+                player is not None
+                and player.action_frame >= 30
+                and montage.can_followup(player_state)
+            ):
+                requested_frames.append(player.action_frame)
+                montage.followup()
+            return PreTickResult.CONTINUE
+
+        montage.add_pre_tick_listener(delayed_followup)
+        self.start_link_forward_smash(montage, direction=StickReferenceAxis.LEFT)
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action.FSMASH_MID,
+                character=melee.Character.LINK,
+                action_frame=29,
+            ),
+            montage,
+        )
+        self.assertEqual(self.controls.take_calls(), [("release_all",)])
+        self.assertEqual(requested_frames, [])
+
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action.FSMASH_MID,
+                character=melee.Character.LINK,
+                action_frame=30,
+            ),
+            montage,
+        )
+        self.assertEqual(requested_frames, [30])
+        self.assertEqual(
+            self.controls.take_calls(),
+            [("release_all",), ("press_button", melee.Button.BUTTON_A)],
+        )
+
+    def test_link_forward_smash_can_followup_covers_full_request_window(self):
+        montage = LinkForwardSmashMontage(StickReferenceAxis.RIGHT)
+        self.start_link_forward_smash(montage)
+
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action.FSMASH_MID,
+                character=melee.Character.LINK,
+                action_frame=17,
+            ),
+            montage,
+        )
+        self.assertFalse(montage.can_followup(self.player_state))
+        self.controls.take_calls()
+
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action.FSMASH_MID,
+                character=melee.Character.LINK,
+                action_frame=18,
+            ),
+            montage,
+        )
+        self.assertTrue(montage.can_followup(self.player_state))
+        self.controls.take_calls()
+
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action.FSMASH_MID,
+                character=melee.Character.LINK,
+                action_frame=48,
+            ),
+            montage,
+        )
+        self.assertTrue(montage.can_followup(self.player_state))
+        self.controls.take_calls()
+
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action.FSMASH_MID,
+                character=melee.Character.LINK,
+                action_frame=49,
+            ),
+            True,
+        )
+        self.assertFalse(montage.can_followup(self.player_state))
+        self.assertEqual(self.controls.take_calls(), [("release_all",)])
+
+    def test_link_forward_smash_hitlag_preserves_late_followup_window(self):
+        montage = LinkForwardSmashMontage(StickReferenceAxis.RIGHT)
+        self.start_link_forward_smash(montage)
+
+        for action_frame in range(3, 18):
+            self.assertIs(
+                self.tick(
+                    montage,
+                    melee.Action.FSMASH_MID,
+                    character=melee.Character.LINK,
+                    action_frame=action_frame,
+                ),
+                montage,
+            )
+            self.controls.take_calls()
+
+        for hitlag_left in range(8, 0, -1):
+            self.assertIs(
+                self.tick(
+                    montage,
+                    melee.Action.FSMASH_MID,
+                    character=melee.Character.LINK,
+                    action_frame=18,
+                    hitlag_left=hitlag_left,
+                ),
+                montage,
+            )
+            self.controls.take_calls()
+
+        for action_frame in range(18, 48):
+            self.assertIs(
+                self.tick(
+                    montage,
+                    melee.Action.FSMASH_MID,
+                    character=melee.Character.LINK,
+                    action_frame=action_frame,
+                ),
+                montage,
+            )
+            self.controls.take_calls()
+
+        self.assertIs(montage.followup(), montage)
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action.FSMASH_MID,
+                character=melee.Character.LINK,
+                action_frame=48,
+            ),
+            montage,
+        )
+        self.assertEqual(
+            self.controls.take_calls(),
+            [("release_all",), ("press_button", melee.Button.BUTTON_A)],
+        )
+
+    def test_link_forward_smash_rejects_requested_late_followup(self):
+        montage = LinkForwardSmashMontage(StickReferenceAxis.RIGHT)
+        self.start_link_forward_smash(montage)
+        self.assertIs(montage.followup(), montage)
         self.assertEqual(
             self.tick(
                 montage,
                 melee.Action.FSMASH_MID,
                 character=melee.Character.LINK,
-                action_frame=19,
+                action_frame=49,
             ),
-            Abort("earliest second-slash input frame was missed"),
+            Abort("requested follow-up window was missed"),
         )
         self.assertEqual(self.controls.take_calls(), [("release_all",), ("release_all",)])
-        self.assertEqual(montage.get_montage_state(), MontageState.Aborted)
 
     def test_link_forward_smash_is_link_only_and_validates_direction(self):
         montage = LinkForwardSmashMontage(StickReferenceAxis.LEFT)
@@ -3409,44 +3675,6 @@ class TechniqueMontageTests(unittest.TestCase):
             "direction must be StickReferenceAxis.LEFT or StickReferenceAxis.RIGHT",
         ):
             LinkForwardSmashMontage(StickReferenceAxis.UP)
-
-    def test_link_forward_smash_aborts_when_first_slash_does_not_start(self):
-        montage = LinkForwardSmashMontage(StickReferenceAxis.LEFT)
-        hold = Hold(
-            attack_type=AttackType.LSMASH,
-            character=melee.Character.LINK,
-            action=melee.Action.FSMASH_MID,
-            frame_data=self.frame_data,
-            max_hold_frames=60,
-            started_frame=self.frame,
-            stick_x=0.0,
-            stick_y=0.5,
-            port=1,
-            charging=True,
-        )
-        self.controls.attack_result = hold
-        self.assertIs(
-            self.tick(montage, melee.Action.STANDING, character=melee.Character.LINK),
-            montage,
-        )
-        self.controls.take_calls()
-        self.controls.release_result = AttackFrameData(
-            character=melee.Character.LINK,
-            action=melee.Action.FSMASH_MID,
-            frame_data=self.frame_data,
-        )
-        self.assertIs(
-            self.tick(montage, melee.Action.STANDING, character=melee.Character.LINK),
-            montage,
-        )
-        self.controls.take_calls()
-
-        self.assertEqual(
-            self.tick(montage, melee.Action.STANDING, character=melee.Character.LINK),
-            Abort("first forward slash did not start"),
-        )
-        self.assertEqual(self.controls.take_calls(), [("release_all",), ("release_all",)])
-        self.assertEqual(montage.get_montage_state(), MontageState.Aborted)
 
     def test_initiate_dash_neutralizes_before_smashing_in_current_movement_direction(
         self,

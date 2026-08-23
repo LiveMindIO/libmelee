@@ -337,15 +337,17 @@ Libmelee includes concrete technique montages:
   shield hitlag exits with the horizontal main-stick input its callback reads.
 - `PerfectPivotMontage` smash turns out of a grounded initial dash and attacks on
   the resulting one-frame turn state.
-- `SmashAttackMontage(axis)` maps the four cardinal `StickReferenceAxis` values
-  to up, down, absolute-left, and absolute-right smashes. It retains the charging
-  input until the caller invokes `cancel(...)`, which releases the smash and
-  returns a hardcoded one-tick release-input montage. `get_framedata()` exposes typed
-  attack metadata after charging begins. Its default 61-tick safety budget covers
-  the initial input plus Melee's 60-frame maximum smash charge.
-- `LinkForwardSmashMontage(direction)` performs Link's uncharged absolute-left or
-  absolute-right first slash, queues a fresh one-frame A press while observing
-  frame 18 so it commits at frame 19, and finishes after observing the second slash.
+- `SmashAttackMontage(axis, max_charge_frames=60)` maps cardinal axes to up,
+  down, absolute-left, and absolute-right smashes. Zero requests minimum charge;
+  values through 60 bound retained A+stick ticks. `release_charge()` queues an
+  earlier release on the next active tick without cancelling the montage.
+  `get_framedata()` exposes typed attack metadata after initiation.
+- `LinkForwardSmashMontage(direction, max_charge_frames=0)` specializes that
+  lifecycle for Link's first slash. Chained `.followup()` requests the fastest
+  second slash. For caller-delayed timing, a pre-tick listener checks
+  `can_followup(player_state)` before calling `.followup()`. The observable
+  request window is frames 18-48, committing A while the decomp-backed game
+  window is active on frames 19-49; action 341 confirms the second slash.
 - `SmashTurnJumpMontage` uses the same pivot but jumps, retaining dash momentum
   while reversing facing for movement such as back-air setups. It finishes after
   confirming jump squat with its jump button still held. The caller or an
