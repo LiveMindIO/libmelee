@@ -306,6 +306,12 @@ HorizontalStickReferenceAxis: TypeAlias = Literal[
     StickReferenceAxis.RIGHT,
 ]
 
+GroundDodgeStickReferenceAxis: TypeAlias = Literal[
+    StickReferenceAxis.LEFT,
+    StickReferenceAxis.RIGHT,
+    StickReferenceAxis.DOWN,
+]
+
 
 class AttackType(Enum):
     """Logical attack input a bot can request from :class:`SimpleControls`.
@@ -1753,6 +1759,7 @@ __all__ = [
     "AttackType",
     "CharacterState",
     "CharacterStatus",
+    "GroundDodgeStickReferenceAxis",
     "HorizontalStickReferenceAxis",
     "StickReferenceAxis",
     "attack_is_holdable",

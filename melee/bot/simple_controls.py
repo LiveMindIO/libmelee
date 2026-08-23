@@ -58,6 +58,7 @@ from melee.bot.character_state import (
     AttackType,
     CharacterState,
     CharacterStatus,
+    GroundDodgeStickReferenceAxis,
     HorizontalStickReferenceAxis,
     StickReferenceAxis,
     _actions_for_attack_type,
@@ -493,30 +494,38 @@ class SimpleControls:
 
     def dodge(
         self,
-        direction: HorizontalStickReferenceAxis,
+        direction: GroundDodgeStickReferenceAxis,
         *,
         dodge_button: Button = Button.BUTTON_L,
     ) -> bool:
-        """Apply left- or right-roll input for the next committed frame.
+        """Apply roll or spot-dodge input for the next committed frame.
 
         The pending stick and shoulder remain latched until a later frame replaces
         or clears them; this method does not schedule an automatic release.
 
         Args:
             direction: Absolute :attr:`StickReferenceAxis.LEFT` or
-                :attr:`StickReferenceAxis.RIGHT` roll direction.
+                :attr:`StickReferenceAxis.RIGHT` for a roll, or
+                :attr:`StickReferenceAxis.DOWN` for a spot dodge.
             dodge_button: Digital L or R shoulder button.
 
         Returns:
-            ``True`` if roll inputs were applied; ``False`` when the current
+            ``True`` if dodge inputs were applied; ``False`` when the current
             character state has no direct ground-dodge transition.
 
         Raises:
-            ValueError: If ``direction`` is not left/right or ``dodge_button``
-                is not L/R.
+            ValueError: If ``direction`` is not left/right/down or
+                ``dodge_button`` is not L/R.
         """
-        if direction not in {StickReferenceAxis.LEFT, StickReferenceAxis.RIGHT}:
-            raise ValueError("direction must be StickReferenceAxis.LEFT or StickReferenceAxis.RIGHT")
+        if direction not in {
+            StickReferenceAxis.LEFT,
+            StickReferenceAxis.RIGHT,
+            StickReferenceAxis.DOWN,
+        }:
+            raise ValueError(
+                "direction must be StickReferenceAxis.LEFT, StickReferenceAxis.RIGHT, "
+                "or StickReferenceAxis.DOWN"
+            )
         self._validate_dodge_button(dodge_button)
         if not self._character_state.can_dodge():
             return False
@@ -1304,6 +1313,7 @@ __all__ = [
     "AttackType",
     "CharacterState",
     "CharacterStatus",
+    "GroundDodgeStickReferenceAxis",
     "Hold",
     "HorizontalStickReferenceAxis",
     "LedgeRecoveryOption",
