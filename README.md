@@ -340,7 +340,7 @@ Libmelee includes concrete technique montages:
 - `SmashAttackMontage(axis)` maps the four cardinal `StickReferenceAxis` values
   to up, down, absolute-left, and absolute-right smashes. It retains the charging
   input until the caller invokes `cancel(...)`, which releases the smash and
-  returns any configured cancellation fallback. `get_framedata()` exposes typed
+  returns a hardcoded one-tick release-input montage. `get_framedata()` exposes typed
   attack metadata after charging begins. Its default 61-tick safety budget covers
   the initial input plus Melee's 60-frame maximum smash charge.
 - `SmashTurnJumpMontage` uses the same pivot but jumps, retaining dash momentum

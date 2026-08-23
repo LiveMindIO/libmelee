@@ -3146,8 +3146,7 @@ class TechniqueMontageTests(unittest.TestCase):
         )
         for axis, attack_type, action in cases:
             with self.subTest(axis=axis):
-                fallback = RecordingMontage()
-                montage = SmashAttackMontage(axis, cancel_montage=fallback)
+                montage = SmashAttackMontage(axis)
                 hold = Hold(
                     attack_type=attack_type,
                     character=melee.Character.FOX,
@@ -3199,17 +3198,26 @@ class TechniqueMontageTests(unittest.TestCase):
                 self.assertIs(montage.get_framedata(), observed)
                 self.assertEqual(montage.get_montage_state(), MontageState.Active)
 
+                cancel_montage = montage.cancel(
+                    self.controls,
+                    self.player_state,
+                    self.opponent_state,
+                    self.game_state,
+                )
+                self.assertIsInstance(cancel_montage, InputMontage)
+                self.assertEqual(self.controls.take_calls(), [("release_all",)])
+                self.assertEqual(montage.get_montage_state(), MontageState.Cancelled)
                 self.assertIs(
-                    montage.cancel(
+                    cancel_montage.tick(
                         self.controls,
                         self.player_state,
                         self.opponent_state,
                         self.game_state,
                     ),
-                    fallback,
+                    True,
                 )
                 self.assertEqual(self.controls.take_calls(), [("release_all",)])
-                self.assertEqual(montage.get_montage_state(), MontageState.Cancelled)
+                self.assertEqual(cancel_montage.get_montage_state(), MontageState.Finished)
 
     def test_smash_attack_waits_for_an_actionable_ground_state(self):
         montage = SmashAttackMontage(StickReferenceAxis.DOWN)

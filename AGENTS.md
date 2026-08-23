@@ -140,8 +140,9 @@ uv pip install --python .venv/bin/python .
   apex, but landing or leaving neutral aerial movement before clearance aborts the route.
   `SmashAttackMontage(axis)` maps each cardinal axis to one absolute-direction
   smash, retains its charging `Hold` until active cancellation releases all input,
-  and exposes `get_framedata()` after the hold begins. Its 61-tick default safety
-  limit covers initial input plus Melee's 60-frame maximum charge.
+  and returns a hardcoded one-tick release-input montage rather than accepting a
+  caller fallback. It exposes `get_framedata()` after the hold begins. Its 61-tick
+  default safety limit covers initial input plus Melee's 60-frame maximum charge.
   `SDIMontage` excludes attacker and grab hitlag, alternates diagonal main-stick
   pulses during damage hitlag, ignores vertical shield windows, uses target-neutral
   pulses for horizontal shield SDI, queues cardinal C-stick ASDI as damage hitlag

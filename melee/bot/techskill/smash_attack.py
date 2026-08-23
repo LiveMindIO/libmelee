@@ -35,14 +35,50 @@ class _SmashAttackState:
     frame_data: AttackFrameData | None = None
 
 
+class _ReleaseInputsMontage(InputMontage):
+    def __init__(self) -> None:
+        super().__init__(frame_limit=1)
+
+    def can_start(
+        self,
+        controls: SimpleControls,
+        player_state: CharacterState,
+        opponent_state: CharacterState,
+        state: GameState,
+    ) -> bool:
+        del controls, player_state, opponent_state, state
+        return True
+
+    def should_abort(
+        self,
+        controls: SimpleControls,
+        player_state: CharacterState,
+        opponent_state: CharacterState,
+        state: GameState,
+    ) -> Abort | None:
+        del controls, player_state, opponent_state, state
+        return None
+
+    def on_tick(
+        self,
+        controls: SimpleControls,
+        player_state: CharacterState,
+        opponent_state: CharacterState,
+        state: GameState,
+    ) -> InputMontage | bool | Abort:
+        del player_state, opponent_state, state
+        controls.release_all()
+        return True
+
+
 class SmashAttackMontage(StatefulInputMontage[_SmashAttackState]):
     """Charge one absolute-direction smash until the caller cancels it.
 
     ``axis`` maps up, down, left, and right to ``USMASH``, ``DSMASH``,
     ``LSMASH``, and ``RSMASH`` respectively. Retain and tick this montage while
     charging, then call :meth:`InputMontage.cancel` on a later game frame to
-    release the attack and optionally receive the configured ``cancel_montage``
-    fallback. Melee automatically releases a fully charged smash; the default
+    release the attack and receive a one-tick release-input fallback. Melee
+    automatically releases a fully charged smash; the default
     frame limit covers the initial input plus its 60-frame maximum charge.
     """
 
@@ -50,11 +86,10 @@ class SmashAttackMontage(StatefulInputMontage[_SmashAttackState]):
         self,
         axis: StickReferenceAxis,
         frame_limit: int = _DEFAULT_FRAME_LIMIT,
-        cancel_montage: InputMontage | None = None,
     ) -> None:
         if axis not in _ATTACK_BY_AXIS:
             raise ValueError("axis must be a StickReferenceAxis")
-        super().__init__(frame_limit, _SmashAttackState(), cancel_montage)
+        super().__init__(frame_limit, _SmashAttackState(), _ReleaseInputsMontage())
         self._axis = axis
         self._attack_type = _ATTACK_BY_AXIS[axis]
 
