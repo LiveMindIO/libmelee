@@ -104,7 +104,7 @@ uv pip install --python .venv/bin/python .
 - Concrete montages live in separate files under `melee/bot/techskill/`, with
   reused state and helpers in `melee/bot/techskill/common.py`.
   The shipped Initiate Dash, Multishine, Wavedash, Ledgedash, SDI, Perfect Pivot,
-  and Smash Turn Jump montages model their mutable phases as typed
+  Smash Attack, and Smash Turn Jump montages model their mutable phases as typed
   `StatefulInputMontage` values and dispatch phase transitions with structural
   pattern matching.
   `InitiateDashMontage` requests a neutral reset frame only when already moving
@@ -138,6 +138,10 @@ uv pip install --python .venv/bin/python .
   before its down-inward air dodge. It presses jump for exactly one input frame and
   leaves X/Y neutral throughout the rise; confirmed jumps remain confirmed through
   apex, but landing or leaving neutral aerial movement before clearance aborts the route.
+  `SmashAttackMontage(axis)` maps each cardinal axis to one absolute-direction
+  smash, retains its charging `Hold` until active cancellation releases all input,
+  and exposes `get_framedata()` after the hold begins. Its 61-tick default safety
+  limit covers initial input plus Melee's 60-frame maximum charge.
   `SDIMontage` excludes attacker and grab hitlag, alternates diagonal main-stick
   pulses during damage hitlag, ignores vertical shield windows, uses target-neutral
   pulses for horizontal shield SDI, queues cardinal C-stick ASDI as damage hitlag

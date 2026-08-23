@@ -337,6 +337,12 @@ Libmelee includes concrete technique montages:
   shield hitlag exits with the horizontal main-stick input its callback reads.
 - `PerfectPivotMontage` smash turns out of a grounded initial dash and attacks on
   the resulting one-frame turn state.
+- `SmashAttackMontage(axis)` maps the four cardinal `StickReferenceAxis` values
+  to up, down, absolute-left, and absolute-right smashes. It retains the charging
+  input until the caller invokes `cancel(...)`, which releases the smash and
+  returns any configured cancellation fallback. `get_framedata()` exposes typed
+  attack metadata after charging begins. Its default 61-tick safety budget covers
+  the initial input plus Melee's 60-frame maximum smash charge.
 - `SmashTurnJumpMontage` uses the same pivot but jumps, retaining dash momentum
   while reversing facing for movement such as back-air setups. It finishes after
   confirming jump squat with its jump button still held. The caller or an

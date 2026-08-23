@@ -38,6 +38,7 @@ from melee.bot import (
     SDIMontage,
     SimpleControls,
     SimpleListener,
+    SmashAttackMontage,
     SmashTurnJumpMontage,
     StatefulInputMontage,
     StickReferenceAxis,
@@ -3049,6 +3050,7 @@ class TechniqueMontageTests(unittest.TestCase):
             LedgedashMontage(angle_degrees=45.0),
             SDIMontage(StickReferenceAxis.RIGHT),
             PerfectPivotMontage(AttackType.JAB),
+            SmashAttackMontage(StickReferenceAxis.UP),
             SmashTurnJumpMontage(),
         )
 
@@ -3124,6 +3126,9 @@ class TechniqueMontageTests(unittest.TestCase):
             2,
             frame_data=self.frame_data,
         )
+        self.game_state = game_state
+        self.player_state = player_state
+        self.opponent_state = opponent_state
         self.frame += 1
         return montage.tick(
             self.controls,
@@ -3131,6 +3136,111 @@ class TechniqueMontageTests(unittest.TestCase):
             opponent_state,
             game_state,
         )
+
+    def test_smash_attack_maps_every_axis_and_holds_until_cancelled(self):
+        cases = (
+            (StickReferenceAxis.UP, AttackType.USMASH, melee.Action.UPSMASH),
+            (StickReferenceAxis.DOWN, AttackType.DSMASH, melee.Action.DOWNSMASH),
+            (StickReferenceAxis.LEFT, AttackType.LSMASH, melee.Action.FSMASH_MID),
+            (StickReferenceAxis.RIGHT, AttackType.RSMASH, melee.Action.FSMASH_MID),
+        )
+        for axis, attack_type, action in cases:
+            with self.subTest(axis=axis):
+                fallback = RecordingMontage()
+                montage = SmashAttackMontage(axis, cancel_montage=fallback)
+                hold = Hold(
+                    attack_type=attack_type,
+                    character=melee.Character.FOX,
+                    action=action,
+                    frame_data=self.frame_data,
+                    max_hold_frames=60,
+                    started_frame=self.frame,
+                    stick_x=0.5,
+                    stick_y=0.5,
+                    port=1,
+                    charging=True,
+                )
+                self.controls.attack_result = hold
+
+                self.assertIsNone(montage.get_framedata())
+                self.assertIs(self.tick(montage, melee.Action.STANDING), montage)
+                self.assertEqual(
+                    self.controls.take_calls(),
+                    [("attack", attack_type, None)],
+                )
+                frame_data = montage.get_framedata()
+                self.assertIsNotNone(frame_data)
+                self.assertEqual(frame_data.character, melee.Character.FOX)
+                self.assertEqual(frame_data.action, action)
+                self.assertIs(frame_data.frame_data, self.frame_data)
+
+                observed = AttackFrameData(
+                    character=melee.Character.FOX,
+                    action=action,
+                    frame_data=self.frame_data,
+                )
+                self.controls.attack_result = observed
+                self.assertIs(self.tick(montage, action), montage)
+                self.assertEqual(
+                    self.controls.take_calls(),
+                    [
+                        ("attack", attack_type, hold),
+                        ("release_all",),
+                        (
+                            "tilt_stick",
+                            axis,
+                            0.0,
+                            1.0,
+                            melee.Button.BUTTON_MAIN,
+                        ),
+                        ("press_button", melee.Button.BUTTON_A),
+                    ],
+                )
+                self.assertIs(montage.get_framedata(), observed)
+                self.assertEqual(montage.get_montage_state(), MontageState.Active)
+
+                self.assertIs(
+                    montage.cancel(
+                        self.controls,
+                        self.player_state,
+                        self.opponent_state,
+                        self.game_state,
+                    ),
+                    fallback,
+                )
+                self.assertEqual(self.controls.take_calls(), [("release_all",)])
+                self.assertEqual(montage.get_montage_state(), MontageState.Cancelled)
+
+    def test_smash_attack_waits_for_an_actionable_ground_state(self):
+        montage = SmashAttackMontage(StickReferenceAxis.DOWN)
+
+        self.assertIs(
+            self.tick(montage, melee.Action.FALLING, on_ground=False),
+            montage,
+        )
+        self.assertEqual(self.controls.take_calls(), [])
+        self.assertEqual(montage.get_montage_state(), MontageState.Waiting)
+
+    def test_smash_attack_aborts_if_attack_cannot_continue(self):
+        montage = SmashAttackMontage(StickReferenceAxis.RIGHT)
+        self.controls.attack_result = None
+
+        self.assertEqual(
+            self.tick(montage, melee.Action.STANDING),
+            Abort("smash attack could not start or continue"),
+        )
+        self.assertEqual(
+            self.controls.take_calls(),
+            [
+                ("attack", AttackType.RSMASH, None),
+                ("release_all",),
+            ],
+        )
+        self.assertEqual(montage.get_montage_state(), MontageState.Aborted)
+
+    def test_smash_attack_validates_axis(self):
+        with self.assertRaisesRegex(ValueError, "axis must be a StickReferenceAxis"):
+            SmashAttackMontage("up")
 
     def test_initiate_dash_neutralizes_before_smashing_in_current_movement_direction(
         self,
