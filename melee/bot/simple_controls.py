@@ -104,6 +104,14 @@ _AERIAL_COMMIT_FRAMES: Final = 8
 _TILT_ATTACK_MAGNITUDE: Final = 0.35
 _TILT_TURN_MAGNITUDE: Final = 0.5
 _DODGE_BUTTONS: Final = frozenset({Button.BUTTON_L, Button.BUTTON_R})
+# DESNOTE(jbarber, 2026-08-22): Melee normalizes analog shoulders over 140
+# raw steps, then zeros values <= 0.3. The first usable shield input is
+# therefore 43/140; the separate 0.25 shield-press threshold is unreachable
+# below that deadzone. See:
+# https://github.com/doldecomp/melee/blob/a983c0f9cd41d4a46001c493a1929891ac80f9ab/src/melee/gm/gmmain.c#L59-L72
+# https://github.com/doldecomp/melee/blob/a983c0f9cd41d4a46001c493a1929891ac80f9ab/src/melee/ft/types.dox#L35-L45
+# https://github.com/doldecomp/melee/blob/a983c0f9cd41d4a46001c493a1929891ac80f9ab/src/melee/ft/fighter.c#L1831-L1885
+_MIN_SHIELD_TRIGGER: Final = 43.0 / 140.0
 _DIGITAL_BUTTONS: Final = frozenset(Button) - {
     Button.BUTTON_MAIN,
     Button.BUTTON_C,
@@ -491,6 +499,42 @@ class SimpleControls:
         dash if held. Existing pending buttons and C-stick input are preserved.
         """
         self.tilt_stick(self._character_state.backward_axis(), 0.0)
+
+    def shield(self, strength: float) -> bool:
+        """Hold or release shield at a requested analog trigger strength.
+
+        ``0.0`` always releases both shoulder inputs. Positive strengths below
+        Melee's first usable analog-trigger step are raised to that minimum;
+        larger values are preserved through ``1.0``. Digital L/R are released
+        because either one would force the effective trigger to full strength.
+        Main-stick, C-stick, and non-shoulder button inputs are preserved.
+
+        Returns:
+            ``True`` when shoulder inputs were applied. Positive requests return
+            ``False`` without changing pending inputs if the fighter cannot start
+            or continue shielding.
+
+        Raises:
+            ValueError: If ``strength`` is non-finite or outside ``[0, 1]``.
+        """
+        if not math.isfinite(strength) or not 0.0 <= strength <= 1.0:
+            raise ValueError("strength must be finite and between 0 and 1 inclusive")
+        if strength > 0.0 and not (
+            self._character_state.can_shield()
+            or self._character_state.is_shielding()
+        ):
+            return False
+
+        self._controller.release_button(Button.BUTTON_L)
+        self._controller.release_button(Button.BUTTON_R)
+        self._controller.press_shoulder(Button.BUTTON_L, 0.0)
+        self._controller.press_shoulder(Button.BUTTON_R, 0.0)
+        if strength > 0.0:
+            self._controller.press_shoulder(
+                Button.BUTTON_L,
+                max(strength, _MIN_SHIELD_TRIGGER),
+            )
+        return True
 
     def dodge(
         self,

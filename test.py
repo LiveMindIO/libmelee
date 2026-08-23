@@ -1120,6 +1120,12 @@ class RecordingSimpleController:
     def press_button(self, button) -> None:
         self.buttons.add(button)
 
+    def release_button(self, button) -> None:
+        self.buttons.discard(button)
+
+    def press_shoulder(self, button, amount) -> None:
+        self.shoulders[button] = amount
+
 
 class SimpleControlsInputTests(unittest.TestCase):
     def setUp(self) -> None:
@@ -1206,6 +1212,93 @@ class SimpleControlsInputTests(unittest.TestCase):
                 self.assertEqual(controller.main_stick, smash_coordinates)
                 self.assertEqual(controller.c_stick, (0.0, 1.0))
                 self.assertEqual(controller.buttons, {melee.Button.BUTTON_A})
+
+    def test_shield_clamps_positive_strength_to_first_usable_trigger_step(self) -> None:
+        for strength, expected in (
+            (0.0001, 43.0 / 140.0),
+            (0.3, 43.0 / 140.0),
+            (0.5, 0.5),
+            (1.0, 1.0),
+        ):
+            with self.subTest(strength=strength):
+                player = melee.PlayerState(action=melee.Action.STANDING, on_ground=True)
+                controls, controller = self.controls(player)
+                controller.main_stick = (0.25, 0.75)
+                controller.c_stick = (0.75, 0.25)
+                controller.buttons.update(
+                    {
+                        melee.Button.BUTTON_A,
+                        melee.Button.BUTTON_L,
+                        melee.Button.BUTTON_R,
+                    }
+                )
+                controller.shoulders[melee.Button.BUTTON_R] = 0.9
+
+                self.assertTrue(controls.shield(strength))
+                self.assertEqual(controller.main_stick, (0.25, 0.75))
+                self.assertEqual(controller.c_stick, (0.75, 0.25))
+                self.assertEqual(controller.buttons, {melee.Button.BUTTON_A})
+                self.assertEqual(controller.shoulders[melee.Button.BUTTON_L], expected)
+                self.assertEqual(controller.shoulders[melee.Button.BUTTON_R], 0.0)
+
+    def test_shield_zero_releases_in_any_character_state(self) -> None:
+        player = melee.PlayerState(action=melee.Action.FALLING, on_ground=False)
+        controls, controller = self.controls(player)
+        controller.main_stick = (0.25, 0.75)
+        controller.buttons.update(
+            {
+                melee.Button.BUTTON_A,
+                melee.Button.BUTTON_L,
+                melee.Button.BUTTON_R,
+            }
+        )
+        controller.shoulders[melee.Button.BUTTON_L] = 0.5
+        controller.shoulders[melee.Button.BUTTON_R] = 0.75
+
+        self.assertTrue(controls.shield(0.0))
+        self.assertEqual(controller.main_stick, (0.25, 0.75))
+        self.assertEqual(controller.buttons, {melee.Button.BUTTON_A})
+        self.assertEqual(
+            controller.shoulders,
+            {
+                melee.Button.BUTTON_L: 0.0,
+                melee.Button.BUTTON_R: 0.0,
+            },
+        )
+
+    def test_shield_can_adjust_strength_while_already_shielding(self) -> None:
+        player = melee.PlayerState(action=melee.Action.SHIELD_STUN, on_ground=True)
+        controls, controller = self.controls(player)
+
+        self.assertTrue(controls.shield(0.6))
+        self.assertEqual(controller.shoulders[melee.Button.BUTTON_L], 0.6)
+
+    def test_shield_rejects_ineligible_state_without_changing_inputs(self) -> None:
+        player = melee.PlayerState(action=melee.Action.FALLING, on_ground=False)
+        controls, controller = self.controls(player)
+        controller.main_stick = (0.25, 0.75)
+        controller.buttons.add(melee.Button.BUTTON_A)
+        controller.shoulders[melee.Button.BUTTON_R] = 0.75
+
+        self.assertFalse(controls.shield(0.5))
+        self.assertEqual(controller.main_stick, (0.25, 0.75))
+        self.assertEqual(controller.buttons, {melee.Button.BUTTON_A})
+        self.assertEqual(controller.shoulders[melee.Button.BUTTON_R], 0.75)
+
+    def test_shield_rejects_invalid_strength_without_changing_inputs(self) -> None:
+        player = melee.PlayerState(action=melee.Action.STANDING, on_ground=True)
+        controls, controller = self.controls(player)
+        controller.buttons.add(melee.Button.BUTTON_A)
+        controller.shoulders[melee.Button.BUTTON_R] = 0.75
+
+        for strength in (math.nan, math.inf, -math.inf, -0.0001, 1.0001):
+            with (
+                self.subTest(strength=strength),
+                self.assertRaisesRegex(ValueError, "strength must be finite"),
+            ):
+                controls.shield(strength)
+        self.assertEqual(controller.buttons, {melee.Button.BUTTON_A})
+        self.assertEqual(controller.shoulders[melee.Button.BUTTON_R], 0.75)
 
     def test_dodge_applies_roll_and_spot_dodge_inputs(self) -> None:
         for direction, dodge_button, expected_stick in (
