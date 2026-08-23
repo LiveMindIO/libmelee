@@ -64,6 +64,7 @@ from melee.bot.strategy import Continue, Exit, Strategy
 from melee.bot.techskill import (
     InitiateDashMontage,
     LedgedashMontage,
+    LinkForwardSmashMontage,
     MultishineMontage,
     PerfectPivotMontage,
     SDIMontage,
@@ -95,6 +96,7 @@ __all__ = [
     "InputMontage",
     "LedgeRecoveryOption",
     "LedgedashMontage",
+    "LinkForwardSmashMontage",
     "Listener",
     "ListenerOrCallable",
     "Listeners",

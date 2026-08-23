@@ -28,6 +28,7 @@ from melee.bot import (
     InitiateDashMontage,
     InputMontage,
     LedgedashMontage,
+    LinkForwardSmashMontage,
     Listener,
     Listeners,
     MIN_SHIELD,
@@ -2995,6 +2996,7 @@ class RecordingTechniqueControls:
     def __init__(self):
         self.calls = []
         self.attack_result = object()
+        self.release_result = object()
 
     def release_all(self):
         self.calls.append(("release_all",))
@@ -3005,6 +3007,10 @@ class RecordingTechniqueControls:
     def attack(self, attack_type, *, hold=None):
         self.calls.append(("attack", attack_type, hold))
         return self.attack_result
+
+    def release(self, hold):
+        self.calls.append(("release", hold))
+        return self.release_result
 
     def smash_turn(self):
         self.calls.append(("smash_turn",))
@@ -3045,6 +3051,7 @@ class TechniqueMontageTests(unittest.TestCase):
     def test_technique_montages_use_stateful_base(self):
         montages = (
             InitiateDashMontage(StickReferenceAxis.RIGHT),
+            LinkForwardSmashMontage(StickReferenceAxis.RIGHT),
             MultishineMontage(),
             WavedashMontage(WavedashDirection.Right, angle_degrees=45.0),
             LedgedashMontage(angle_degrees=45.0),
@@ -3249,6 +3256,197 @@ class TechniqueMontageTests(unittest.TestCase):
     def test_smash_attack_validates_axis(self):
         with self.assertRaisesRegex(ValueError, "axis must be a StickReferenceAxis"):
             SmashAttackMontage("up")
+
+    def test_link_forward_smash_requests_earliest_second_slash(self):
+        montage = LinkForwardSmashMontage(StickReferenceAxis.RIGHT)
+        hold = Hold(
+            attack_type=AttackType.RSMASH,
+            character=melee.Character.LINK,
+            action=melee.Action.FSMASH_MID,
+            frame_data=self.frame_data,
+            max_hold_frames=60,
+            started_frame=self.frame,
+            stick_x=1.0,
+            stick_y=0.5,
+            port=1,
+            charging=True,
+        )
+        self.controls.attack_result = hold
+
+        self.assertIs(
+            self.tick(montage, melee.Action.STANDING, character=melee.Character.LINK),
+            montage,
+        )
+        self.assertEqual(
+            self.controls.take_calls(),
+            [("attack", AttackType.RSMASH, None)],
+        )
+
+        self.controls.release_result = AttackFrameData(
+            character=melee.Character.LINK,
+            action=melee.Action.FSMASH_MID,
+            frame_data=self.frame_data,
+        )
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action.FSMASH_MID,
+                character=melee.Character.LINK,
+                action_frame=1,
+            ),
+            montage,
+        )
+        self.assertEqual(self.controls.take_calls(), [("release", hold)])
+
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action.FSMASH_MID,
+                character=melee.Character.LINK,
+                action_frame=17,
+            ),
+            montage,
+        )
+        self.assertEqual(self.controls.take_calls(), [("release_all",)])
+
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action.FSMASH_MID,
+                character=melee.Character.LINK,
+                action_frame=18,
+                hitlag_left=3,
+            ),
+            montage,
+        )
+        self.assertEqual(self.controls.take_calls(), [("release_all",)])
+
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action.FSMASH_MID,
+                character=melee.Character.LINK,
+                action_frame=18,
+            ),
+            montage,
+        )
+        self.assertEqual(
+            self.controls.take_calls(),
+            [
+                ("release_all",),
+                ("press_button", melee.Button.BUTTON_A),
+            ],
+        )
+
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action(341),
+                character=melee.Character.LINK,
+                action_frame=1,
+            ),
+            True,
+        )
+        self.assertEqual(self.controls.take_calls(), [("release_all",)])
+        self.assertEqual(montage.get_montage_state(), MontageState.Finished)
+
+    def test_link_forward_smash_aborts_without_late_combo_input(self):
+        montage = LinkForwardSmashMontage(StickReferenceAxis.RIGHT)
+        hold = Hold(
+            attack_type=AttackType.RSMASH,
+            character=melee.Character.LINK,
+            action=melee.Action.FSMASH_MID,
+            frame_data=self.frame_data,
+            max_hold_frames=60,
+            started_frame=self.frame,
+            stick_x=1.0,
+            stick_y=0.5,
+            port=1,
+            charging=True,
+        )
+        self.controls.attack_result = hold
+        self.assertIs(
+            self.tick(montage, melee.Action.STANDING, character=melee.Character.LINK),
+            montage,
+        )
+        self.controls.take_calls()
+        self.controls.release_result = AttackFrameData(
+            character=melee.Character.LINK,
+            action=melee.Action.FSMASH_MID,
+            frame_data=self.frame_data,
+        )
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action.FSMASH_MID,
+                character=melee.Character.LINK,
+            ),
+            montage,
+        )
+        self.controls.take_calls()
+
+        self.assertEqual(
+            self.tick(
+                montage,
+                melee.Action.FSMASH_MID,
+                character=melee.Character.LINK,
+                action_frame=19,
+            ),
+            Abort("earliest second-slash input frame was missed"),
+        )
+        self.assertEqual(self.controls.take_calls(), [("release_all",), ("release_all",)])
+        self.assertEqual(montage.get_montage_state(), MontageState.Aborted)
+
+    def test_link_forward_smash_is_link_only_and_validates_direction(self):
+        montage = LinkForwardSmashMontage(StickReferenceAxis.LEFT)
+
+        self.assertIs(self.tick(montage, melee.Action.STANDING), montage)
+        self.assertEqual(self.controls.take_calls(), [])
+        self.assertEqual(montage.get_montage_state(), MontageState.Waiting)
+
+        with self.assertRaisesRegex(
+            ValueError,
+            "direction must be StickReferenceAxis.LEFT or StickReferenceAxis.RIGHT",
+        ):
+            LinkForwardSmashMontage(StickReferenceAxis.UP)
+
+    def test_link_forward_smash_aborts_when_first_slash_does_not_start(self):
+        montage = LinkForwardSmashMontage(StickReferenceAxis.LEFT)
+        hold = Hold(
+            attack_type=AttackType.LSMASH,
+            character=melee.Character.LINK,
+            action=melee.Action.FSMASH_MID,
+            frame_data=self.frame_data,
+            max_hold_frames=60,
+            started_frame=self.frame,
+            stick_x=0.0,
+            stick_y=0.5,
+            port=1,
+            charging=True,
+        )
+        self.controls.attack_result = hold
+        self.assertIs(
+            self.tick(montage, melee.Action.STANDING, character=melee.Character.LINK),
+            montage,
+        )
+        self.controls.take_calls()
+        self.controls.release_result = AttackFrameData(
+            character=melee.Character.LINK,
+            action=melee.Action.FSMASH_MID,
+            frame_data=self.frame_data,
+        )
+        self.assertIs(
+            self.tick(montage, melee.Action.STANDING, character=melee.Character.LINK),
+            montage,
+        )
+        self.controls.take_calls()
+
+        self.assertEqual(
+            self.tick(montage, melee.Action.STANDING, character=melee.Character.LINK),
+            Abort("first forward slash did not start"),
+        )
+        self.assertEqual(self.controls.take_calls(), [("release_all",), ("release_all",)])
+        self.assertEqual(montage.get_montage_state(), MontageState.Aborted)
 
     def test_initiate_dash_neutralizes_before_smashing_in_current_movement_direction(
         self,

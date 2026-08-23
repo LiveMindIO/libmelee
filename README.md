@@ -343,6 +343,9 @@ Libmelee includes concrete technique montages:
   returns a hardcoded one-tick release-input montage. `get_framedata()` exposes typed
   attack metadata after charging begins. Its default 61-tick safety budget covers
   the initial input plus Melee's 60-frame maximum smash charge.
+- `LinkForwardSmashMontage(direction)` performs Link's uncharged absolute-left or
+  absolute-right first slash, queues a fresh one-frame A press while observing
+  frame 18 so it commits at frame 19, and finishes after observing the second slash.
 - `SmashTurnJumpMontage` uses the same pivot but jumps, retaining dash momentum
   while reversing facing for movement such as back-air setups. It finishes after
   confirming jump squat with its jump button still held. The caller or an
