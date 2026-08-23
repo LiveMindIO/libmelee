@@ -343,11 +343,12 @@ Libmelee includes concrete technique montages:
   earlier release on the next active tick without cancelling the montage.
   `get_framedata()` exposes typed attack metadata after initiation.
 - `LinkForwardSmashMontage(direction, max_charge_frames=0)` specializes that
-  lifecycle for Link's first slash. Chained `.followup()` requests the fastest
+  lifecycle for Link and Young Link. Chained `.followup()` requests the fastest
   second slash. For caller-delayed timing, a pre-tick listener checks
-  `can_followup(player_state)` before calling `.followup()`. The observable
-  request window is frames 18-48, committing A while the decomp-backed game
-  window is active on frames 19-49; action 341 confirms the second slash.
+  `can_followup(player_state)` before calling `.followup()`. Link's observable
+  request window is frames 18-48; Young Link's is 19-48. Inputs commit during
+  their script/decomp-backed game windows at 19-49 and 20-49 respectively;
+  shared character-relative action 341 confirms the second slash.
 - `SmashTurnJumpMontage` uses the same pivot but jumps, retaining dash momentum
   while reversing facing for movement such as back-air setups. It finishes after
   confirming jump squat with its jump button still held. The caller or an

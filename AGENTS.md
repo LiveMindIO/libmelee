@@ -142,11 +142,13 @@ uv pip install --python .venv/bin/python .
   zero (minimum charge) through Melee's 60-frame maximum. `release_charge()`
   idempotently queues an earlier release for the next active tick; cancellation
   abandons the attack instead. The montage confirms startup before succeeding.
-  `LinkForwardSmashMontage(direction, max_charge_frames=0)` inherits charge release.
+  `LinkForwardSmashMontage(direction, max_charge_frames=0)` supports Link and
+  Young Link and inherits charge release.
   Chained `.followup()` requests the first valid second slash. Delayed callers use
   a pre-tick listener to gate `.followup()` with `can_followup(player_state)`, true
-  only on observable frames 18-48 without hitlag. Those inputs commit during the
-  script/decomp-backed game window at frames 19-49; action 341 confirms success.
+  without hitlag on Link frames 18-48 or Young Link frames 19-48. Those inputs
+  commit during their script/decomp-backed windows at frames 19-49 and 20-49;
+  shared action 341 confirms success.
   First-slash hitlag extends the safety budget one-for-one so late timing remains valid.
   `SDIMontage` excludes attacker and grab hitlag, alternates diagonal main-stick
   pulses during damage hitlag, ignores vertical shield windows, uses target-neutral

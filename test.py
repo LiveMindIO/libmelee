@@ -3164,7 +3164,13 @@ class TechniqueMontageTests(unittest.TestCase):
             charging=True,
         )
 
-    def start_link_forward_smash(self, montage, *, direction=StickReferenceAxis.RIGHT):
+    def start_link_forward_smash(
+        self,
+        montage,
+        *,
+        direction=StickReferenceAxis.RIGHT,
+        character=melee.Character.LINK,
+    ):
         attack_type = (
             AttackType.RSMASH
             if direction is StickReferenceAxis.RIGHT
@@ -3173,11 +3179,11 @@ class TechniqueMontageTests(unittest.TestCase):
         hold = self.smash_hold(
             attack_type,
             melee.Action.FSMASH_MID,
-            character=melee.Character.LINK,
+            character=character,
         )
         self.controls.attack_result = hold
         self.assertIs(
-            self.tick(montage, melee.Action.STANDING, character=melee.Character.LINK),
+            self.tick(montage, melee.Action.STANDING, character=character),
             montage,
         )
         self.assertEqual(
@@ -3186,7 +3192,7 @@ class TechniqueMontageTests(unittest.TestCase):
         )
 
         self.controls.release_result = AttackFrameData(
-            character=melee.Character.LINK,
+            character=character,
             action=melee.Action.FSMASH_MID,
             frame_data=self.frame_data,
         )
@@ -3194,7 +3200,7 @@ class TechniqueMontageTests(unittest.TestCase):
             self.tick(
                 montage,
                 melee.Action.FSMASH_MID,
-                character=melee.Character.LINK,
+                character=character,
                 action_frame=1,
             ),
             montage,
@@ -3205,7 +3211,7 @@ class TechniqueMontageTests(unittest.TestCase):
             self.tick(
                 montage,
                 melee.Action.FSMASH_MID,
-                character=melee.Character.LINK,
+                character=character,
                 action_frame=2,
             ),
             montage,
@@ -3495,6 +3501,50 @@ class TechniqueMontageTests(unittest.TestCase):
             [("release_all",), ("press_button", melee.Button.BUTTON_A)],
         )
 
+    def test_link_forward_smash_uses_young_link_request_window(self):
+        montage = LinkForwardSmashMontage(StickReferenceAxis.RIGHT).followup()
+        self.start_link_forward_smash(
+            montage,
+            character=melee.Character.YLINK,
+        )
+
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action.FSMASH_MID,
+                character=melee.Character.YLINK,
+                action_frame=18,
+            ),
+            montage,
+        )
+        self.assertFalse(montage.can_followup(self.player_state))
+        self.assertEqual(self.controls.take_calls(), [("release_all",)])
+
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action.FSMASH_MID,
+                character=melee.Character.YLINK,
+                action_frame=19,
+            ),
+            montage,
+        )
+        self.assertEqual(
+            self.controls.take_calls(),
+            [("release_all",), ("press_button", melee.Button.BUTTON_A)],
+        )
+
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action(341),
+                character=melee.Character.YLINK,
+                action_frame=1,
+            ),
+            True,
+        )
+        self.assertEqual(self.controls.take_calls(), [("release_all",)])
+
     def test_link_forward_smash_delays_followup_with_pre_tick_listener(self):
         montage = LinkForwardSmashMontage(StickReferenceAxis.LEFT)
         requested_frames = []
@@ -3663,7 +3713,7 @@ class TechniqueMontageTests(unittest.TestCase):
         )
         self.assertEqual(self.controls.take_calls(), [("release_all",), ("release_all",)])
 
-    def test_link_forward_smash_is_link_only_and_validates_direction(self):
+    def test_link_forward_smash_rejects_other_characters_and_invalid_direction(self):
         montage = LinkForwardSmashMontage(StickReferenceAxis.LEFT)
 
         self.assertIs(self.tick(montage, melee.Action.STANDING), montage)

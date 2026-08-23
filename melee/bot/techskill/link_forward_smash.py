@@ -1,4 +1,4 @@
-"""Caller-timed Link forward-smash follow-up montage."""
+"""Caller-timed Link and Young Link forward-smash follow-up montage."""
 
 from __future__ import annotations
 
@@ -20,21 +20,24 @@ from melee.gamestate import GameState
 _FIRST_SLASH_ACTION: Final = Action.FSMASH_MID
 _SECOND_SLASH_ACTION: Final = Action(341)
 # DESNOTE(jbarber, 2026-08-22): Link's first-slash subaction sets command variable
-# 0 at frame 19 and clears it at frame 50. doldecomp's IASA path enters action
-# 341 only while that variable is nonzero and A has a fresh pressed edge. Since
-# controller input queued by a bot commits on the next Console.step, callers may
-# request the follow-up while observing frames 18 through 48, committing it on
-# valid game frames 19 through 49. Attacker hitlag must clear before the request
-# or the edge can expire while IASA is frozen.
+# 0 at frame 19, while Young Link's sets it at frame 20; both clear it at frame
+# 50. doldecomp's shared IASA path accepts both FTKIND_LINK and FTKIND_CLINK and
+# enters action 341 only while that variable is nonzero and A has a fresh pressed
+# edge. Since queued controller input commits on the next Console.step, Link may
+# request while observing frames 18-48 and Young Link while observing 19-48.
+# Attacker hitlag must clear first or the edge can expire while IASA is frozen.
 # See https://github.com/doldecomp/melee/blob/a983c0f9cd41d4a46001c493a1929891ac80f9ab/src/melee/ft/ftattacks4combo.c#L8-L46
 # and https://www.ssbwiki.com/Link_(SSBM)/Forward_smash
-_FIRST_FOLLOWUP_REQUEST_FRAME: Final = 18
+_FIRST_FOLLOWUP_REQUEST_FRAME: Final[dict[Character, int]] = {
+    Character.LINK: 18,
+    Character.YLINK: 19,
+}
 _LAST_FOLLOWUP_REQUEST_FRAME: Final = 48
 _FIRST_SLASH_FRAME_BUDGET: Final = 52
 
 
 class LinkForwardSmashMontage(SmashAttackMontage):
-    """Perform Link's first forward smash with an optional caller-timed follow-up.
+    """Perform Link/Young Link forward smash with a caller-timed follow-up.
 
     ``direction`` is absolute left or right. ``max_charge_frames`` has the same
     contract as :class:`SmashAttackMontage`: 0 (the default) releases on the
@@ -59,12 +62,12 @@ class LinkForwardSmashMontage(SmashAttackMontage):
       valid window aborts instead of emitting a late A input.
 
     ``can_followup(player_state)`` describes the *request* window visible to bot
-    code, not the hidden game-frame window: it is true only while this montage
-    is awaiting the first slash, Link is in ``FSMASH_MID`` on observed frames
-    18 through 48 inclusive, attacker hitlag is zero, and no follow-up input has
-    already been sent. Input queued then commits on game frames 19 through 49,
-    while the first slash's command variable is enabled. The follow-up succeeds
-    only after character-relative action 341 is observed. Each observed
+    code, not the hidden game-frame window. It is true only while this montage
+    awaits ``FSMASH_MID``, attacker hitlag is zero, no follow-up input has been
+    sent, and the observed frame is valid for that character: 18-48 for Link or
+    19-48 for Young Link. Those requests commit during each character's hidden
+    command-variable window, respectively frames 19-49 and 20-49. The follow-up
+    succeeds only after character-relative action 341 is observed. Each observed
     first-slash attacker-hitlag tick extends the montage safety budget by one, so
     hitlag cannot consume a caller's later valid follow-up opportunity.
 
@@ -119,7 +122,7 @@ class LinkForwardSmashMontage(SmashAttackMontage):
         condition are both true schedules a delayed follow-up through the same
         API. This method records intent only; controller input is emitted by the
         next active montage tick whose observed state can safely commit A inside
-        Link's game window.
+        the current character's game window.
 
         Calling this after the follow-up input has already been sent or after
         terminal completion has no effect. A pending request that outlives the
@@ -137,11 +140,11 @@ class LinkForwardSmashMontage(SmashAttackMontage):
         """Return whether calling :meth:`followup` can queue A on this bot tick.
 
         ``True`` means all observable requirements are currently satisfied:
-        this montage has released and confirmed Link's first slash, no follow-up
-        input has been sent, the current action is ``FSMASH_MID``, its observed
-        frame is 18 through 48 inclusive, and attacker hitlag is zero. The A edge
-        written during this tick will therefore commit on game frame 19 through
-        49, where doldecomp's command-variable check accepts it.
+        this montage has released and confirmed Link/Young Link's first slash,
+        no follow-up input has been sent, the current action is ``FSMASH_MID``,
+        attacker hitlag is zero, and the observed frame is 18-48 for Link or
+        19-48 for Young Link. The A edge written during this tick therefore
+        commits inside that character's command-variable window.
 
         This method is pure: it neither requests nor emits the follow-up. Use it
         in delayed pre-tick listeners, then call :meth:`followup` when both this
@@ -154,9 +157,9 @@ class LinkForwardSmashMontage(SmashAttackMontage):
             in {_SmashAttackPhase.Released, _SmashAttackPhase.Started}
             and not self._followup_input_sent
             and player_state_value is not None
-            and player_state_value.character is Character.LINK
+            and player_state_value.character in _FIRST_FOLLOWUP_REQUEST_FRAME
             and player_state_value.action is _FIRST_SLASH_ACTION
-            and _FIRST_FOLLOWUP_REQUEST_FRAME
+            and _FIRST_FOLLOWUP_REQUEST_FRAME[player_state_value.character]
             <= player_state_value.action_frame
             <= _LAST_FOLLOWUP_REQUEST_FRAME
             and player_state_value.hitlag_left == 0
@@ -169,11 +172,11 @@ class LinkForwardSmashMontage(SmashAttackMontage):
         opponent_state: CharacterState,
         state: GameState,
     ) -> bool:
-        """Return whether Link can start the configured first forward smash."""
+        """Return whether Link or Young Link can start the first forward smash."""
         player_state_value = player(player_state)
         return (
             player_state_value is not None
-            and player_state_value.character is Character.LINK
+            and player_state_value.character in _FIRST_FOLLOWUP_REQUEST_FRAME
             and player_state_value.on_ground
             and not player_state_value.off_stage
             and super().can_start(
