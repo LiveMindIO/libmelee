@@ -316,6 +316,15 @@ Libmelee includes concrete technique montages:
   through non-final Reflector hit animations so they return to the
   jump-cancelable loop; release and final states are held neutral until the
   sequence can retry or complete.
+- `QuickAttackMontage(initial_direction)` performs Pikachu's Quick Attack or
+  Pichu's Agility with one or two continuous full-circle directions. The move
+  itself starts with cardinal up+B before holding the initial zip vector. Queue the
+  optional second zip with fluent `add_segment(direction)` before activation or
+  reactively during startup, the first zip, or through inter-segment frame 8.
+  `can_add_segment()` reports whether the remaining slot and input window are
+  open. The first request is sticky. Pikachu's directions must differ by more
+  than 38 degrees and Pichu's by more than 5; a rejected requested zip aborts
+  unless the move reaches the ledge first.
 - `WavedashMontage` supports every standard character's jump-squat duration and
   requests the down-diagonal air dodge on the final `KNEE_BEND` frame. Callers
   must choose the angle explicitly; 17.1 degrees is the shallow boundary.

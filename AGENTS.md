@@ -127,6 +127,18 @@ uv pip install --python .venv/bin/python .
   ground/air hit and release states with no jump-cancel IASA. It holds B through
   non-final hit states so they return to the jump-cancelable Reflector loop;
   release and final states remain neutral until they resolve.
+  `QuickAttackMontage(initial_direction)` supports Pikachu's Quick Attack and
+  Pichu's Agility with continuous full-circle `QuickAttackDirection` values.
+  It initiates with cardinal up+B, then holds the initial movement vector through
+  startup so horizontal and downward routes cannot select another special.
+  Melee permits exactly two movement segments. `add_segment(direction)` queues
+  the optional second segment before activation or reactively through observed
+  end-state frame 8; `can_add_segment()` reports whether the slot and window are
+  still open. The first request is sticky. Pikachu requires more than 38 degrees
+  between segments and Pichu more than 5; a requested segment rejected by the
+  game aborts the montage unless the move safely reaches the ledge first. Terrain
+  can hide a travel packet; an initial end state confirms segment one, while a
+  post-deadline end-frame reset confirms segment two launched into a collision.
   `WavedashMontage` uses the
   character-specific final jump-squat frame and aborts if that state is missed.
   `PerfectPivotMontage` requires an onstage grounded `DASHING` state, requests the

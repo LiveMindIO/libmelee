@@ -45,6 +45,8 @@ from melee.bot import (
     MultishineMontage,
     PerfectPivotMontage,
     PreTickResult,
+    QuickAttackDirection,
+    QuickAttackMontage,
     SamusChargeShotMontage,
     SDIMontage,
     SheikNeedleStormMontage,
@@ -3121,6 +3123,7 @@ class TechniqueMontageTests(unittest.TestCase):
             SheikNeedleStormMontage(),
             ShieldBreakerMontage(),
             PerfectPivotMontage(AttackType.JAB),
+            QuickAttackMontage(QuickAttackDirection(StickReferenceAxis.UP)),
             SmashAttackMontage(StickReferenceAxis.UP),
             SmashTurnJumpMontage(),
             SkullBashMontage(StickReferenceAxis.RIGHT),
@@ -6066,6 +6069,462 @@ class TechniqueMontageTests(unittest.TestCase):
         self.assertIs(self.tick(montage, melee.Action.STANDING), True)
         self.assertEqual(montage.get_montage_state(), MontageState.Finished)
         self.assertEqual(self.controls.take_calls(), [("release_all",)])
+
+    def test_quick_attack_starts_pikachu_and_pichu_in_arbitrary_directions(self):
+        direction = QuickAttackDirection(StickReferenceAxis.UP, -37.5)
+        for character, action, on_ground in (
+            (melee.Character.PIKACHU, melee.Action.STANDING, True),
+            (melee.Character.PICHU, melee.Action.FALLING, False),
+        ):
+            with self.subTest(character=character):
+                self.setUp()
+                montage = QuickAttackMontage(direction)
+
+                self.assertIs(
+                    self.tick(
+                        montage,
+                        action,
+                        character=character,
+                        on_ground=on_ground,
+                    ),
+                    montage,
+                )
+                self.assertEqual(montage.get_montage_state(), MontageState.Active)
+                self.assertEqual(
+                    self.controls.take_calls(),
+                    [
+                        ("release_all",),
+                        (
+                            "tilt_stick",
+                            StickReferenceAxis.UP,
+                            0.0,
+                            1.0,
+                            melee.Button.BUTTON_MAIN,
+                        ),
+                        ("press_button", melee.Button.BUTTON_B),
+                    ],
+                )
+
+    def test_quick_attack_waits_for_supported_action_and_character(self):
+        direction = QuickAttackDirection(StickReferenceAxis.UP)
+        for character, action in (
+            (melee.Character.FOX, melee.Action.STANDING),
+            (melee.Character.PIKACHU, melee.Action.DAMAGE_HIGH_1),
+        ):
+            with self.subTest(character=character, action=action):
+                montage = QuickAttackMontage(direction)
+                self.assertIs(
+                    self.tick(montage, action, character=character),
+                    montage,
+                )
+                self.assertEqual(montage.get_montage_state(), MontageState.Waiting)
+                self.assertEqual(self.controls.take_calls(), [])
+
+    def test_quick_attack_single_segment_closes_reactive_window(self):
+        montage = QuickAttackMontage(QuickAttackDirection(StickReferenceAxis.RIGHT, 25.0))
+        self.assertTrue(montage.can_add_segment())
+        self.tick(montage, melee.Action.STANDING, character=melee.Character.PIKACHU)
+        self.controls.take_calls()
+        self.tick(
+            montage,
+            melee.Action.PIKACHU_SPECIAL_HI_START0,
+            character=melee.Character.PIKACHU,
+        )
+        self.assertEqual(
+            self.controls.take_calls(),
+            [
+                ("release_all",),
+                (
+                    "tilt_stick",
+                    StickReferenceAxis.RIGHT,
+                    25.0,
+                    1.0,
+                    melee.Button.BUTTON_MAIN,
+                ),
+            ],
+        )
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action.PIKACHU_SPECIAL_HI_START1,
+                character=melee.Character.PIKACHU,
+            ),
+            montage,
+        )
+        self.assertEqual(self.controls.take_calls(), [("release_all",)])
+        self.assertTrue(montage.can_add_segment())
+
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action.PIKACHU_SPECIAL_HI_END,
+                character=melee.Character.PIKACHU,
+                action_frame=8,
+            ),
+            montage,
+        )
+        self.assertFalse(montage.can_add_segment())
+        self.assertIs(
+            montage.add_segment(QuickAttackDirection(StickReferenceAxis.LEFT)),
+            montage,
+        )
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action.PIKACHU_SPECIAL_HI_END,
+                character=melee.Character.PIKACHU,
+                action_frame=9,
+            ),
+            True,
+        )
+
+    def test_quick_attack_accepts_first_segment_hidden_by_terrain_collision(self):
+        montage = QuickAttackMontage(QuickAttackDirection(StickReferenceAxis.DOWN))
+        self.tick(montage, melee.Action.STANDING, character=melee.Character.PIKACHU)
+        self.controls.take_calls()
+        self.tick(
+            montage,
+            melee.Action.PIKACHU_SPECIAL_HI_START0,
+            character=melee.Character.PIKACHU,
+        )
+        self.controls.take_calls()
+
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action.PIKACHU_SPECIAL_HI_END,
+                character=melee.Character.PIKACHU,
+                action_frame=1,
+            ),
+            montage,
+        )
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action.PIKACHU_SPECIAL_HI_END,
+                character=melee.Character.PIKACHU,
+                action_frame=9,
+            ),
+            True,
+        )
+
+    def test_quick_attack_adds_second_segment_during_first_travel(self):
+        second = QuickAttackDirection(StickReferenceAxis.LEFT, -22.0)
+        montage = QuickAttackMontage(QuickAttackDirection(StickReferenceAxis.UP))
+        self.tick(
+            montage,
+            melee.Action.FALLING,
+            character=melee.Character.PICHU,
+            on_ground=False,
+        )
+        self.controls.take_calls()
+        self.tick(
+            montage,
+            melee.Action.PICHU_SPECIAL_AIR_HI_START0,
+            character=melee.Character.PICHU,
+            on_ground=False,
+        )
+        self.controls.take_calls()
+        self.tick(
+            montage,
+            melee.Action.PICHU_SPECIAL_AIR_HI_START1,
+            character=melee.Character.PICHU,
+            on_ground=False,
+        )
+        self.assertEqual(self.controls.take_calls(), [("release_all",)])
+
+        self.assertIs(montage.add_segment(second), montage)
+        self.assertFalse(montage.can_add_segment())
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action.PICHU_SPECIAL_AIR_HI_START1,
+                character=melee.Character.PICHU,
+                on_ground=False,
+            ),
+            montage,
+        )
+        self.assertEqual(
+            self.controls.take_calls(),
+            [
+                ("release_all",),
+                (
+                    "tilt_stick",
+                    StickReferenceAxis.LEFT,
+                    -22.0,
+                    1.0,
+                    melee.Button.BUTTON_MAIN,
+                ),
+            ],
+        )
+        self.tick(
+            montage,
+            melee.Action.PICHU_SPECIAL_AIR_HI_END,
+            character=melee.Character.PICHU,
+            action_frame=8,
+            on_ground=False,
+        )
+        self.controls.take_calls()
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action.PICHU_SPECIAL_AIR_HI_START1,
+                character=melee.Character.PICHU,
+                on_ground=False,
+            ),
+            True,
+        )
+        self.assertEqual(self.controls.take_calls(), [("release_all",)])
+
+    def test_quick_attack_accepts_second_segment_at_last_input_frame(self):
+        second = QuickAttackDirection(StickReferenceAxis.DOWN, 45.0)
+        montage = QuickAttackMontage(QuickAttackDirection(StickReferenceAxis.RIGHT))
+        self.tick(montage, melee.Action.STANDING, character=melee.Character.PIKACHU)
+        self.controls.take_calls()
+        self.tick(
+            montage,
+            melee.Action.PIKACHU_SPECIAL_HI_START1,
+            character=melee.Character.PIKACHU,
+        )
+        self.controls.take_calls()
+        self.tick(
+            montage,
+            melee.Action.PIKACHU_SPECIAL_HI_END,
+            character=melee.Character.PIKACHU,
+            action_frame=7,
+        )
+        self.controls.take_calls()
+
+        self.assertTrue(montage.can_add_segment())
+        montage.add_segment(second)
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action.PIKACHU_SPECIAL_HI_END,
+                character=melee.Character.PIKACHU,
+                action_frame=8,
+            ),
+            montage,
+        )
+        self.assertEqual(
+            self.controls.take_calls(),
+            [
+                ("release_all",),
+                (
+                    "tilt_stick",
+                    StickReferenceAxis.DOWN,
+                    45.0,
+                    1.0,
+                    melee.Button.BUTTON_MAIN,
+                ),
+            ],
+        )
+        self.assertFalse(montage.can_add_segment())
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action.PIKACHU_SPECIAL_HI_START1,
+                character=melee.Character.PIKACHU,
+            ),
+            True,
+        )
+
+    def test_quick_attack_accepts_second_segment_hidden_by_terrain_collision(self):
+        montage = QuickAttackMontage(QuickAttackDirection(StickReferenceAxis.UP)).add_segment(
+            QuickAttackDirection(StickReferenceAxis.DOWN)
+        )
+        self.tick(montage, melee.Action.STANDING, character=melee.Character.PIKACHU)
+        self.controls.take_calls()
+        self.tick(
+            montage,
+            melee.Action.PIKACHU_SPECIAL_HI_END,
+            character=melee.Character.PIKACHU,
+            action_frame=1,
+        )
+        self.controls.take_calls()
+        self.tick(
+            montage,
+            melee.Action.PIKACHU_SPECIAL_HI_END,
+            character=melee.Character.PIKACHU,
+            action_frame=8,
+        )
+        self.controls.take_calls()
+
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action.PIKACHU_SPECIAL_HI_END,
+                character=melee.Character.PIKACHU,
+                action_frame=0,
+            ),
+            True,
+        )
+        self.assertEqual(self.controls.take_calls(), [("release_all",)])
+
+    def test_quick_attack_keeps_last_input_frame_open_during_hitlag(self):
+        second = QuickAttackDirection(StickReferenceAxis.LEFT)
+        montage = QuickAttackMontage(QuickAttackDirection(StickReferenceAxis.UP))
+        self.tick(montage, melee.Action.STANDING, character=melee.Character.PIKACHU)
+        self.controls.take_calls()
+        self.tick(
+            montage,
+            melee.Action.PIKACHU_SPECIAL_HI_START1,
+            character=melee.Character.PIKACHU,
+        )
+        self.controls.take_calls()
+
+        for hitlag_left in (2, 1):
+            self.assertIs(
+                self.tick(
+                    montage,
+                    melee.Action.PIKACHU_SPECIAL_HI_END,
+                    character=melee.Character.PIKACHU,
+                    action_frame=8,
+                    hitlag_left=hitlag_left,
+                ),
+                montage,
+            )
+            self.assertTrue(montage.can_add_segment())
+            self.controls.take_calls()
+
+        montage.add_segment(second)
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action.PIKACHU_SPECIAL_HI_END,
+                character=melee.Character.PIKACHU,
+                action_frame=8,
+            ),
+            montage,
+        )
+        self.assertFalse(montage.can_add_segment())
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action.PIKACHU_SPECIAL_HI_START1,
+                character=melee.Character.PIKACHU,
+            ),
+            True,
+        )
+
+    def test_quick_attack_first_added_segment_wins(self):
+        first = QuickAttackDirection(StickReferenceAxis.LEFT)
+        montage = QuickAttackMontage(QuickAttackDirection(StickReferenceAxis.UP))
+        self.assertIs(montage.add_segment(first), montage)
+        self.assertIs(
+            montage.add_segment(QuickAttackDirection(StickReferenceAxis.RIGHT)),
+            montage,
+        )
+        self.tick(montage, melee.Action.STANDING, character=melee.Character.PIKACHU)
+        self.controls.take_calls()
+        self.tick(
+            montage,
+            melee.Action.PIKACHU_SPECIAL_HI_START1,
+            character=melee.Character.PIKACHU,
+        )
+        self.assertIn(
+            (
+                "tilt_stick",
+                StickReferenceAxis.LEFT,
+                0.0,
+                1.0,
+                melee.Button.BUTTON_MAIN,
+            ),
+            self.controls.take_calls(),
+        )
+
+    def test_quick_attack_aborts_when_requested_second_segment_is_rejected(self):
+        direction = QuickAttackDirection(StickReferenceAxis.UP)
+        montage = QuickAttackMontage(direction).add_segment(direction)
+        self.tick(montage, melee.Action.STANDING, character=melee.Character.PIKACHU)
+        self.controls.take_calls()
+        self.tick(
+            montage,
+            melee.Action.PIKACHU_SPECIAL_HI_START1,
+            character=melee.Character.PIKACHU,
+        )
+        self.controls.take_calls()
+        self.tick(
+            montage,
+            melee.Action.PIKACHU_SPECIAL_HI_END,
+            character=melee.Character.PIKACHU,
+            action_frame=8,
+        )
+        self.controls.take_calls()
+
+        self.assertEqual(
+            self.tick(
+                montage,
+                melee.Action.DEAD_FALL,
+                character=melee.Character.PIKACHU,
+                on_ground=False,
+            ),
+            Abort("second Quick Attack segment did not start"),
+        )
+
+    def test_quick_attack_completes_on_ledge_and_ignores_attacker_hitlag(self):
+        montage = QuickAttackMontage(QuickAttackDirection(StickReferenceAxis.UP)).add_segment(
+            QuickAttackDirection(StickReferenceAxis.RIGHT)
+        )
+        self.tick(montage, melee.Action.STANDING, character=melee.Character.PIKACHU)
+        self.controls.take_calls()
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action.PIKACHU_SPECIAL_AIR_HI_START1,
+                character=melee.Character.PIKACHU,
+                hitlag_left=4,
+                on_ground=False,
+            ),
+            montage,
+        )
+        self.controls.take_calls()
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action.EDGE_CATCHING,
+                character=melee.Character.PIKACHU,
+                on_ground=False,
+            ),
+            True,
+        )
+
+    def test_quick_attack_completes_when_startup_grabs_ledge(self):
+        montage = QuickAttackMontage(QuickAttackDirection(StickReferenceAxis.UP))
+        self.tick(
+            montage,
+            melee.Action.FALLING,
+            character=melee.Character.PIKACHU,
+            on_ground=False,
+        )
+        self.controls.take_calls()
+
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action.EDGE_CATCHING,
+                character=melee.Character.PIKACHU,
+                on_ground=False,
+            ),
+            True,
+        )
+        self.assertEqual(self.controls.take_calls(), [("release_all",)])
+
+    def test_quick_attack_rejects_nonfinite_direction_and_character_change(self):
+        with self.assertRaisesRegex(ValueError, "finite"):
+            QuickAttackDirection(StickReferenceAxis.UP, math.nan)
+
+        montage = QuickAttackMontage(QuickAttackDirection(StickReferenceAxis.UP))
+        self.tick(montage, melee.Action.STANDING, character=melee.Character.PIKACHU)
+        self.controls.take_calls()
+        self.assertEqual(
+            self.tick(
+                montage,
+                melee.Action.PICHU_SPECIAL_HI_START0,
+                character=melee.Character.PICHU,
+            ),
+            Abort("player character changed"),
+        )
 
     def test_sdi_alternates_diagonals_then_uses_c_stick_asdi(self):
         montage = SDIMontage(StickReferenceAxis.RIGHT)
