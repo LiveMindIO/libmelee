@@ -19,7 +19,6 @@ from melee.bot.techskill.common import is_interrupted, player
 from melee.enums import Button
 from melee.gamestate import GameState
 
-
 _ATTACK_BY_AXIS: Final[dict[StickReferenceAxis, AttackType]] = {
     StickReferenceAxis.UP: AttackType.USMASH,
     StickReferenceAxis.DOWN: AttackType.DSMASH,
@@ -27,6 +26,7 @@ _ATTACK_BY_AXIS: Final[dict[StickReferenceAxis, AttackType]] = {
     StickReferenceAxis.RIGHT: AttackType.RSMASH,
 }
 _GAME_MAX_CHARGE_FRAMES: Final = 60
+_GAME_MAX_POWER_MULTIPLIER: Final = 1.3671
 _LIFECYCLE_FRAME_OVERHEAD: Final = 4
 
 
@@ -46,12 +46,8 @@ class _SmashAttackState:
 
 
 def _validate_max_charge_frames(max_charge_frames: int) -> None:
-    if (
-        isinstance(max_charge_frames, bool)
-        or not isinstance(max_charge_frames, int)
-        or not 0 <= max_charge_frames <= _GAME_MAX_CHARGE_FRAMES
-    ):
-        raise ValueError("max_charge_frames must be an integer between 0 and 60")
+    if not 0 <= max_charge_frames <= _GAME_MAX_CHARGE_FRAMES:
+        raise ValueError("max_charge_frames must be between 0 and 60")
 
 
 class SmashAttackMontage(StatefulInputMontage[_SmashAttackState]):
@@ -83,8 +79,8 @@ class SmashAttackMontage(StatefulInputMontage[_SmashAttackState]):
             from 0 (minimum charge) through 60 (Melee's maximum).
 
     Raises:
-        ValueError: If ``axis`` is not cardinal or ``max_charge_frames`` is not
-            an integer in the inclusive range 0 through 60.
+        ValueError: If ``max_charge_frames`` is outside the inclusive range 0
+            through 60.
     """
 
     def __init__(
@@ -92,8 +88,6 @@ class SmashAttackMontage(StatefulInputMontage[_SmashAttackState]):
         axis: StickReferenceAxis,
         max_charge_frames: int = _GAME_MAX_CHARGE_FRAMES,
     ) -> None:
-        if axis not in _ATTACK_BY_AXIS:
-            raise ValueError("axis must be a StickReferenceAxis")
         _validate_max_charge_frames(max_charge_frames)
         super().__init__(
             max_charge_frames + _LIFECYCLE_FRAME_OVERHEAD,
@@ -123,6 +117,17 @@ class SmashAttackMontage(StatefulInputMontage[_SmashAttackState]):
             self._release_requested = True
         return self
 
+    def current_power(self) -> float:
+        """Return the smash's current damage multiplier.
+
+        The multiplier begins at ``1.0`` before charging and increases linearly
+        with observed montage charge ticks to Melee's ``1.3671`` maximum after
+        60 ticks. Releasing or finishing freezes the returned value at the power
+        accumulated before release.
+        """
+        charge_ratio = min(self._input_state.charge_frames, _GAME_MAX_CHARGE_FRAMES) / _GAME_MAX_CHARGE_FRAMES
+        return 1.0 + charge_ratio * (_GAME_MAX_POWER_MULTIPLIER - 1.0)
+
     def get_framedata(self) -> AttackFrameData | None:
         """Return requested/observed smash framedata once initiation succeeds."""
         return self._input_state.frame_data
@@ -149,10 +154,7 @@ class SmashAttackMontage(StatefulInputMontage[_SmashAttackState]):
         player_state_value = player(player_state)
         if player_state_value is None:
             return Abort("player state became unavailable")
-        if (
-            input_state.hold is not None
-            and player_state_value.character is not input_state.hold.character
-        ):
+        if input_state.hold is not None and player_state_value.character is not input_state.hold.character:
             return Abort("player character changed")
         if player_state_value.off_stage:
             return Abort("player moved offstage")
@@ -192,10 +194,7 @@ class SmashAttackMontage(StatefulInputMontage[_SmashAttackState]):
                 hold = input_state.hold
                 if hold is None:
                     return input_state, Abort("smash attack hold became unavailable")
-                if (
-                    self._release_requested
-                    or input_state.charge_frames >= self._max_charge_frames
-                ):
+                if self._release_requested or input_state.charge_frames >= self._max_charge_frames:
                     result = controls.release(hold)
                     if not isinstance(result, AttackFrameData):
                         return input_state, Abort("smash attack could not be released")
@@ -226,7 +225,6 @@ class SmashAttackMontage(StatefulInputMontage[_SmashAttackState]):
                         replace(
                             input_state,
                             hold=result,
-                            charge_frames=input_state.charge_frames + 1,
                         ),
                         self,
                     )

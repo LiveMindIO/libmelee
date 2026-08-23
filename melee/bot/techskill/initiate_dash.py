@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from enum import Enum, auto
 
-from melee.bot.character_state import CharacterState
+from melee.bot.character_state import CharacterState, HorizontalStickReferenceAxis
 from melee.bot.input_montage import Abort, InputMontage
 from melee.bot.simple_controls import SimpleControls, StickReferenceAxis
 from melee.bot.stateful_input_montage import StatefulInputMontage
@@ -36,13 +36,11 @@ class InitiateDashMontage(StatefulInputMontage[_DashPhase]):
 
     def __init__(
         self,
-        direction: StickReferenceAxis,
+        direction: HorizontalStickReferenceAxis,
         frame_limit: int = 3,
         cancel_montage: InputMontage | None = None,
     ) -> None:
         super().__init__(frame_limit, _DashPhase.Initial, cancel_montage)
-        if direction not in {StickReferenceAxis.LEFT, StickReferenceAxis.RIGHT}:
-            raise ValueError("direction must be StickReferenceAxis.LEFT or StickReferenceAxis.RIGHT")
         self._direction = direction
         self._character: Character | None = None
 

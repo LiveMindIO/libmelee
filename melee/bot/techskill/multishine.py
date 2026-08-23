@@ -88,9 +88,7 @@ def _apply_jump_cancel_input(
     # the on_ground guard prevents an actual aerial jump request.
     # See https://github.com/altf4/libmelee/blob/master/melee/techskill.py
     can_jump_cancel = action is Action.DOWN_B_GROUND or (
-        action in {Action.DOWN_B_GROUND_START, Action.DOWN_B_AIR_START}
-        and action_frame >= 4
-        and on_ground
+        action in {Action.DOWN_B_GROUND_START, Action.DOWN_B_AIR_START} and action_frame >= 4 and on_ground
     )
     if can_jump_cancel:
         controls.press_button(jump_button)
@@ -107,8 +105,8 @@ class MultishineMontage(StatefulInputMontage[_MultishineState]):
         jump_button: Button = Button.BUTTON_Y,
         shine_count: int = 2,
     ) -> None:
-        if isinstance(shine_count, bool) or not isinstance(shine_count, int) or shine_count < 2:
-            raise ValueError("shine_count must be an integer greater than or equal to two")
+        if shine_count < 2:
+            raise ValueError("shine_count must be greater than or equal to two")
         if frame_limit is None:
             frame_limit = shine_count * _DEFAULT_FRAMES_PER_SHINE
         super().__init__(
@@ -171,9 +169,7 @@ class MultishineMontage(StatefulInputMontage[_MultishineState]):
             controls.release_all()
             return input_state, Abort("player state became unavailable")
 
-        shine_hitlag_left = (
-            player_state_value.hitlag_left if player_state_value.action in SHINE_ACTIONS else 0
-        )
+        shine_hitlag_left = player_state_value.hitlag_left if player_state_value.action in SHINE_ACTIONS else 0
         if shine_hitlag_left > input_state.shine_hitlag_left:
             self._frame_limit += _SHINE_HITLAG_FRAMES
         input_state = replace(input_state, shine_hitlag_left=shine_hitlag_left)
@@ -256,9 +252,7 @@ class MultishineMontage(StatefulInputMontage[_MultishineState]):
             case _MultishinePhase.FinalShineObserved, action if action in _REFLECTOR_WAIT_ACTIONS:
                 controls.release_all()
                 return input_state, self
-            case _MultishinePhase.FinalShineObserved, action if (
-                action in SHINE_ACTIONS or action is Action.STANDING
-            ):
+            case _MultishinePhase.FinalShineObserved, action if action in SHINE_ACTIONS or action is Action.STANDING:
                 controls.release_all()
                 return input_state, True
             case _:

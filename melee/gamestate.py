@@ -182,6 +182,8 @@ class PlayerState:
     """(enum.Action): The current action (or animation) the character is in"""
     action_frame: int = 0
     """(int): What frame of the Action is the character in? Indexed from 1."""
+    neutral_b_charge: Optional[int] = None
+    """Character-specific stored neutral-B charge, or None without current Gecko telemetry."""
     invulnerable: bool = False
     """(bool): Is the player invulnerable?"""
     invulnerability_left: int = 0

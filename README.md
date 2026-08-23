@@ -341,7 +341,34 @@ Libmelee includes concrete technique montages:
   down, absolute-left, and absolute-right smashes. Zero requests minimum charge;
   values through 60 bound retained A+stick ticks. `release_charge()` queues an
   earlier release on the next active tick without cancelling the montage.
-  `get_framedata()` exposes typed attack metadata after initiation.
+  `current_power()` reports the accumulated `1.0` through `1.3671` damage
+  multiplier, and `get_framedata()` exposes typed attack metadata after initiation.
+- `LinkBowMontage()` starts Link or Young Link's grounded or aerial neutral-B.
+  `release()` queues the shot for the first safe active tick, `can_release()`
+  reports when that transition is available, and `current_power()` reports
+  locally tracked normalized charge from `0.0` through `1.0` while charging.
+  Full power does not force release; the montage can hold through its one-minute
+  safety window.
+- `JigglypuffRolloutMontage()` gives grounded and aerial Rollout the same sticky
+  `release()`, `can_release()`, and normalized `current_power()` interface. Full
+  Rollout remains held until release, with the same one-minute safety window.
+- `LuigiGreenMissileMontage(direction, use_smash_bonus=True)` and
+  `SkullBashMontage(direction, use_smash_bonus=True)` own an absolute left/right
+  side-B charge. The default commits one neutral preparation frame so the next
+  horizontal+B input receives its native 20-count smash bonus. Passing `False`
+  pre-holds the direction through the tap window before B for a zero-count start.
+  Luigi, Pikachu, and Pichu auto-launch at full power.
+- `ShieldBreakerMontage()` and `FlareBladeMontage()` provide the same caller-
+  released interface for Marth and Roy on the ground or in air. Melee itself
+  auto-releases their distinct full-charge attacks.
+- `DonkeyKongGiantPunchMontage`, `SamusChargeShotMontage`,
+  `SheikNeedleStormMontage`, and `MewtwoShadowBallMontage` use exact
+  `PlayerState.neutral_b_charge` telemetry. Their `fire()` and
+  `store(ChargeStoreInput)` requests are sticky; use `can_fire()`,
+  `can_store(...)`, and normalized `current_power()` to gate decisions. Shield
+  and grab storage are available except Mewtwo rejects grab; grounded rolls are
+  available except for Sheik. Samus can fire, but cannot continue charging, in air.
+  Charge states that Melee permits retaining use the one-minute safety window.
 - `LinkForwardSmashMontage(direction, max_charge_frames=0)` specializes that
   lifecycle for Link and Young Link. Chained `.followup()` requests the fastest
   second slash. For caller-delayed timing, a pre-tick listener checks

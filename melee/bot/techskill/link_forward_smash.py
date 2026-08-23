@@ -6,7 +6,7 @@ from typing import Final, Self
 
 from melee.bot.character_state import CharacterState, HorizontalStickReferenceAxis
 from melee.bot.input_montage import Abort, InputMontage, MontageState
-from melee.bot.simple_controls import SimpleControls, StickReferenceAxis
+from melee.bot.simple_controls import SimpleControls
 from melee.bot.techskill.common import player
 from melee.bot.techskill.smash_attack import (
     SmashAttackMontage,
@@ -15,7 +15,6 @@ from melee.bot.techskill.smash_attack import (
 )
 from melee.enums import Action, Button, Character
 from melee.gamestate import GameState
-
 
 _FIRST_SLASH_ACTION: Final = Action.FSMASH_MID
 _SECOND_SLASH_ACTION: Final = Action(341)
@@ -104,10 +103,6 @@ class LinkForwardSmashMontage(SmashAttackMontage):
         direction: HorizontalStickReferenceAxis,
         max_charge_frames: int = 0,
     ) -> None:
-        if direction not in {StickReferenceAxis.LEFT, StickReferenceAxis.RIGHT}:
-            raise ValueError(
-                "direction must be StickReferenceAxis.LEFT or StickReferenceAxis.RIGHT"
-            )
         super().__init__(direction, max_charge_frames=max_charge_frames)
         self._frame_limit += _FIRST_SLASH_FRAME_BUDGET
         self._followup_requested = False
@@ -129,10 +124,7 @@ class LinkForwardSmashMontage(SmashAttackMontage):
         valid window aborts rather than turning into another attack after the
         first slash ends.
         """
-        if (
-            self.get_montage_state() in {MontageState.Waiting, MontageState.Active}
-            and not self._followup_input_sent
-        ):
+        if self.get_montage_state() in {MontageState.Waiting, MontageState.Active} and not self._followup_input_sent:
             self._followup_requested = True
         return self
 
@@ -153,8 +145,7 @@ class LinkForwardSmashMontage(SmashAttackMontage):
         player_state_value = player(player_state)
         return (
             self.get_montage_state() is MontageState.Active
-            and self._input_state.phase
-            in {_SmashAttackPhase.Released, _SmashAttackPhase.Started}
+            and self._input_state.phase in {_SmashAttackPhase.Released, _SmashAttackPhase.Started}
             and not self._followup_input_sent
             and player_state_value is not None
             and player_state_value.character in _FIRST_FOLLOWUP_REQUEST_FRAME
@@ -198,18 +189,12 @@ class LinkForwardSmashMontage(SmashAttackMontage):
             return input_state, Abort("player state became unavailable")
 
         controls.release_all()
-        if (
-            player_state_value.action is _FIRST_SLASH_ACTION
-            and player_state_value.hitlag_left > 0
-        ):
+        if player_state_value.action is _FIRST_SLASH_ACTION and player_state_value.hitlag_left > 0:
             self._frame_limit += 1
         if self._followup_input_sent:
             if player_state_value.action is _SECOND_SLASH_ACTION:
                 return input_state, True
-            if (
-                player_state_value.action is _FIRST_SLASH_ACTION
-                and player_state_value.action_frame < 50
-            ):
+            if player_state_value.action is _FIRST_SLASH_ACTION and player_state_value.action_frame < 50:
                 return input_state, self
             return input_state, Abort("second forward slash did not start")
 

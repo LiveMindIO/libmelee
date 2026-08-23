@@ -101,10 +101,14 @@ uv pip install --python .venv/bin/python .
   guards with an explicit fallback case.
 - Terminal montage instances cannot restart. Instantiate a new montage for every
   attempt.
+- Public montage parameters rely on strict annotations and stubs for type safety;
+  do not duplicate those types with runtime `isinstance` or enum-membership
+  checks. Runtime validation remains appropriate for semantic ranges and subsets
+  such as positive frame limits, charge bounds, and allowed jump/dodge buttons.
 - Concrete montages live in separate files under `melee/bot/techskill/`, with
   reused state and helpers in `melee/bot/techskill/common.py`.
-  The shipped Initiate Dash, Link Forward Smash, Multishine, Wavedash, Ledgedash,
-  SDI, Perfect Pivot, Smash Attack, and Smash Turn Jump montages model their mutable phases as typed
+  The shipped movement, defense, attack-chain, caller-released charge, storable
+  neutral-B, and smash montages model mutable phases as typed
   `StatefulInputMontage` values and dispatch phase transitions with structural
   pattern matching.
   `InitiateDashMontage` requests a neutral reset frame only when already moving
@@ -141,7 +145,30 @@ uv pip install --python .venv/bin/python .
   `SmashAttackMontage(axis, max_charge_frames=60)` bounds A+stick retention from
   zero (minimum charge) through Melee's 60-frame maximum. `release_charge()`
   idempotently queues an earlier release for the next active tick; cancellation
-  abandons the attack instead. The montage confirms startup before succeeding.
+  abandons the attack instead. `current_power()` returns the locally observed
+  `1.0` through `1.3671` damage multiplier. The montage confirms startup before succeeding.
+  `LinkBowMontage` supports Link and Young Link on the ground or in air.
+  `release()` queues the shot; `can_release()` and normalized `current_power()`
+  become available on the first safe release frame and return unavailable after release.
+  `JigglypuffRolloutMontage` uses the same caller-release queries and keeps full
+  Rollout held through a one-minute safety window. `LuigiGreenMissileMontage`
+  and `SkullBashMontage` accept an absolute horizontal direction. Their default
+  `use_smash_bonus=True` commits neutral then horizontal+B for the 20-count bonus;
+  `False` pre-holds the direction through the tap window before pressing B.
+  `ShieldBreakerMontage` and
+  `FlareBladeMontage` cover Marth and Roy. Green Missile, both Skull Bashes,
+  Shield Breaker, and Flare Blade complete when their game-enforced full charge
+  auto-launches; callers cannot hold those moves past full power.
+  `DonkeyKongGiantPunchMontage`, `SamusChargeShotMontage`,
+  `SheikNeedleStormMontage`, and `MewtwoShadowBallMontage` read exact persisted
+  charge from `PlayerState.neutral_b_charge`. `fire()` and
+  `store(ChargeStoreInput)` queue character-specific transitions; callers gate
+  them with `can_fire()` and `can_store()`. Mewtwo cannot grab-store, Sheik cannot
+  roll-store, rolls require ground, and Samus can only begin or continue charging
+  on the ground. Legacy payloads leave telemetry `None`, so these montages cannot
+  start. Retainable charge states use the one-minute safety window. DK storage
+  latches shoulder input and may wait through a full arm-swing loop before its
+  cancel action, so its transition-confirmation allowance is 120 frames.
   `LinkForwardSmashMontage(direction, max_charge_frames=0)` supports Link and
   Young Link and inherits charge release.
   Chained `.followup()` requests the first valid second slash. Delayed callers use

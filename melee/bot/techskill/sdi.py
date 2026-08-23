@@ -77,8 +77,6 @@ class SDIMontage(StatefulInputMontage[_SDIState]):
         cancel_montage: InputMontage | None = None,
     ) -> None:
         super().__init__(frame_limit, _SDIState(), cancel_montage)
-        if not isinstance(direction, StickReferenceAxis):
-            raise ValueError("direction must be a StickReferenceAxis")
         self._direction = direction
         self._character: Character | None = None
         self._stock: int | None = None

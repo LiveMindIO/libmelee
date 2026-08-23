@@ -44,6 +44,7 @@ from melee.extract_menu_info import (
     WATCH_PAYLOAD_COUNT_OFFSET,
     WATCH_PAYLOAD_VALUE_SIZE,
     WATCH_PAYLOAD_VALUES_OFFSET,
+    apply_neutral_b_charge,
 )
 
 
@@ -1270,6 +1271,8 @@ class Console:
         playerstate.position.y = np.ndarray((1,), ">f", event_bytes, 0xe)[0]
 
         playerstate.character = enums.Character(np.ndarray((1,), ">B", event_bytes, 0x7)[0])
+        if np.ndarray((1,), ">B", event_bytes, 0x6)[0] != 1:
+            apply_neutral_b_charge(playerstate, int(controller_port), gamestate)
         action_value = np.ndarray((1,), ">H", event_bytes, 0x8)[0]
         try:
             playerstate.action = enums.Action(action_value)
