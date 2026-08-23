@@ -116,10 +116,11 @@ uv pip install --python .venv/bin/python .
   directly to one maximum absolute left/right frame. Success leaves that
   direction held, so the caller or an `add_branch()` continuation must reset the
   stick once the desired location is reached.
-  `MultishineMontage` is Fox-only and performs a configurable `shine_count` of at
-  least two consecutive shines. Its baseline frame limit allows the normal
-  eight-frame cycle plus four transition frames per shine. A rise in observed
-  shine attacker hitlag adds four frames to the active budget once for that hit;
+  `MultishineMontage` supports Fox and Falco and performs a configurable
+  `shine_count` of at least two consecutive shines. It uses each fighter's
+  three- or five-frame jump squat. Its baseline frame limit allows the normal
+  cycle plus transition slack per shine. A rise in observed shine attacker
+  hitlag adds only the newly observed frames to the active budget;
   decreasing `hitlag_left` packets do not repeatedly extend the limit.
   Later shines begin as `Action.DOWN_B_AIR_START` after the jump-cancel, then
   become a grounded shine on landing. Projectile reflections enter separate

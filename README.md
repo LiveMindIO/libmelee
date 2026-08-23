@@ -306,12 +306,13 @@ Libmelee includes concrete technique montages:
   must reset the stick once the player reaches the desired location. Direction is
   an absolute `StickReferenceAxis.LEFT` or `StickReferenceAxis.RIGHT`.
 - `MultishineMontage(shine_count=2)` performs the requested number of consecutive
-  Fox shines using the same action sequence as the historical
+  Fox or Falco shines using the same core action sequence as the historical
   `techskill.multishine` helper. `shine_count` must be at least two; when no
   explicit `frame_limit` is supplied, its baseline safety budget allows the
-  normal eight-frame cycle plus four transition frames per shine. Each observed
-  rise in shine attacker hitlag adds its four stored hitlag frames to either the
-  default or an explicit budget. During a projectile reflection it holds B
+  normal cycle plus transition slack per shine. It uses Fox's three-frame or
+  Falco's five-frame jump squat. Each observed rise in shine attacker hitlag adds
+  only the newly observed frames to either the default or an explicit budget.
+  During a projectile reflection it holds B
   through non-final Reflector hit animations so they return to the
   jump-cancelable loop; release and final states are held neutral until the
   sequence can retry or complete.

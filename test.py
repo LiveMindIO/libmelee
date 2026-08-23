@@ -3085,6 +3085,9 @@ class RecordingTechniqueControls:
             )
         )
 
+    def tilt_analog(self, button, x, y):
+        self.calls.append(("tilt_analog", button, x, y))
+
     def take_calls(self):
         calls = self.calls
         self.calls = []
@@ -5418,6 +5421,78 @@ class TechniqueMontageTests(unittest.TestCase):
         )
         self.assertEqual(montage.get_montage_state(), MontageState.Finished)
 
+    def test_legacy_multishine_uses_spacie_jump_squat_timing(self):
+        for character, jump_squat_frame in (
+            (melee.Character.FOX, 3),
+            (melee.Character.FALCO, 5),
+        ):
+            with self.subTest(character=character):
+                player = melee.PlayerState(
+                    character=character,
+                    action=melee.Action.KNEE_BEND,
+                    action_frame=jump_squat_frame - 1,
+                )
+                melee.techskill.multishine(player, self.controls)
+                self.assertNotIn(
+                    ("press_button", melee.Button.BUTTON_B),
+                    self.controls.take_calls(),
+                )
+
+                player.action_frame = jump_squat_frame
+                melee.techskill.multishine(player, self.controls)
+                self.assertIn(
+                    ("press_button", melee.Button.BUTTON_B),
+                    self.controls.take_calls(),
+                )
+
+    def test_multishine_uses_falco_jump_squat_timing(self):
+        montage = MultishineMontage()
+
+        self.assertIs(
+            self.tick(montage, melee.Action.STANDING, character=melee.Character.FALCO),
+            montage,
+        )
+        self.controls.take_calls()
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action.DOWN_B_GROUND,
+                character=melee.Character.FALCO,
+            ),
+            montage,
+        )
+        self.assertIn(
+            ("press_button", melee.Button.BUTTON_Y),
+            self.controls.take_calls(),
+        )
+
+        for action_frame in range(1, 6):
+            self.assertIs(
+                self.tick(
+                    montage,
+                    melee.Action.KNEE_BEND,
+                    character=melee.Character.FALCO,
+                    action_frame=action_frame,
+                ),
+                montage,
+            )
+            calls = self.controls.take_calls()
+            self.assertEqual(
+                ("press_button", melee.Button.BUTTON_B) in calls,
+                action_frame == 5,
+            )
+
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action.DOWN_B_AIR_START,
+                character=melee.Character.FALCO,
+                on_ground=False,
+            ),
+            True,
+        )
+        self.assertEqual(montage.get_montage_state(), MontageState.Finished)
+
     def test_multishine_repeats_until_configured_shine_count(self):
         shine_count = 8
         montage = MultishineMontage(shine_count=shine_count)
@@ -5664,14 +5739,14 @@ class TechniqueMontageTests(unittest.TestCase):
             ):
                 MultishineMontage(shine_count=shine_count)
 
-    def test_multishine_waits_for_fox_in_standing_state(self):
+    def test_multishine_waits_for_supported_character_in_standing_state(self):
         montage = MultishineMontage()
 
         self.assertIs(
             self.tick(
                 montage,
                 melee.Action.STANDING,
-                character=melee.Character.FALCO,
+                character=melee.Character.MARTH,
             ),
             montage,
         )
@@ -5821,15 +5896,66 @@ class TechniqueMontageTests(unittest.TestCase):
         self.assertEqual(montage.get_montage_state(), MontageState.Finished)
 
     def test_multishine_extends_budget_once_per_hitlag_rise(self):
+        for character, peak_hitlag in (
+            (melee.Character.FOX, 4),
+            (melee.Character.FALCO, 5),
+        ):
+            with self.subTest(character=character):
+                self.setUp()
+                montage = MultishineMontage(frame_limit=2)
+                self.tick(montage, melee.Action.STANDING, character=character)
+                self.controls.take_calls()
+
+                for hitlag_left in range(peak_hitlag, 0, -1):
+                    self.assertIs(
+                        self.tick(
+                            montage,
+                            melee.Action.DOWN_B_GROUND_START,
+                            character=character,
+                            action_frame=1,
+                            hitlag_left=hitlag_left,
+                        ),
+                        montage,
+                    )
+                    self.controls.take_calls()
+
+                self.assertIs(
+                    self.tick(
+                        montage,
+                        melee.Action.DOWN_B_GROUND_START,
+                        character=character,
+                        action_frame=2,
+                    ),
+                    montage,
+                )
+                self.controls.take_calls()
+                self.assertIs(
+                    self.tick(
+                        montage,
+                        melee.Action.DOWN_B_GROUND_START,
+                        character=character,
+                        action_frame=3,
+                    ),
+                    False,
+                )
+                self.assertEqual(montage.get_montage_state(), MontageState.TimedOut)
+                self.assertEqual(self.controls.take_calls(), [("release_all",)])
+
+    def test_multishine_hitlag_extension_adds_only_new_delta(self):
         montage = MultishineMontage(frame_limit=2)
-        self.tick(montage, melee.Action.STANDING)
+        self.tick(
+            montage,
+            melee.Action.STANDING,
+            character=melee.Character.FALCO,
+        )
         self.controls.take_calls()
 
-        for hitlag_left in range(4, 0, -1):
+        for hitlag_left in (2, 5, 4, 3, 2, 1):
             self.assertIs(
                 self.tick(
                     montage,
                     melee.Action.DOWN_B_GROUND_START,
+                    character=melee.Character.FALCO,
                     action_frame=1,
                     hitlag_left=hitlag_left,
                 ),
@@ -5838,12 +5964,12 @@ class TechniqueMontageTests(unittest.TestCase):
             self.controls.take_calls()
 
         self.assertIs(
-            self.tick(montage, melee.Action.DOWN_B_GROUND_START, action_frame=2),
-            montage,
-        )
-        self.controls.take_calls()
-        self.assertIs(
-            self.tick(montage, melee.Action.DOWN_B_GROUND_START, action_frame=3),
+            self.tick(
+                montage,
+                melee.Action.DOWN_B_GROUND_START,
+                character=melee.Character.FALCO,
+                action_frame=2,
+            ),
             False,
         )
         self.assertEqual(montage.get_montage_state(), MontageState.TimedOut)

@@ -1,4 +1,4 @@
-"""Fox multishine input montage."""
+"""Fox and Falco multishine input montage."""
 
 from __future__ import annotations
 
@@ -54,14 +54,15 @@ _REFLECTOR_END_ACTIONS: Final = frozenset(
     }
 )
 _REFLECTOR_WAIT_ACTIONS: Final = _REFLECTOR_HIT_ACTIONS | _REFLECTOR_END_ACTIONS
-# DESNOTE(jbarber, 2026-08-19): Fox's fresh 5% shine produces a stored attacker
-# hitlag counter of four. Keep the normal eight-frame cycle plus four frames of
-# transition slack as the baseline, then add four frames only when shine hitlag
-# rises. This avoids charging every requested shine for a hit that may not occur.
+_MULTISHINE_CHARACTERS: Final = frozenset({Character.FOX, Character.FALCO})
+# DESNOTE(jbarber, 2026-08-23): Fox and Falco share Reflector action IDs and a
+# frame-4 jump cancel, but Falco has a five-frame rather than three-frame jump
+# squat and its stronger shine can produce more attacker hitlag. Extend by the
+# observed hitlag rise and use the character-specific jump-squat table instead
+# of encoding Fox's timings.
 # See https://github.com/doldecomp/melee/blob/master/src/melee/ft/ftcommon.c and
-# https://www.ssbwiki.com/Reflector_(Fox)#Multi_shine
+# https://www.ssbwiki.com/Falco_(SSBM)/Down_special
 _DEFAULT_FRAMES_PER_SHINE: Final = 12
-_SHINE_HITLAG_FRAMES: Final = 4
 
 
 def _apply_down_input(controls: SimpleControls, button: Button) -> None:
@@ -95,7 +96,7 @@ def _apply_jump_cancel_input(
 
 
 class MultishineMontage(StatefulInputMontage[_MultishineState]):
-    """Perform a configured number of consecutive Fox shines."""
+    """Perform a configured number of consecutive Fox or Falco shines."""
 
     def __init__(
         self,
@@ -129,7 +130,7 @@ class MultishineMontage(StatefulInputMontage[_MultishineState]):
         player_state_value = player(player_state)
         return (
             player_state_value is not None
-            and player_state_value.character is Character.FOX
+            and player_state_value.character in _MULTISHINE_CHARACTERS
             and player_state_value.action in GROUND_MOVEMENT_ACTIONS
             and player_state_value.on_ground
             and not player_state_value.off_stage
@@ -147,8 +148,8 @@ class MultishineMontage(StatefulInputMontage[_MultishineState]):
         player_state_value = player(player_state)
         if player_state_value is None:
             return Abort("player state became unavailable")
-        if player_state_value.character is not Character.FOX:
-            return Abort("player is no longer Fox")
+        if player_state_value.character not in _MULTISHINE_CHARACTERS:
+            return Abort("player is no longer Fox or Falco")
         if player_state_value.off_stage:
             return Abort("player moved offstage")
         if is_interrupted(player_state, player_state_value, include_hitlag=False):
@@ -171,7 +172,7 @@ class MultishineMontage(StatefulInputMontage[_MultishineState]):
 
         shine_hitlag_left = player_state_value.hitlag_left if player_state_value.action in SHINE_ACTIONS else 0
         if shine_hitlag_left > input_state.shine_hitlag_left:
-            self._frame_limit += _SHINE_HITLAG_FRAMES
+            self._frame_limit += shine_hitlag_left - input_state.shine_hitlag_left
         input_state = replace(input_state, shine_hitlag_left=shine_hitlag_left)
 
         match input_state.phase, player_state_value.action:
@@ -198,9 +199,10 @@ class MultishineMontage(StatefulInputMontage[_MultishineState]):
                 return input_state, self
             case _MultishinePhase.JumpRequested, Action.KNEE_BEND:
                 controls.release_all()
-                if player_state_value.action_frame < JUMP_SQUAT_FRAMES[Character.FOX]:
+                jump_squat_frames = JUMP_SQUAT_FRAMES[player_state_value.character]
+                if player_state_value.action_frame < jump_squat_frames:
                     return input_state, self
-                if player_state_value.action_frame == JUMP_SQUAT_FRAMES[Character.FOX]:
+                if player_state_value.action_frame == jump_squat_frames:
                     _apply_down_input(controls, Button.BUTTON_B)
                     return (
                         replace(
@@ -210,7 +212,9 @@ class MultishineMontage(StatefulInputMontage[_MultishineState]):
                         ),
                         self,
                     )
-                return input_state, Abort("Fox passed the final jump-squat frame")
+                return input_state, Abort(
+                    f"{player_state_value.character.name.title()} passed the final jump-squat frame"
+                )
             case _MultishinePhase.NextShineRequested, action if action in _REFLECTOR_HIT_ACTIONS:
                 if input_state.shines_requested >= self._shine_count:
                     controls.release_all()
