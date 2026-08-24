@@ -176,8 +176,8 @@ class FrameData:
             character (enums.Character): The character we're interested in
             action (enums.Action): The action we're interested in
         """
-        # If we're missing it, don't call it a B move
-        if action == Action.UNKNOWN_ANIMATION:
+        # Unknown raw action IDs are represented by gamestate.UnknownAnimation.
+        if not isinstance(action, Action):
             return False
 
         # Don't consider peach float to be a B move

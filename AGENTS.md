@@ -57,7 +57,9 @@ uv pip install --python .venv/bin/python .
   `StatefulInputMontage` and `AnonymousInputMontage` pass this name through.
 - `Abort(reason)` is the reason-bearing failure result parallel to strategy
   `Exit(reason)`. Every transition to `MontageState.Aborted` returns that value and
-  logs the montage name and reason at WARNING.
+  logs the montage name and reason at WARNING. `add_abort_listener()` registers
+  identifier-aware callbacks that receive the same `Abort`; timeout and
+  cancellation remain separate and do not notify them.
 - Waiting does not consume `frame_limit`; each active `on_tick` call consumes one
   frame, and exactly `frame_limit` active calls are allowed.
 - Returning another montage directly from `on_tick()` marks the current node
@@ -136,6 +138,10 @@ uv pip install --python .venv/bin/python .
   before its down-inward air dodge. It presses jump for exactly one input frame and
   leaves X/Y neutral throughout the rise; confirmed jumps remain confirmed through
   apex, but landing or leaving neutral aerial movement before clearance aborts the route.
+  `SimpleControls.platform_drop()` is the one-input non-fast-fall path and is
+  gated by `CharacterState.can_platform_drop()` plus current semisolid geometry.
+  `PlatformDropFastFallMontage` observes the drop, commits neutral to reset the
+  down-tap timer, presses down again, and confirms character-specific fast-fall speed.
   `SDIMontage` excludes attacker and grab hitlag, alternates diagonal main-stick
   pulses during damage hitlag, ignores vertical shield windows, uses target-neutral
   pulses for horizontal shield SDI, queues cardinal C-stick ASDI as damage hitlag
@@ -152,14 +158,73 @@ uv pip install --python .venv/bin/python .
   `LTILT`/`RTILT`, `LSMASH`/`RSMASH`, and `LSPECIAL`/`RSPECIAL` request an absolute
   screen direction. Aerials remain facing-relative because fair/back-air behavior
   is character-relative; there are no left/right aerial helpers.
+- Ground tilts use a `0.35` centered cardinal magnitude (`0.325`/`0.675`
+  request coordinates), not full deflection. NTSC 1.02 checks smashes before
+  tilts and independently uses `+0.6625` for up-smash and `-0.6625` for
+  down-smash, in addition to `+/-0.8` horizontal smash and `+/-0.25` tilt
+  thresholds. The chosen magnitude stays strictly inside the tilt-only range
+  after Dolphin quantization with analog correction enabled or disabled.
 - `LEFT_B`/`RIGHT_B` are deprecated aliases for `LSPECIAL`/`RSPECIAL`; new bots
   must use the canonical special names.
 - Directional aerials use the C-stick without also pressing `A` and horizontal
   aerials retain matching main-stick drift. `NAIR` necessarily uses `A` because
   Melee has no neutral C-stick aerial input.
+- Aerial attacks may start only from actionable air states. Grounded states,
+  including `KNEE_BEND` jump startup, reject aerial requests instead of converting
+  their inputs into grounded moves. The decomp's KneeBend IASA checks up-special,
+  grab, and up-smash; aerial input handling starts in Jump IASA after jump squat
+  ends.
+- `CharacterState.can_attack(attack_type)` is the canonical move-specific
+  eligibility query and matches `SimpleControls.attack()` start gating. During
+  `KNEE_BEND`, only `UP_B`, `USMASH`, and `GRAB` are accepted. No-argument
+  `can_attack()`, `can_air_attack()`, and `can_grab()` are deprecated compatibility
+  queries; pass the intended `AttackType` instead.
+- Every public `can_*` query uses a capability-specific direct-transition set;
+  the broad false-hitstun locomotion bucket is not an eligibility oracle.
+  Turn-run and run brake can jump but cannot attack, special, grab, shield, dodge,
+  or taunt; landing states remain locked. Turning excludes neutral-B, dash permits
+  horizontal smash and side-B, running permits dash attack and specials, and
+  `CROUCHING` / `CROUCH_END` permit normals plus up/down-special but not grab.
+  Throws start only from
+  `GRAB_WAIT`, not `GRAB_PUMMEL`. Character-owned states remain conservative.
+- Runtime overloads carry PEP 702 deprecation metadata. The parent workspace's
+  strict stubs intentionally retain undecorated legacy signatures because
+  historical Database-owned bot sources are still validated with deprecations as
+  errors; new code follows the move-specific API documented here.
+- `Hold` is externally immutable and hash-compatible; successful `release()` sets
+  framework-owned `released` and `release_frame` lifecycle fields so the token
+  cannot be reused. Its returned metadata may still
+  name the expected action before a later `PlayerState` confirms startup.
 - `CharacterState.can_jump()` and the module-level `can_jump()` allow actionable
-  ground jumps and remaining aerial jumps. Every shield phase is jumpable for
-  all characters except Yoshi, who cannot jump out of shield.
+  ground jumps and remaining aerial jumps. Actionable shield phases are jumpable
+  for all characters except Yoshi; shield stun is not.
+- `CharacterState.can_shield()` uses direct Guard-transition actions rather than
+  the broader ground bucket. It rejects `KNEE_BEND`, turn-run, run brake, and
+  landing states; an airborne shoulder input is an air dodge, not a shield.
+- `can_dodge()` models direct ground Escape paths from standing, early dash, and
+  eligible shield phases. Shield stun and `KNEE_BEND` are false; dash and shield
+  release remain action-level answers because their hidden engine windows are not
+  represented by `PlayerState`. Yoshi's raw 341-345 guard states are handled
+  character-aware.
+- `can_airdodge()` is true in the normal `_ACTIONABLE_AIR` jump/fall actions and
+  `PLATFORM_DROP`. It rejects tumble, active air dodge, attacks, and helpless post-Up-B
+  `DEAD_FALL` / `SPECIAL_FALL_*` states. A final-frame `KNEE_BEND` input used by
+  Wavedash schedules next-frame air dodge but is not itself eligible.
+- `HorizontalStickReferenceAxis` is the strict `LEFT | RIGHT` subset returned by
+  `CharacterState.forward_axis()` / `backward_axis()`. `GroundDodgeStickReferenceAxis`
+  additionally accepts `DOWN` for spot dodging while rejecting `UP`.
+- `SimpleControls.dodge(GroundDodgeStickReferenceAxis)` sets absolute roll or spot-dodge input for the next committed frame;
+  `air_dodge(axis, angle_degrees=0, magnitude=1)` uses the shared absolute angular
+  convention for arbitrary air-dodge vectors. Both default to digital L, accept
+  digital R, clear pending inputs only after their corresponding state query
+  succeeds, return whether input was applied, and never flush. The stick and
+  shoulder remain latched until the caller replaces or clears them later.
+- `can_jump()` accepts direct common ground jump paths and a remaining aerial
+  jump from normal air, tumble, platform drop, and helpless FallSpecial states.
+  It rejects `KNEE_BEND`, landing, shield stun, and hitlag.
+- `Action.TUMBLING` classifies as `CharacterStatus.Tumbling` after reported
+  hitstun clears. DamageFall permits aerial attacks, specials, tether Z-air, and
+  aerial jump, but not air dodge or ground grab.
 - Short hops require releasing X/Y before `Action.KNEE_BEND` jump squat ends. For
   `N` jump-squat frames, hold jump for at most `N - 1` committed game frames;
   holding through the final frame produces a full hop. Controller input persists
@@ -175,6 +240,26 @@ uv pip install --python .venv/bin/python .
   named cardinal toward the second. Their angle is inclusive from 0 through 90
   degrees, their magnitude is inclusive from 0 through 1, and they support either
   the main stick or C-stick.
+- Framedata special-slot queries use every playable fighter's authoritative
+  doldecomp `MotionState` table `FtMoveId_SpecialN/S/Hi/Lw` assignments, then
+  filter to rows available in `framedata.csv`. Do not restore formatted-label
+  grouping: slot blocks vary in order and range, and include exceptions such as
+  Kirby copy powers, Popo/Nana partner states, and Samus default-tagged states.
+- `Action` explicitly covers Kirby's contiguous 398-543 Stone-end and copied
+  neutral-special range. Values outside the declared enum remain
+  `UnknownAnimation`; do not replace that boundary with an open-ended fallback.
+- Every special-action row in the pinned doldecomp MotionState audit also has a
+  duplicate-value `Action` alias prefixed by the actual `Character` enum name.
+  The suffix comes directly from the decomp identifier after stripping its
+  `ft..._MS_` prefix and converting CamelCase to uppercase snake case. Keep these
+  aliases after existing declarations: Python preserves the first member as the
+  identity and canonical `.name` returned by `Action(raw)`.
+- `SimpleControls` recognition and `CharacterState` classification use the same
+  character-aware special-slot table. Shared `Action` names are character-relative,
+  so do not flatten those IDs into the character-agnostic `_ALL_ATTACK_ACTIONS`.
+- `UnknownAnimation` is an immutable, hashable value object so parser-preserved
+  unknown IDs are safe in state-classification set membership. `FrameData.is_bmove`
+  returns `False` for these values rather than relying on a nonexistent enum member.
 
 ## CSS Menu Helper
 
