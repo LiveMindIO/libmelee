@@ -76,7 +76,12 @@ class SDIMontage(StatefulInputMontage[_SDIState]):
         frame_limit: int = 32,
         cancel_montage: InputMontage | None = None,
     ) -> None:
-        super().__init__(frame_limit, _SDIState(), cancel_montage)
+        super().__init__(
+            frame_limit,
+            _SDIState(),
+            cancel_montage,
+            name="SDI",
+        )
         self._direction = direction
         self._character: Character | None = None
         self._stock: int | None = None

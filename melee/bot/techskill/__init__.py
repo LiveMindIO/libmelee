@@ -1,13 +1,13 @@
 """Reusable input montages for common competitive Melee techniques."""
 
-from melee.bot.techskill.common import WavedashDirection
-from melee.bot.techskill.held_charge import (
+from melee.bot.techskill.chargeable_special import (
     FlareBladeMontage,
     JigglypuffRolloutMontage,
     LuigiGreenMissileMontage,
     ShieldBreakerMontage,
     SkullBashMontage,
 )
+from melee.bot.techskill.common import WavedashDirection
 from melee.bot.techskill.initiate_dash import InitiateDashMontage
 from melee.bot.techskill.ledgedash import LedgedashMontage
 from melee.bot.techskill.link_bow import LinkBowMontage
@@ -18,7 +18,7 @@ from melee.bot.techskill.quick_attack import QuickAttackDirection, QuickAttackMo
 from melee.bot.techskill.sdi import SDIMontage
 from melee.bot.techskill.smash_attack import SmashAttackMontage
 from melee.bot.techskill.smash_turn_jump import SmashTurnJumpMontage
-from melee.bot.techskill.storable_neutral_b import (
+from melee.bot.techskill.storable_chargeable_special import (
     ChargeStoreInput,
     DonkeyKongGiantPunchMontage,
     MewtwoShadowBallMontage,

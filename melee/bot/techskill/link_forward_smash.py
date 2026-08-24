@@ -98,6 +98,8 @@ class LinkForwardSmashMontage(SmashAttackMontage):
             from 0 (minimum charge) through 60 (Melee's maximum).
     """
 
+    _MONTAGE_NAME = "Link Forward Smash"
+
     def __init__(
         self,
         direction: HorizontalStickReferenceAxis,

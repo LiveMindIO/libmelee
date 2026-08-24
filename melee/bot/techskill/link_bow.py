@@ -79,7 +79,7 @@ class LinkBowMontage(StatefulInputMontage[_LinkBowState]):
     """
 
     def __init__(self) -> None:
-        super().__init__(_FRAME_LIMIT, _LinkBowState())
+        super().__init__(_FRAME_LIMIT, _LinkBowState(), name="Link Bow")
         self._release_requested = False
 
     def release(self) -> Self:

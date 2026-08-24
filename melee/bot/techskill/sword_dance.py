@@ -159,7 +159,11 @@ class SwordDanceMontage(StatefulInputMontage[_SwordDanceState]):
     """
 
     def __init__(self, initial_direction: HorizontalStickReferenceAxis) -> None:
-        super().__init__(_FRAME_LIMIT, _SwordDanceState())
+        super().__init__(
+            _FRAME_LIMIT,
+            _SwordDanceState(),
+            name="Dancing Blade / Double-Edge Dance",
+        )
         self._initial_direction = initial_direction
         self._segments: list[StickReferenceAxis] = []
         self._segment_slot_open = True

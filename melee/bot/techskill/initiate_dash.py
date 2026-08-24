@@ -40,7 +40,12 @@ class InitiateDashMontage(StatefulInputMontage[_DashPhase]):
         frame_limit: int = 3,
         cancel_montage: InputMontage | None = None,
     ) -> None:
-        super().__init__(frame_limit, _DashPhase.Initial, cancel_montage)
+        super().__init__(
+            frame_limit,
+            _DashPhase.Initial,
+            cancel_montage,
+            name="Initiate Dash",
+        )
         self._direction = direction
         self._character: Character | None = None
 

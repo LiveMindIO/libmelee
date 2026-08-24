@@ -1,4 +1,4 @@
-"""Montages for neutral-B charges that Melee can store between uses."""
+"""Montages for chargeable specials that Melee can store between uses."""
 
 from __future__ import annotations
 
@@ -37,6 +37,7 @@ class _ChargePhase(Enum):
 
 @dataclass(frozen=True)
 class _ChargeConfig:
+    name: str
     character: Character
     max_charge: int
     start_actions: frozenset[Action]
@@ -69,6 +70,7 @@ _START_WAIT_LIMIT: Final = 3
 
 
 _DK_CONFIG: Final = _ChargeConfig(
+    name="Giant Punch",
     character=Character.DK,
     max_charge=10,
     start_actions=frozenset({Action(369), Action(374)}),
@@ -85,6 +87,7 @@ _DK_CONFIG: Final = _ChargeConfig(
     transition_wait_limit=120,
 )
 _SAMUS_CONFIG: Final = _ChargeConfig(
+    name="Charge Shot",
     character=Character.SAMUS,
     max_charge=7,
     start_actions=frozenset({Action(343)}),
@@ -100,6 +103,7 @@ _SAMUS_CONFIG: Final = _ChargeConfig(
     auto_store_at_full=True,
 )
 _SHEIK_CONFIG: Final = _ChargeConfig(
+    name="Needle Storm",
     character=Character.SHEIK,
     max_charge=6,
     start_actions=frozenset({Action(341), Action(345)}),
@@ -116,6 +120,7 @@ _SHEIK_CONFIG: Final = _ChargeConfig(
     minimum_charge=1,
 )
 _MEWTWO_CONFIG: Final = _ChargeConfig(
+    name="Shadow Ball",
     character=Character.MEWTWO,
     max_charge=7,
     start_actions=frozenset({Action(341), Action(346)}),
@@ -132,11 +137,11 @@ _MEWTWO_CONFIG: Final = _ChargeConfig(
 )
 
 
-class _StorableNeutralBMontage(StatefulInputMontage[_ChargeState]):
+class _StorableChargeableSpecialMontage(StatefulInputMontage[_ChargeState]):
     """Internal shared state machine; concrete fighter classes are public."""
 
     def __init__(self, config: _ChargeConfig) -> None:
-        super().__init__(_FRAME_LIMIT, _ChargeState())
+        super().__init__(_FRAME_LIMIT, _ChargeState(), name=config.name)
         self._config = config
         self._intent: _ChargeIntent | None = None
         self._store_input = ChargeStoreInput.SHIELD
@@ -430,28 +435,28 @@ class _StorableNeutralBMontage(StatefulInputMontage[_ChargeState]):
         return True
 
 
-class DonkeyKongGiantPunchMontage(_StorableNeutralBMontage):
+class DonkeyKongGiantPunchMontage(_StorableChargeableSpecialMontage):
     """Charge, fire, or store Donkey Kong's ten-wind Giant Punch."""
 
     def __init__(self) -> None:
         super().__init__(_DK_CONFIG)
 
 
-class SamusChargeShotMontage(_StorableNeutralBMontage):
+class SamusChargeShotMontage(_StorableChargeableSpecialMontage):
     """Charge, fire, or store Samus's seven-level Charge Shot."""
 
     def __init__(self) -> None:
         super().__init__(_SAMUS_CONFIG)
 
 
-class SheikNeedleStormMontage(_StorableNeutralBMontage):
+class SheikNeedleStormMontage(_StorableChargeableSpecialMontage):
     """Charge, fire, or store Sheik's one-to-six-needle volley."""
 
     def __init__(self) -> None:
         super().__init__(_SHEIK_CONFIG)
 
 
-class MewtwoShadowBallMontage(_StorableNeutralBMontage):
+class MewtwoShadowBallMontage(_StorableChargeableSpecialMontage):
     """Charge, fire, or store Mewtwo's seven-level Shadow Ball."""
 
     def __init__(self) -> None:

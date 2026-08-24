@@ -110,7 +110,12 @@ class QuickAttackMontage(StatefulInputMontage[_QuickAttackPhase]):
         frame_limit: int = 96,
         cancel_montage: InputMontage | None = None,
     ) -> None:
-        super().__init__(frame_limit, _QuickAttackPhase.InitialInputRequested, cancel_montage)
+        super().__init__(
+            frame_limit,
+            _QuickAttackPhase.InitialInputRequested,
+            cancel_montage,
+            name="Quick Attack / Agility",
+        )
         self._initial_direction = initial_direction
         self._second_direction: QuickAttackDirection | None = None
         self._segments_open = True

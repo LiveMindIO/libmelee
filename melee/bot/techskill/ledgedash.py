@@ -73,7 +73,12 @@ class LedgedashMontage(StatefulInputMontage[_LedgedashState]):
         jump_button: Button = Button.BUTTON_Y,
         dodge_button: Button = Button.BUTTON_L,
     ) -> None:
-        super().__init__(frame_limit, _LedgedashState(_LedgedashPhase.Ledge), cancel_montage)
+        super().__init__(
+            frame_limit,
+            _LedgedashState(_LedgedashPhase.Ledge),
+            cancel_montage,
+            name="Ledgedash",
+        )
         safe_angle_degrees = clamp_wavedash_angle(angle_degrees)
         if not math.isfinite(minimum_ecb_bottom_y):
             raise ValueError("minimum_ecb_bottom_y must be finite")

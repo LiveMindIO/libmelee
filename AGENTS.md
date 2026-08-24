@@ -54,7 +54,9 @@ uv pip install --python .venv/bin/python .
 
 - `melee.bot.InputMontage` instances are single-use, short-lived input sequences.
 - Each montage accepts an optional name and otherwise uses its concrete class name.
-  `StatefulInputMontage` and `AnonymousInputMontage` pass this name through.
+  Shipped concrete montages provide concise human-readable names at construction.
+  `AnonymousInputMontage` requires an explicit name; omission is deprecated and
+  retains `Anonymous Montage` only for runtime compatibility.
 - `Abort(reason)` is the reason-bearing failure result parallel to strategy
   `Exit(reason)`. Every transition to `MontageState.Aborted` returns that value and
   logs the montage name and reason at WARNING. `add_abort_listener()` registers
@@ -107,8 +109,8 @@ uv pip install --python .venv/bin/python .
   such as positive frame limits, charge bounds, and allowed jump/dodge buttons.
 - Concrete montages live in separate files under `melee/bot/techskill/`, with
   reused state and helpers in `melee/bot/techskill/common.py`.
-  The shipped movement, defense, attack-chain, caller-released charge, storable
-  neutral-B, and smash montages model mutable phases as typed
+  The shipped movement, defense, attack-chain, chargeable-special, storable
+  chargeable-special, and smash montages model mutable phases as typed
   `StatefulInputMontage` values and dispatch phase transitions with structural
   pattern matching.
   `InitiateDashMontage` requests a neutral reset frame only when already moving

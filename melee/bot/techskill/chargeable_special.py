@@ -1,4 +1,4 @@
-"""Caller-released charge montages for character-specific special moves."""
+"""Caller-released chargeable special montages."""
 
 from __future__ import annotations
 
@@ -19,7 +19,7 @@ from melee.enums import Action, Button, Character
 from melee.gamestate import GameState
 
 
-class _HeldChargePhase(Enum):
+class _ChargeableSpecialPhase(Enum):
     Preparing = auto()
     Starting = auto()
     Charging = auto()
@@ -27,7 +27,7 @@ class _HeldChargePhase(Enum):
 
 
 @dataclass(frozen=True)
-class _HeldChargeConfig:
+class _ChargeableSpecialConfig:
     name: str
     characters: frozenset[Character]
     attack_type: AttackType
@@ -43,8 +43,8 @@ class _HeldChargeConfig:
 
 
 @dataclass(frozen=True)
-class _HeldChargeState:
-    phase: _HeldChargePhase
+class _ChargeableSpecialState:
+    phase: _ChargeableSpecialPhase
     character: Character | None = None
     input_started: bool = False
     charge: int | None = None
@@ -67,7 +67,7 @@ _NO_SMASH_BONUS_PREP_FRAMES: Final = 4
 # https://github.com/doldecomp/melee/blob/a983c0f9cd41d4a46001c493a1929891ac80f9ab/src/melee/ft/chara/ftLuigi/ftLg_SpecialS.c
 # https://github.com/doldecomp/melee/blob/a983c0f9cd41d4a46001c493a1929891ac80f9ab/src/melee/ft/chara/ftPikachu/ftPk_SpecialS.c
 # https://github.com/doldecomp/melee/blob/a983c0f9cd41d4a46001c493a1929891ac80f9ab/src/melee/ft/chara/ftMars/ftMs_SpecialN.c
-_ROLLOUT_CONFIG: Final = _HeldChargeConfig(
+_ROLLOUT_CONFIG: Final = _ChargeableSpecialConfig(
     name="Rollout",
     characters=frozenset({Character.JIGGLYPUFF}),
     attack_type=AttackType.NEUTRAL_B,
@@ -80,7 +80,7 @@ _ROLLOUT_CONFIG: Final = _HeldChargeConfig(
     power_floor=50,
     full_charge=((Character.JIGGLYPUFF, 180),),
 )
-_GREEN_MISSILE_CONFIG: Final = _HeldChargeConfig(
+_GREEN_MISSILE_CONFIG: Final = _ChargeableSpecialConfig(
     name="Green Missile",
     characters=frozenset({Character.LUIGI}),
     attack_type=AttackType.SIDE_B,
@@ -94,7 +94,7 @@ _GREEN_MISSILE_CONFIG: Final = _HeldChargeConfig(
     full_charge=((Character.LUIGI, 91),),
     prepare_side_input=True,
 )
-_SKULL_BASH_CONFIG: Final = _HeldChargeConfig(
+_SKULL_BASH_CONFIG: Final = _ChargeableSpecialConfig(
     name="Skull Bash",
     characters=frozenset({Character.PIKACHU, Character.PICHU}),
     attack_type=AttackType.SIDE_B,
@@ -108,7 +108,7 @@ _SKULL_BASH_CONFIG: Final = _HeldChargeConfig(
     full_charge=((Character.PIKACHU, 91), (Character.PICHU, 181)),
     prepare_side_input=True,
 )
-_SHIELD_BREAKER_CONFIG: Final = _HeldChargeConfig(
+_SHIELD_BREAKER_CONFIG: Final = _ChargeableSpecialConfig(
     name="Shield Breaker",
     characters=frozenset({Character.MARTH}),
     attack_type=AttackType.NEUTRAL_B,
@@ -121,7 +121,7 @@ _SHIELD_BREAKER_CONFIG: Final = _HeldChargeConfig(
     power_floor=0,
     full_charge=((Character.MARTH, 121),),
 )
-_FLARE_BLADE_CONFIG: Final = _HeldChargeConfig(
+_FLARE_BLADE_CONFIG: Final = _ChargeableSpecialConfig(
     name="Flare Blade",
     characters=frozenset({Character.ROY}),
     attack_type=AttackType.NEUTRAL_B,
@@ -136,17 +136,21 @@ _FLARE_BLADE_CONFIG: Final = _HeldChargeConfig(
 )
 
 
-class _HeldChargeMontage(StatefulInputMontage[_HeldChargeState]):
+class _ChargeableSpecialMontage(StatefulInputMontage[_ChargeableSpecialState]):
     """Internal shared lifecycle for specials released by letting go of B."""
 
     def __init__(
         self,
-        config: _HeldChargeConfig,
+        config: _ChargeableSpecialConfig,
         direction: HorizontalStickReferenceAxis | None = None,
         use_smash_bonus: bool = False,
     ) -> None:
-        phase = _HeldChargePhase.Preparing if config.prepare_side_input else _HeldChargePhase.Starting
-        super().__init__(_FRAME_LIMIT, _HeldChargeState(phase=phase))
+        phase = _ChargeableSpecialPhase.Preparing if config.prepare_side_input else _ChargeableSpecialPhase.Starting
+        super().__init__(
+            _FRAME_LIMIT,
+            _ChargeableSpecialState(phase=phase),
+            name=config.name,
+        )
         self._config = config
         self._direction = direction
         self._use_smash_bonus = use_smash_bonus
@@ -157,7 +161,7 @@ class _HeldChargeMontage(StatefulInputMontage[_HeldChargeState]):
         """Queue release for the first safe charge tick and return ``self``."""
         if (
             self.get_montage_state() in {MontageState.Waiting, MontageState.Active}
-            and self._input_state.phase is not _HeldChargePhase.Released
+            and self._input_state.phase is not _ChargeableSpecialPhase.Released
         ):
             self._release_requested = True
         return self
@@ -166,7 +170,7 @@ class _HeldChargeMontage(StatefulInputMontage[_HeldChargeState]):
         """Return whether releasing B can transition on the next active tick."""
         return (
             self.get_montage_state() is MontageState.Active
-            and self._input_state.phase is _HeldChargePhase.Charging
+            and self._input_state.phase is _ChargeableSpecialPhase.Charging
             and self._input_state.charge is not None
         )
 
@@ -175,7 +179,7 @@ class _HeldChargeMontage(StatefulInputMontage[_HeldChargeState]):
         input_state = self._input_state
         character = input_state.character
         charge = input_state.charge
-        if input_state.phase is not _HeldChargePhase.Charging or character is None or charge is None:
+        if input_state.phase is not _ChargeableSpecialPhase.Charging or character is None or charge is None:
             return None
         full_charge = self._full_charge(character)
         charge_span = full_charge - self._config.power_floor
@@ -205,7 +209,7 @@ class _HeldChargeMontage(StatefulInputMontage[_HeldChargeState]):
         player_state: CharacterState,
         opponent_state: CharacterState,
         state: GameState,
-        input_state: _HeldChargeState,
+        input_state: _ChargeableSpecialState,
     ) -> Abort | None:
         del controls, opponent_state, state
         player_state_value = player(player_state)
@@ -223,21 +227,21 @@ class _HeldChargeMontage(StatefulInputMontage[_HeldChargeState]):
         player_state: CharacterState,
         opponent_state: CharacterState,
         state: GameState,
-        input_state: _HeldChargeState,
-    ) -> tuple[_HeldChargeState, InputMontage | bool | Abort]:
+        input_state: _ChargeableSpecialState,
+    ) -> tuple[_ChargeableSpecialState, InputMontage | bool | Abort]:
         del opponent_state, state
         player_state_value = player(player_state)
         if player_state_value is None:
             return input_state, Abort("player state became unavailable")
 
-        if input_state.phase is _HeldChargePhase.Preparing:
+        if input_state.phase is _ChargeableSpecialPhase.Preparing:
             return self._tick_preparation(
                 controls,
                 player_state_value.character,
                 input_state,
             )
 
-        if input_state.phase is _HeldChargePhase.Released:
+        if input_state.phase is _ChargeableSpecialPhase.Released:
             return self._tick_released(controls, player_state_value.action, input_state)
 
         if not input_state.input_started:
@@ -254,13 +258,13 @@ class _HeldChargeMontage(StatefulInputMontage[_HeldChargeState]):
         action = player_state_value.action
         if action in self._config.completion_actions:
             controls.release_all()
-            return replace(input_state, phase=_HeldChargePhase.Released), True
+            return replace(input_state, phase=_ChargeableSpecialPhase.Released), True
         if action in self._config.charge_actions:
             return self._tick_charge(controls, input_state)
         if action in self._config.full_hold_actions:
             full_state = replace(
                 input_state,
-                phase=_HeldChargePhase.Charging,
+                phase=_ChargeableSpecialPhase.Charging,
                 charge=self._full_charge(player_state_value.character),
                 transition_wait_frames=0,
             )
@@ -282,15 +286,15 @@ class _HeldChargeMontage(StatefulInputMontage[_HeldChargeState]):
     def _tick_charge(
         self,
         controls: SimpleControls,
-        input_state: _HeldChargeState,
-    ) -> tuple[_HeldChargeState, InputMontage | bool | Abort]:
+        input_state: _ChargeableSpecialState,
+    ) -> tuple[_ChargeableSpecialState, InputMontage | bool | Abort]:
         character = input_state.character
         if character is None:
             return input_state, Abort("charge character became unavailable")
         prior_charge = self._initial_charge if input_state.charge is None else input_state.charge
         charge_state = replace(
             input_state,
-            phase=_HeldChargePhase.Charging,
+            phase=_ChargeableSpecialPhase.Charging,
             charge=min(
                 self._full_charge(character),
                 prior_charge + self._config.charge_increment,
@@ -302,11 +306,11 @@ class _HeldChargeMontage(StatefulInputMontage[_HeldChargeState]):
     def _hold_or_release(
         self,
         controls: SimpleControls,
-        input_state: _HeldChargeState,
-    ) -> tuple[_HeldChargeState, InputMontage | bool | Abort]:
+        input_state: _ChargeableSpecialState,
+    ) -> tuple[_ChargeableSpecialState, InputMontage | bool | Abort]:
         if self._release_requested:
             controls.release_all()
-            return replace(input_state, phase=_HeldChargePhase.Released), self
+            return replace(input_state, phase=_ChargeableSpecialPhase.Released), self
         self._apply_charge_input(controls)
         return input_state, self
 
@@ -314,14 +318,14 @@ class _HeldChargeMontage(StatefulInputMontage[_HeldChargeState]):
         self,
         controls: SimpleControls,
         character: Character,
-        input_state: _HeldChargeState,
-    ) -> tuple[_HeldChargeState, InputMontage]:
+        input_state: _ChargeableSpecialState,
+    ) -> tuple[_ChargeableSpecialState, InputMontage]:
         controls.release_all()
         if self._use_smash_bonus:
             return (
                 replace(
                     input_state,
-                    phase=_HeldChargePhase.Starting,
+                    phase=_ChargeableSpecialPhase.Starting,
                     character=character,
                 ),
                 self,
@@ -333,9 +337,9 @@ class _HeldChargeMontage(StatefulInputMontage[_HeldChargeState]):
             replace(
                 input_state,
                 phase=(
-                    _HeldChargePhase.Starting
+                    _ChargeableSpecialPhase.Starting
                     if preparation_frames >= _NO_SMASH_BONUS_PREP_FRAMES
-                    else _HeldChargePhase.Preparing
+                    else _ChargeableSpecialPhase.Preparing
                 ),
                 character=character,
                 preparation_frames=preparation_frames,
@@ -347,8 +351,8 @@ class _HeldChargeMontage(StatefulInputMontage[_HeldChargeState]):
         self,
         controls: SimpleControls,
         action: Action,
-        input_state: _HeldChargeState,
-    ) -> tuple[_HeldChargeState, InputMontage | bool | Abort]:
+        input_state: _ChargeableSpecialState,
+    ) -> tuple[_ChargeableSpecialState, InputMontage | bool | Abort]:
         controls.release_all()
         if action in self._config.completion_actions:
             return input_state, True
@@ -383,14 +387,14 @@ class _HeldChargeMontage(StatefulInputMontage[_HeldChargeState]):
         raise RuntimeError(f"missing {self._config.name} charge limit for {character.name}")
 
 
-class JigglypuffRolloutMontage(_HeldChargeMontage):
+class JigglypuffRolloutMontage(_ChargeableSpecialMontage):
     """Charge and caller-release Jigglypuff's Rollout on ground or in air."""
 
     def __init__(self) -> None:
         super().__init__(_ROLLOUT_CONFIG)
 
 
-class LuigiGreenMissileMontage(_HeldChargeMontage):
+class LuigiGreenMissileMontage(_ChargeableSpecialMontage):
     """Charge and caller-release Green Missile in an absolute direction.
 
     Args:
@@ -410,7 +414,7 @@ class LuigiGreenMissileMontage(_HeldChargeMontage):
         super().__init__(_GREEN_MISSILE_CONFIG, direction, use_smash_bonus)
 
 
-class SkullBashMontage(_HeldChargeMontage):
+class SkullBashMontage(_ChargeableSpecialMontage):
     """Charge and caller-release Pikachu or Pichu's Skull Bash.
 
     Args:
@@ -430,14 +434,14 @@ class SkullBashMontage(_HeldChargeMontage):
         super().__init__(_SKULL_BASH_CONFIG, direction, use_smash_bonus)
 
 
-class ShieldBreakerMontage(_HeldChargeMontage):
+class ShieldBreakerMontage(_ChargeableSpecialMontage):
     """Charge and caller-release Marth's Shield Breaker."""
 
     def __init__(self) -> None:
         super().__init__(_SHIELD_BREAKER_CONFIG)
 
 
-class FlareBladeMontage(_HeldChargeMontage):
+class FlareBladeMontage(_ChargeableSpecialMontage):
     """Charge and caller-release Roy's Flare Blade."""
 
     def __init__(self) -> None:

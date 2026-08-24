@@ -25,6 +25,12 @@ _ATTACK_BY_AXIS: Final[dict[StickReferenceAxis, AttackType]] = {
     StickReferenceAxis.LEFT: AttackType.LSMASH,
     StickReferenceAxis.RIGHT: AttackType.RSMASH,
 }
+_NAME_BY_AXIS: Final[dict[StickReferenceAxis, str]] = {
+    StickReferenceAxis.UP: "Up Smash",
+    StickReferenceAxis.DOWN: "Down Smash",
+    StickReferenceAxis.LEFT: "Left Smash",
+    StickReferenceAxis.RIGHT: "Right Smash",
+}
 _GAME_MAX_CHARGE_FRAMES: Final = 60
 _GAME_MAX_POWER_MULTIPLIER: Final = 1.3671
 _STARTUP_FRAME_ALLOWANCE: Final = 30
@@ -101,6 +107,8 @@ class SmashAttackMontage(StatefulInputMontage[_SmashAttackState]):
         ValueError: If ``max_charge_frames`` is not 0 or between 2 and 60.
     """
 
+    _MONTAGE_NAME: str | None = None
+
     def __init__(
         self,
         axis: StickReferenceAxis,
@@ -110,6 +118,7 @@ class SmashAttackMontage(StatefulInputMontage[_SmashAttackState]):
         super().__init__(
             max_charge_frames + _STARTUP_FRAME_ALLOWANCE + _LIFECYCLE_FRAME_OVERHEAD,
             _SmashAttackState(),
+            name=self._MONTAGE_NAME or _NAME_BY_AXIS[axis],
         )
         self._axis = axis
         self._attack_type = _ATTACK_BY_AXIS[axis]

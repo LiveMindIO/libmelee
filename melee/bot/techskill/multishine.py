@@ -116,6 +116,7 @@ class MultishineMontage(StatefulInputMontage[_MultishineState]):
             frame_limit,
             _MultishineState(_MultishinePhase.FirstShineRequested, 0),
             cancel_montage,
+            name="Multishine",
         )
         validate_button(jump_button, frozenset({Button.BUTTON_X, Button.BUTTON_Y}), "jump_button")
         self._jump_button = jump_button

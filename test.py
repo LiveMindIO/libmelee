@@ -3430,18 +3430,25 @@ class InputMontageTests(unittest.TestCase):
 
     def test_anonymous_montage_propagates_abort_reason(self):
         abort = Abort("anonymous condition failed")
-        montage = AnonymousInputMontage(
-            frame_limit=2,
-            initial_state=20,
-            can_start=lambda controls, player_state, opponent_state, state: True,
-            on_tick=lambda controls, player_state, opponent_state, state, input_state: (
-                input_state,
-                True,
-            ),
-            should_abort=lambda controls, player_state, opponent_state, state, input_state: abort,
-            cancel=lambda controls, player_state, opponent_state, state, input_state: None,
+        overloads = get_overloads(AnonymousInputMontage.__init__)
+        self.assertEqual(
+            overloads[1].__deprecated__,
+            "Pass an explicit name to AnonymousInputMontage().",
         )
+        with self.assertWarnsRegex(DeprecationWarning, "without a name is deprecated"):
+            montage = AnonymousInputMontage(
+                frame_limit=2,
+                initial_state=20,
+                can_start=lambda controls, player_state, opponent_state, state: True,
+                on_tick=lambda controls, player_state, opponent_state, state, input_state: (
+                    input_state,
+                    True,
+                ),
+                should_abort=lambda controls, player_state, opponent_state, state, input_state: abort,
+                cancel=lambda controls, player_state, opponent_state, state, input_state: None,
+            )
 
+        self.assertEqual(montage.get_name(), "Anonymous Montage")
         self.assertIs(self.tick(montage), abort)
         self.assertEqual(montage.get_montage_state(), MontageState.Aborted)
 
@@ -3450,6 +3457,7 @@ class InputMontageTests(unittest.TestCase):
             AnonymousInputMontage(
                 frame_limit=0,
                 initial_state=None,
+                name="Invalid Montage",
                 can_start=lambda controls, player_state, opponent_state, state: True,
                 on_tick=lambda controls, player_state, opponent_state, state, input_state: (
                     input_state,
@@ -3541,34 +3549,53 @@ class TechniqueMontageTests(unittest.TestCase):
         self.controls = RecordingTechniqueControls()
         self.frame = 0
 
-    def test_technique_montages_use_stateful_base(self):
+    def test_technique_montages_use_stateful_base_and_human_readable_names(self):
         montages = (
-            InitiateDashMontage(StickReferenceAxis.RIGHT),
-            DonkeyKongGiantPunchMontage(),
-            FlareBladeMontage(),
-            JigglypuffRolloutMontage(),
-            LinkBowMontage(),
-            LinkForwardSmashMontage(StickReferenceAxis.RIGHT),
-            MewtwoShadowBallMontage(),
-            LuigiGreenMissileMontage(StickReferenceAxis.RIGHT),
-            MultishineMontage(),
-            WavedashMontage(WavedashDirection.Right, angle_degrees=45.0),
-            LedgedashMontage(angle_degrees=45.0),
-            SDIMontage(StickReferenceAxis.RIGHT),
-            SamusChargeShotMontage(),
-            SheikNeedleStormMontage(),
-            ShieldBreakerMontage(),
-            PerfectPivotMontage(AttackType.JAB),
-            QuickAttackMontage(QuickAttackDirection(StickReferenceAxis.UP)),
-            SmashAttackMontage(StickReferenceAxis.UP),
-            SmashTurnJumpMontage(),
-            SkullBashMontage(StickReferenceAxis.RIGHT),
-            SwordDanceMontage(StickReferenceAxis.RIGHT),
+            (InitiateDashMontage(StickReferenceAxis.RIGHT), "Initiate Dash"),
+            (DonkeyKongGiantPunchMontage(), "Giant Punch"),
+            (FlareBladeMontage(), "Flare Blade"),
+            (JigglypuffRolloutMontage(), "Rollout"),
+            (LinkBowMontage(), "Link Bow"),
+            (LinkForwardSmashMontage(StickReferenceAxis.RIGHT), "Link Forward Smash"),
+            (MewtwoShadowBallMontage(), "Shadow Ball"),
+            (LuigiGreenMissileMontage(StickReferenceAxis.RIGHT), "Green Missile"),
+            (MultishineMontage(), "Multishine"),
+            (WavedashMontage(WavedashDirection.Right, angle_degrees=45.0), "Wavedash"),
+            (LedgedashMontage(angle_degrees=45.0), "Ledgedash"),
+            (SDIMontage(StickReferenceAxis.RIGHT), "SDI"),
+            (SamusChargeShotMontage(), "Charge Shot"),
+            (SheikNeedleStormMontage(), "Needle Storm"),
+            (ShieldBreakerMontage(), "Shield Breaker"),
+            (PerfectPivotMontage(AttackType.JAB), "Perfect Pivot"),
+            (
+                QuickAttackMontage(QuickAttackDirection(StickReferenceAxis.UP)),
+                "Quick Attack / Agility",
+            ),
+            (SmashAttackMontage(StickReferenceAxis.UP), "Up Smash"),
+            (SmashTurnJumpMontage(), "Smash Turn Jump"),
+            (SkullBashMontage(StickReferenceAxis.RIGHT), "Skull Bash"),
+            (
+                SwordDanceMontage(StickReferenceAxis.RIGHT),
+                "Dancing Blade / Double-Edge Dance",
+            ),
         )
 
-        for montage in montages:
+        for montage, name in montages:
             with self.subTest(montage=type(montage).__name__):
                 self.assertIsInstance(montage, StatefulInputMontage)
+                self.assertEqual(montage.get_name(), name)
+
+    def test_smash_attack_montage_names_absolute_direction(self):
+        names = {
+            StickReferenceAxis.UP: "Up Smash",
+            StickReferenceAxis.DOWN: "Down Smash",
+            StickReferenceAxis.LEFT: "Left Smash",
+            StickReferenceAxis.RIGHT: "Right Smash",
+        }
+
+        for axis, name in names.items():
+            with self.subTest(axis=axis):
+                self.assertEqual(SmashAttackMontage(axis).get_name(), name)
 
     def requested_stick_coordinates(
         self,
@@ -5129,7 +5156,7 @@ class TechniqueMontageTests(unittest.TestCase):
         self.assertEqual(shadow_ball.current_power(), 1.0)
         self.assertEqual(shadow_ball.get_montage_state(), MontageState.Active)
 
-    def test_storable_neutral_b_power_and_fire_transitions(self):
+    def test_storable_chargeable_special_power_and_fire_transitions(self):
         cases = (
             (
                 DonkeyKongGiantPunchMontage,
@@ -5230,7 +5257,7 @@ class TechniqueMontageTests(unittest.TestCase):
                 )
                 self.assertEqual(self.controls.take_calls(), [("release_all",)])
 
-    def test_storable_neutral_b_shield_and_grab_storage(self):
+    def test_storable_chargeable_special_shield_and_grab_storage(self):
         cases = (
             (
                 DonkeyKongGiantPunchMontage,
@@ -5320,7 +5347,7 @@ class TechniqueMontageTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "GRAB cannot store MEWTWO"):
             mewtwo.store(ChargeStoreInput.GRAB)
 
-    def test_storable_neutral_b_intent_is_fixed_after_transition_input(self):
+    def test_storable_chargeable_special_intent_is_fixed_after_transition_input(self):
         fire = SamusChargeShotMontage().fire()
         self.tick(
             fire,
@@ -5374,7 +5401,7 @@ class TechniqueMontageTests(unittest.TestCase):
             True,
         )
 
-    def test_storable_neutral_b_accepts_natural_full_charge_storage(self):
+    def test_storable_chargeable_special_accepts_natural_full_charge_storage(self):
         montage = SamusChargeShotMontage()
         self.assertIs(
             self.tick(
@@ -5515,7 +5542,7 @@ class TechniqueMontageTests(unittest.TestCase):
         )
         self.assertEqual(self.controls.take_calls(), [("release_all",)])
 
-    def test_storable_neutral_b_roll_support_and_ground_requirement(self):
+    def test_storable_chargeable_special_roll_support_and_ground_requirement(self):
         sheik = SheikNeedleStormMontage()
         self.assertFalse(sheik.can_store(ChargeStoreInput.ROLL_FORWARD))
         with self.assertRaisesRegex(ValueError, "ROLL_FORWARD cannot store SHEIK"):
@@ -5578,7 +5605,7 @@ class TechniqueMontageTests(unittest.TestCase):
             True,
         )
 
-    def test_storable_neutral_b_requires_current_telemetry(self):
+    def test_storable_chargeable_special_requires_current_telemetry(self):
         montage = SamusChargeShotMontage()
         self.assertIs(
             self.tick(
