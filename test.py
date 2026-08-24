@@ -66,6 +66,28 @@ class RecordingStrategy(Strategy[object]):
         return self.result
 
 
+class StageGeometryTests(unittest.TestCase):
+    def test_game_state_defaults_to_no_geometry(self):
+        self.assertIsNone(melee.GameState().stage_geometry)
+
+    def test_geometry_snapshot_is_immutable(self):
+        point = melee.StagePoint(x=-10.0, y=0.0)
+        surface = melee.StageSurface(
+            line_id=7,
+            start=point,
+            end=melee.StagePoint(x=10.0, y=0.0),
+            kind=melee.StageSurfaceKind.SOLID_FLOOR,
+        )
+        geometry = melee.StageGeometry(
+            stage=melee.Stage.FINAL_DESTINATION,
+            requested_at_frame=120,
+            surfaces=(surface,),
+        )
+
+        with self.assertRaises(AttributeError):
+            geometry.requested_at_frame = 121
+
+
 class ListenerTests(unittest.TestCase):
     def test_simple_listener_constructor_accepts_identifier_before_callback(self):
         listener = SimpleListener("double", lambda value: value * 2)
