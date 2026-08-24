@@ -139,6 +139,14 @@ uv pip install --python .venv/bin/python .
   game aborts the montage unless the move safely reaches the ledge first. Terrain
   can hide a travel packet; an initial end state confirms segment one, while a
   post-deadline end-frame reset confirms segment two launched into a collision.
+  `SwordDanceMontage(initial_direction)` starts Marth or Roy side-B with an
+  absolute horizontal input and accepts up to three follow-ups. `add_segment()`
+  returns a boolean rather than the montage. Every hit accepts every cardinal
+  axis; down selects the side branch on hit two because it has no low branch,
+  and both horizontal axes always select side. Routes can be prequeued or
+  extended reactively until the current character- and branch-specific request
+  window closes. Each continuation is a fresh B edge, ground/air variants are
+  one logical segment, and hitlag delays rather than consumes a queued input.
   `WavedashMontage` uses the
   character-specific final jump-squat frame and aborts if that state is missed.
   `PerfectPivotMontage` requires an onstage grounded `DASHING` state, requests the

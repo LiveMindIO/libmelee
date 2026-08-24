@@ -25,6 +25,7 @@ from melee.bot.techskill.storable_neutral_b import (
     SamusChargeShotMontage,
     SheikNeedleStormMontage,
 )
+from melee.bot.techskill.sword_dance import SwordDanceMontage
 from melee.bot.techskill.wavedash import WavedashMontage
 
 __all__ = [
@@ -49,6 +50,7 @@ __all__ = [
     "SkullBashMontage",
     "SmashAttackMontage",
     "SmashTurnJumpMontage",
+    "SwordDanceMontage",
     "WavedashDirection",
     "WavedashMontage",
 ]

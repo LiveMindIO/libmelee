@@ -326,6 +326,14 @@ Libmelee includes concrete technique montages:
   open. The first request is sticky. Pikachu's directions must differ by more
   than 38 degrees and Pichu's by more than 5; a rejected requested zip aborts
   unless the move reaches the ledge first.
+- `SwordDanceMontage(initial_direction)` performs Marth's Dancing Blade or Roy's
+  Double-Edge Dance from an absolute left/right starter. Queue up to three
+  follow-ups with `add_segment(axis)`, which returns whether the direction was
+  accepted. Every follow-up accepts all four cardinal axes; down selects the
+  side branch on hit two, while hits three and four have distinct down branches.
+  Left and right both select side after startup. Segments may be preconfigured
+  or added reactively before each character- and branch-specific input window
+  closes, and every continuation uses one fresh B edge.
 - `WavedashMontage` supports every standard character's jump-squat duration and
   requests the down-diagonal air dodge on the final `KNEE_BEND` frame. Callers
   must choose the angle explicitly; 17.1 degrees is the shallow boundary.

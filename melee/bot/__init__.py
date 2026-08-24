@@ -83,6 +83,7 @@ from melee.bot.techskill import (
     SkullBashMontage,
     SmashAttackMontage,
     SmashTurnJumpMontage,
+    SwordDanceMontage,
     WavedashDirection,
     WavedashMontage,
 )
@@ -144,6 +145,7 @@ __all__ = [
     "StatefulInputMontage",
     "StickReferenceAxis",
     "Strategy",
+    "SwordDanceMontage",
     "WavedashDirection",
     "WavedashMontage",
     "attack_is_holdable",

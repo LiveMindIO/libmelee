@@ -59,6 +59,7 @@ from melee.bot import (
     StatefulInputMontage,
     StickReferenceAxis,
     Strategy,
+    SwordDanceMontage,
     WavedashDirection,
     WavedashMontage,
     can_air_attack,
@@ -3156,6 +3157,7 @@ class TechniqueMontageTests(unittest.TestCase):
             SmashAttackMontage(StickReferenceAxis.UP),
             SmashTurnJumpMontage(),
             SkullBashMontage(StickReferenceAxis.RIGHT),
+            SwordDanceMontage(StickReferenceAxis.RIGHT),
         )
 
         for montage in montages:
@@ -3276,6 +3278,62 @@ class TechniqueMontageTests(unittest.TestCase):
             port=1,
             charging=True,
         )
+
+    def sword_dance_input_calls(self, direction):
+        return [
+            ("release_all",),
+            (
+                "tilt_stick",
+                direction,
+                0.0,
+                1.0,
+                melee.Button.BUTTON_MAIN,
+            ),
+            ("press_button", melee.Button.BUTTON_B),
+        ]
+
+    def start_sword_dance(
+        self,
+        montage,
+        *,
+        direction=StickReferenceAxis.RIGHT,
+        character=melee.Character.MARTH,
+        on_ground=True,
+    ):
+        initial_action = melee.Action.STANDING if on_ground else melee.Action.FALLING
+        first_action = melee.Action(349) if on_ground else melee.Action(358)
+        self.assertIs(
+            self.tick(
+                montage,
+                initial_action,
+                character=character,
+                on_ground=on_ground,
+            ),
+            montage,
+        )
+        self.assertEqual(
+            self.controls.take_calls(),
+            self.sword_dance_input_calls(direction),
+        )
+        self.assertIs(
+            self.tick(
+                montage,
+                first_action,
+                character=character,
+                on_ground=on_ground,
+            ),
+            montage,
+        )
+        self.assertEqual(self.controls.take_calls(), [("release_all",)])
+
+    def add_sword_dance_segment_on_pre_tick(self, montage, direction, observed_windows):
+        def add_segment(controls, player_state, opponent_state, state):
+            del controls, player_state, opponent_state, state
+            observed_windows.append(montage.can_add_segment(direction))
+            montage.add_segment(direction)
+            return PreTickResult.CONTINUE
+
+        montage.add_pre_tick_listener(add_segment)
 
     def start_link_forward_smash(
         self,
@@ -6425,6 +6483,442 @@ class TechniqueMontageTests(unittest.TestCase):
         self.assertIs(self.tick(montage, melee.Action.STANDING), True)
         self.assertEqual(montage.get_montage_state(), MontageState.Finished)
         self.assertEqual(self.controls.take_calls(), [("release_all",)])
+
+    def test_sword_dance_starts_marth_and_roy_on_ground_or_in_air(self):
+        for character in (melee.Character.MARTH, melee.Character.ROY):
+            for direction in (StickReferenceAxis.LEFT, StickReferenceAxis.RIGHT):
+                for on_ground in (False, True):
+                    with self.subTest(
+                        character=character,
+                        direction=direction,
+                        on_ground=on_ground,
+                    ):
+                        self.setUp()
+                        montage = SwordDanceMontage(direction)
+                        self.start_sword_dance(
+                            montage,
+                            direction=direction,
+                            character=character,
+                            on_ground=on_ground,
+                        )
+
+        unsupported = SwordDanceMontage(StickReferenceAxis.RIGHT)
+        self.assertIs(
+            self.tick(unsupported, melee.Action.STANDING),
+            unsupported,
+        )
+        self.assertEqual(unsupported.get_montage_state(), MontageState.Waiting)
+        self.assertEqual(self.controls.take_calls(), [])
+
+    def test_sword_dance_add_segment_rejects_unavailable_slots(self):
+        montage = SwordDanceMontage(StickReferenceAxis.RIGHT)
+        self.assertTrue(montage.can_add_segment(StickReferenceAxis.DOWN))
+        self.assertTrue(montage.add_segment(StickReferenceAxis.DOWN))
+        self.assertTrue(montage.add_segment(StickReferenceAxis.DOWN))
+        self.assertTrue(montage.add_segment(StickReferenceAxis.UP))
+        self.assertFalse(montage.can_add_segment(StickReferenceAxis.RIGHT))
+        self.assertFalse(montage.add_segment(StickReferenceAxis.RIGHT))
+
+    def test_sword_dance_supports_every_directional_route(self):
+        second_steps = (
+            (StickReferenceAxis.UP, melee.Action(350), 15),
+            (StickReferenceAxis.LEFT, melee.Action(351), 15),
+            (StickReferenceAxis.RIGHT, melee.Action(351), 15),
+            (StickReferenceAxis.DOWN, melee.Action(351), 15),
+        )
+        third_steps = (
+            (StickReferenceAxis.UP, melee.Action(352), 16),
+            (StickReferenceAxis.RIGHT, melee.Action(353), 14),
+            (StickReferenceAxis.DOWN, melee.Action(354), 17),
+        )
+        fourth_steps = (
+            (StickReferenceAxis.UP, melee.Action(355)),
+            (StickReferenceAxis.LEFT, melee.Action(356)),
+            (StickReferenceAxis.DOWN, melee.Action(357)),
+        )
+        for character in (melee.Character.MARTH, melee.Character.ROY):
+            first_start_offset = 0 if character is melee.Character.MARTH else 1
+            later_start_offset = 0 if character is melee.Character.MARTH else 1
+            for second_direction, second_action, second_start in second_steps:
+                for third_direction, third_action, third_start in third_steps:
+                    for fourth_direction, fourth_action in fourth_steps:
+                        with self.subTest(
+                            character=character,
+                            second=second_direction,
+                            third=third_direction,
+                            fourth=fourth_direction,
+                        ):
+                            self.setUp()
+                            montage = SwordDanceMontage(StickReferenceAxis.RIGHT)
+                            self.assertTrue(montage.add_segment(second_direction))
+                            self.assertTrue(montage.add_segment(third_direction))
+                            self.assertTrue(montage.add_segment(fourth_direction))
+                            self.start_sword_dance(montage, character=character)
+
+                            self.assertIs(
+                                self.tick(
+                                    montage,
+                                    melee.Action(349),
+                                    character=character,
+                                    action_frame=6 + first_start_offset,
+                                ),
+                                montage,
+                            )
+                            self.assertEqual(
+                                self.controls.take_calls(),
+                                self.sword_dance_input_calls(second_direction),
+                            )
+                            self.assertIs(
+                                self.tick(
+                                    montage,
+                                    second_action,
+                                    character=character,
+                                ),
+                                montage,
+                            )
+                            self.assertEqual(self.controls.take_calls(), [("release_all",)])
+
+                            self.assertIs(
+                                self.tick(
+                                    montage,
+                                    second_action,
+                                    character=character,
+                                    action_frame=second_start + later_start_offset,
+                                ),
+                                montage,
+                            )
+                            self.assertEqual(
+                                self.controls.take_calls(),
+                                self.sword_dance_input_calls(third_direction),
+                            )
+                            self.assertIs(
+                                self.tick(
+                                    montage,
+                                    third_action,
+                                    character=character,
+                                ),
+                                montage,
+                            )
+                            self.assertEqual(self.controls.take_calls(), [("release_all",)])
+
+                            third_offset = later_start_offset
+                            if character is melee.Character.ROY and third_direction is StickReferenceAxis.DOWN:
+                                third_offset = 5
+                            self.assertIs(
+                                self.tick(
+                                    montage,
+                                    third_action,
+                                    character=character,
+                                    action_frame=third_start + third_offset,
+                                ),
+                                montage,
+                            )
+                            self.assertEqual(
+                                self.controls.take_calls(),
+                                self.sword_dance_input_calls(fourth_direction),
+                            )
+                            self.assertIs(
+                                self.tick(
+                                    montage,
+                                    fourth_action,
+                                    character=character,
+                                ),
+                                True,
+                            )
+                            self.assertEqual(self.controls.take_calls(), [("release_all",)])
+                            self.assertFalse(montage.add_segment(StickReferenceAxis.UP))
+
+    def test_sword_dance_accepts_ground_air_transitions(self):
+        montage = SwordDanceMontage(StickReferenceAxis.RIGHT)
+        self.assertTrue(montage.add_segment(StickReferenceAxis.UP))
+        self.assertTrue(montage.add_segment(StickReferenceAxis.DOWN))
+        self.assertTrue(montage.add_segment(StickReferenceAxis.RIGHT))
+        self.start_sword_dance(montage)
+
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action(349),
+                character=melee.Character.MARTH,
+                action_frame=6,
+            ),
+            montage,
+        )
+        self.controls.take_calls()
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action(359),
+                character=melee.Character.MARTH,
+                on_ground=False,
+            ),
+            montage,
+        )
+        self.controls.take_calls()
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action(359),
+                character=melee.Character.MARTH,
+                action_frame=15,
+                on_ground=False,
+            ),
+            montage,
+        )
+        self.controls.take_calls()
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action(354),
+                character=melee.Character.MARTH,
+            ),
+            montage,
+        )
+        self.controls.take_calls()
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action(354),
+                character=melee.Character.MARTH,
+                action_frame=17,
+            ),
+            montage,
+        )
+        self.controls.take_calls()
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action(365),
+                character=melee.Character.MARTH,
+                on_ground=False,
+            ),
+            True,
+        )
+
+    def test_sword_dance_allows_reactive_segments_and_closes_at_deadline(self):
+        montage = SwordDanceMontage(StickReferenceAxis.RIGHT)
+        self.start_sword_dance(montage)
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action(349),
+                character=melee.Character.MARTH,
+                action_frame=5,
+            ),
+            montage,
+        )
+        self.controls.take_calls()
+        self.assertTrue(montage.add_segment(StickReferenceAxis.UP))
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action(349),
+                character=melee.Character.MARTH,
+                action_frame=6,
+            ),
+            montage,
+        )
+        self.assertEqual(
+            self.controls.take_calls(),
+            self.sword_dance_input_calls(StickReferenceAxis.UP),
+        )
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action(350),
+                character=melee.Character.MARTH,
+            ),
+            montage,
+        )
+        self.controls.take_calls()
+        self.assertTrue(montage.add_segment(StickReferenceAxis.DOWN))
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action(350),
+                character=melee.Character.MARTH,
+                action_frame=15,
+            ),
+            montage,
+        )
+
+        self.setUp()
+        closed = SwordDanceMontage(StickReferenceAxis.LEFT)
+        self.start_sword_dance(
+            closed,
+            direction=StickReferenceAxis.LEFT,
+            character=melee.Character.ROY,
+        )
+        self.assertIs(
+            self.tick(
+                closed,
+                melee.Action(349),
+                character=melee.Character.ROY,
+                action_frame=26,
+            ),
+            True,
+        )
+        self.assertFalse(closed.add_segment(StickReferenceAxis.UP))
+
+    def test_sword_dance_pre_tick_listener_observes_exact_window_boundary(self):
+        for character, last_request_frame in (
+            (melee.Character.MARTH, 24),
+            (melee.Character.ROY, 25),
+        ):
+            with self.subTest(character=character, boundary="last"):
+                self.setUp()
+                montage = SwordDanceMontage(StickReferenceAxis.RIGHT)
+                self.start_sword_dance(montage, character=character)
+                observed_windows = []
+                self.add_sword_dance_segment_on_pre_tick(
+                    montage,
+                    StickReferenceAxis.UP,
+                    observed_windows,
+                )
+                self.assertIs(
+                    self.tick(
+                        montage,
+                        melee.Action(349),
+                        character=character,
+                        action_frame=last_request_frame,
+                    ),
+                    montage,
+                )
+                self.assertEqual(observed_windows, [True])
+                self.assertEqual(
+                    self.controls.take_calls(),
+                    self.sword_dance_input_calls(StickReferenceAxis.UP),
+                )
+
+            with self.subTest(character=character, boundary="closed"):
+                self.setUp()
+                montage = SwordDanceMontage(StickReferenceAxis.RIGHT)
+                self.start_sword_dance(montage, character=character)
+                observed_windows = []
+                self.add_sword_dance_segment_on_pre_tick(
+                    montage,
+                    StickReferenceAxis.UP,
+                    observed_windows,
+                )
+                self.assertIs(
+                    self.tick(
+                        montage,
+                        melee.Action(349),
+                        character=character,
+                        action_frame=last_request_frame + 1,
+                    ),
+                    True,
+                )
+                self.assertEqual(observed_windows, [False])
+                self.assertEqual(self.controls.take_calls(), [("release_all",)])
+
+    def test_sword_dance_delays_followup_during_hitlag(self):
+        montage = SwordDanceMontage(StickReferenceAxis.RIGHT)
+        self.assertTrue(montage.add_segment(StickReferenceAxis.UP))
+        self.start_sword_dance(montage)
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action(349),
+                character=melee.Character.MARTH,
+                action_frame=6,
+                hitlag_left=2,
+            ),
+            montage,
+        )
+        self.assertEqual(self.controls.take_calls(), [("release_all",)])
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action(349),
+                character=melee.Character.MARTH,
+                action_frame=6,
+            ),
+            montage,
+        )
+        self.assertEqual(
+            self.controls.take_calls(),
+            self.sword_dance_input_calls(StickReferenceAxis.UP),
+        )
+
+    def test_sword_dance_aborts_missed_or_wrong_transitions(self):
+        missed = SwordDanceMontage(StickReferenceAxis.RIGHT)
+        self.assertTrue(missed.add_segment(StickReferenceAxis.UP))
+        self.start_sword_dance(missed)
+        self.assertEqual(
+            self.tick(
+                missed,
+                melee.Action(349),
+                character=melee.Character.MARTH,
+                action_frame=25,
+            ),
+            Abort("queued Sword Dance segment missed its input window"),
+        )
+
+        self.setUp()
+        wrong = SwordDanceMontage(StickReferenceAxis.RIGHT)
+        self.assertTrue(wrong.add_segment(StickReferenceAxis.UP))
+        self.start_sword_dance(wrong)
+        self.assertIs(
+            self.tick(
+                wrong,
+                melee.Action(349),
+                character=melee.Character.MARTH,
+                action_frame=6,
+            ),
+            wrong,
+        )
+        self.controls.take_calls()
+        self.assertEqual(
+            self.tick(
+                wrong,
+                melee.Action(351),
+                character=melee.Character.MARTH,
+            ),
+            Abort("Sword Dance entered the wrong directional segment"),
+        )
+
+    def test_sword_dance_aborts_character_change_and_failed_startup(self):
+        changed = SwordDanceMontage(StickReferenceAxis.RIGHT)
+        self.start_sword_dance(changed)
+        self.assertEqual(
+            self.tick(
+                changed,
+                melee.Action(349),
+                character=melee.Character.ROY,
+            ),
+            Abort("player character changed"),
+        )
+
+        self.setUp()
+        failed = SwordDanceMontage(StickReferenceAxis.RIGHT)
+        self.assertIs(
+            self.tick(
+                failed,
+                melee.Action.STANDING,
+                character=melee.Character.MARTH,
+            ),
+            failed,
+        )
+        self.controls.take_calls()
+        for _ in range(3):
+            self.assertIs(
+                self.tick(
+                    failed,
+                    melee.Action.STANDING,
+                    character=melee.Character.MARTH,
+                ),
+                failed,
+            )
+            self.controls.take_calls()
+        self.assertEqual(
+            self.tick(
+                failed,
+                melee.Action.STANDING,
+                character=melee.Character.MARTH,
+            ),
+            Abort("Sword Dance did not start"),
+        )
 
     def test_quick_attack_starts_pikachu_and_pichu_in_arbitrary_directions(self):
         direction = QuickAttackDirection(StickReferenceAxis.UP, -37.5)
