@@ -136,6 +136,10 @@ uv pip install --python .venv/bin/python .
   before its down-inward air dodge. It presses jump for exactly one input frame and
   leaves X/Y neutral throughout the rise; confirmed jumps remain confirmed through
   apex, but landing or leaving neutral aerial movement before clearance aborts the route.
+  `SimpleControls.platform_drop()` is the one-input non-fast-fall path and is
+  gated by `CharacterState.can_platform_drop()` plus current semisolid geometry.
+  `PlatformDropFastFallMontage` observes the drop, commits neutral to reset the
+  down-tap timer, presses down again, and confirms character-specific fast-fall speed.
   `SDIMontage` excludes attacker and grab hitlag, alternates diagonal main-stick
   pulses during damage hitlag, ignores vertical shield windows, uses target-neutral
   pulses for horizontal shield SDI, queues cardinal C-stick ASDI as damage hitlag

@@ -45,13 +45,27 @@ class StagePoint:
 
 
 @dataclass(frozen=True, slots=True)
-class StageSurface:
+class StageSegment:
     """One currently enabled interactable collision line."""
 
     line_id: int
     start: StagePoint
     end: StagePoint
     kind: StageSurfaceKind
+
+
+@dataclass(frozen=True, slots=True)
+class StageSurface:
+    """One continuous interactable surface composed of collision segments."""
+
+    kind: StageSurfaceKind
+    segments: tuple[StageSegment, ...]
+
+    def __post_init__(self) -> None:
+        if not self.segments:
+            raise ValueError("stage surface must contain at least one segment")
+        if any(segment.kind is not self.kind for segment in self.segments):
+            raise ValueError("stage surface segments must have the same kind")
 
 
 @dataclass(frozen=True, slots=True)
@@ -69,6 +83,7 @@ class StageGeometry:
 
     stage: enums.Stage
     requested_at_frame: int
+    segments: tuple[StageSegment, ...] = ()
     surfaces: tuple[StageSurface, ...] = ()
     ledges: tuple[StageLedge, ...] = ()
 
