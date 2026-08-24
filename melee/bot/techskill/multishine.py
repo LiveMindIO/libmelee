@@ -33,6 +33,8 @@ class _MultishineState:
     phase: _MultishinePhase
     shines_requested: int
     shine_hitlag_left: int = 0
+    last_reflector_wait_frame: int | None = None
+    reflector_wait_extension: int = 0
 
 
 # DESNOTE(jbarber, 2026-08-19): Reflecting a projectile enters dedicated hit
@@ -62,6 +64,7 @@ _MULTISHINE_CHARACTERS: Final = frozenset({Character.FOX, Character.FALCO})
 # See https://github.com/doldecomp/melee/blob/master/src/melee/ft/ftcommon.c and
 # https://www.ssbwiki.com/Falco_(SSBM)/Down_special
 _DEFAULT_FRAMES_PER_SHINE: Final = 12
+_REFLECTOR_WAIT_FRAMES_PER_SHINE: Final = 38
 
 
 def _apply_down_input(controls: SimpleControls, button: Button) -> None:
@@ -163,7 +166,7 @@ class MultishineMontage(StatefulInputMontage[_MultishineState]):
         state: GameState,
         input_state: _MultishineState,
     ) -> tuple[_MultishineState, InputMontage | bool | Abort]:
-        del opponent_state, state
+        del opponent_state
         player_state_value = player(player_state)
         if player_state_value is None:
             controls.release_all()
@@ -173,6 +176,23 @@ class MultishineMontage(StatefulInputMontage[_MultishineState]):
         if shine_hitlag_left > input_state.shine_hitlag_left:
             self._frame_limit += shine_hitlag_left - input_state.shine_hitlag_left
         input_state = replace(input_state, shine_hitlag_left=shine_hitlag_left)
+
+        if (
+            player_state_value.action in _REFLECTOR_WAIT_ACTIONS
+            and (input_state.last_reflector_wait_frame is None or state.frame > input_state.last_reflector_wait_frame)
+            and input_state.reflector_wait_extension < self._shine_count * _REFLECTOR_WAIT_FRAMES_PER_SHINE
+        ):
+            # DESNOTE(jbarber, 2026-08-24): Reflector hit/end IASAs are empty,
+            # so these unavoidable animations must not consume the normal
+            # multishine safety budget. Extend only for fresh game frames so a
+            # replayed packet cannot make a stuck montage unbounded.
+            # See https://github.com/doldecomp/melee/blob/a983c0f9cd41d4a46001c493a1929891ac80f9ab/src/melee/ft/chara/ftFox/ftFx_SpecialLw.c#L691-L746
+            self._frame_limit += 1
+            input_state = replace(
+                input_state,
+                last_reflector_wait_frame=state.frame,
+                reflector_wait_extension=input_state.reflector_wait_extension + 1,
+            )
 
         match input_state.phase, player_state_value.action:
             case _MultishinePhase.FirstShineRequested, _:

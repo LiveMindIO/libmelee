@@ -122,6 +122,10 @@ uv pip install --python .venv/bin/python .
   cycle plus transition slack per shine. A rise in observed shine attacker
   hitlag adds only the newly observed frames to the active budget;
   decreasing `hitlag_left` packets do not repeatedly extend the limit.
+  Fresh Reflector hit and release frames also extend the budget one-for-one;
+  repeated or out-of-order copies do not. The extension is capped at one full
+  38-frame hit-plus-release sequence per requested shine so the safety limit
+  remains finite under a stuck game state.
   Later shines begin as `Action.DOWN_B_AIR_START` after the jump-cancel, then
   become a grounded shine on landing. Projectile reflections enter separate
   ground/air hit and release states with no jump-cancel IASA. It holds B through

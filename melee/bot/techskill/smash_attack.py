@@ -268,6 +268,29 @@ class SmashAttackMontage(StatefulInputMontage[_SmashAttackState]):
                             charge_frames + 2,
                             _GAME_MAX_CHARGE_FRAMES,
                         )
+                    elif (
+                        self._release_requested
+                        and self._max_charge_frames != 0
+                        and charge_frames > 0
+                        and isinstance(player_state_value.action, Action)
+                        and input_state.last_action is player_state_value.action
+                        and input_state.last_action_frame == player_state_value.action_frame
+                    ):
+                        charge_frames = min(
+                            charge_frames + 1,
+                            _GAME_MAX_CHARGE_FRAMES,
+                        )
+                    elif (
+                        self._release_requested
+                        and self._max_charge_frames != 0
+                        and player_state_value.character is Character.NESS
+                        and isinstance(player_state_value.action, Action)
+                        and _NESS_EXPLICIT_CHARGE_ACTIONS.get(self._attack_type) is player_state_value.action
+                    ):
+                        charge_frames = min(
+                            charge_frames + 1,
+                            _GAME_MAX_CHARGE_FRAMES,
+                        )
                     result = controls.release(hold)
                     if not isinstance(result, AttackFrameData):
                         return input_state, Abort("smash attack could not be released")
@@ -282,6 +305,17 @@ class SmashAttackMontage(StatefulInputMontage[_SmashAttackState]):
                     )
 
                 result = controls.attack(self._attack_type, hold=hold)
+                if (
+                    isinstance(result, Hold)
+                    and isinstance(player_state_value.action, Action)
+                    and player_state_value.action
+                    in _actions_for_attack_type(player_state_value.character, self._attack_type)
+                ):
+                    result = AttackFrameData(
+                        character=player_state_value.character,
+                        action=player_state_value.action,
+                        frame_data=hold.frame_data,
+                    )
                 if isinstance(result, AttackFrameData):
                     charge_frames = input_state.charge_frames
                     observed_charge_tick = self._is_observed_charge_tick(

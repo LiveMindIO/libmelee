@@ -99,6 +99,7 @@ if TYPE_CHECKING:
 
 _INPUT_COMMIT_FRAMES: Final = 12
 _SMASH_MAX_CHARGE_FRAMES: Final = 60
+_SMASH_STARTUP_FRAME_ALLOWANCE: Final = 30
 _NEUTRAL_B_MAX_CHARGE_FRAMES: Final = 120
 _AERIAL_COMMIT_FRAMES: Final = 8
 _TILT_ATTACK_MAGNITUDE: Final = 0.35
@@ -131,6 +132,23 @@ _MEWTWO_SHADOW_BALL_CHARGE_ACTIONS: Final = frozenset(
         Action.MEWTWO_SPECIAL_AIR_N_LOOP,
     }
 )
+_SMASH_ATTACK_TYPES: Final = frozenset(
+    {
+        AttackType.FSMASH,
+        AttackType.LSMASH,
+        AttackType.RSMASH,
+        AttackType.USMASH,
+        AttackType.DSMASH,
+    }
+)
+_NESS_SMASH_CHARGE_ACTIONS: Final[dict[AttackType, Action]] = {
+    AttackType.USMASH: Action(343),
+    AttackType.DSMASH: Action(346),
+}
+_NESS_SMASH_RELEASE_ACTIONS: Final[dict[AttackType, Action]] = {
+    AttackType.USMASH: Action(344),
+    AttackType.DSMASH: Action(347),
+}
 
 
 _CARDINAL_STICK_COORDINATES: Final[dict[float, tuple[float, float]]] = {
@@ -309,6 +327,10 @@ class Hold:
             short commit windows (tilts, jabs, grabs, most specials).
         released: ``True`` after :meth:`SimpleControls.release` completes.
         release_frame: ``GameState.frame`` when released, if applicable.
+
+    Smash charge observation fields are framework-owned implementation state.
+    They are excluded from equality and hashing so callers can retain a token
+    while :class:`SimpleControls` advances its charge lifecycle.
     """
 
     attack_type: AttackType
@@ -323,6 +345,11 @@ class Hold:
     charging: bool
     released: bool = field(default=False, compare=False, hash=False)
     release_frame: int | None = field(default=None, compare=False, hash=False)
+    _smash_charge_frames: int = field(default=0, compare=False, hash=False, repr=False)
+    _smash_last_action: Action | None = field(default=None, compare=False, hash=False, repr=False)
+    _smash_last_action_frame: int | None = field(default=None, compare=False, hash=False, repr=False)
+    _smash_last_game_frame: int | None = field(default=None, compare=False, hash=False, repr=False)
+    _smash_charge_complete: bool = field(default=False, compare=False, hash=False, repr=False)
 
 
 def _warn_state_deprecated(name: str, replacement: str | None = None) -> None:
@@ -836,6 +863,14 @@ class SimpleControls:
             return False
 
         if hold.charging:
+            if hold.attack_type in _SMASH_ATTACK_TYPES:
+                self._observe_smash_charge(player, hold)
+                sequence_frames = self._game_state.frame - hold.started_frame
+                if sequence_frames > _SMASH_STARTUP_FRAME_ALLOWANCE and hold._smash_last_action is None:
+                    return False
+                if sequence_frames > hold.max_hold_frames + _SMASH_STARTUP_FRAME_ALLOWANCE:
+                    return False
+                return not (hold._smash_charge_complete or hold._smash_charge_frames >= hold.max_hold_frames)
             held_frames = self._game_state.frame - hold.started_frame
             if held_frames > hold.max_hold_frames:
                 return False
@@ -1092,6 +1127,8 @@ class SimpleControls:
         if hold.charging:
             self._apply_charge_inputs(hold)
             charging_action = self._current_attack_action(player, hold.attack_type)
+            if hold.attack_type in _SMASH_ATTACK_TYPES and charging_action is not None:
+                return hold
             if charging_action is not None and not self._is_charge_action(
                 player.character,
                 charging_action,
@@ -1355,6 +1392,48 @@ class SimpleControls:
         if character is Character.MEWTWO:
             return action in _MEWTWO_SHADOW_BALL_CHARGE_ACTIONS
         return action in _SMASH_CHARGE_ACTIONS
+
+    def _observe_smash_charge(self, player: LibPlayerState, hold: Hold) -> None:
+        """Advance one hold's smash charge state from a fresh game packet."""
+        game_frame = self._game_state.frame
+        if hold._smash_last_game_frame is not None and game_frame <= hold._smash_last_game_frame:
+            return
+
+        action = self._current_attack_action(player, hold.attack_type)
+        previous_action = hold._smash_last_action
+        previous_action_frame = hold._smash_last_action_frame
+        charge_frames = hold._smash_charge_frames
+        charge_complete = hold._smash_charge_complete
+
+        if player.character is Character.NESS and action is _NESS_SMASH_RELEASE_ACTIONS.get(hold.attack_type):
+            charge_complete = True
+        elif action is None:
+            if previous_action is not None:
+                charge_complete = True
+        elif previous_action is action:
+            if (
+                player.character is Character.NESS and action is _NESS_SMASH_CHARGE_ACTIONS.get(hold.attack_type)
+            ) or previous_action_frame == player.action_frame:
+                charge_frames += 1
+            elif (
+                charge_frames > 0 and previous_action_frame is not None and player.action_frame > previous_action_frame
+            ):
+                charge_complete = True
+
+        # DESNOTE(jbarber, 2026-08-24): Common smashes freeze their animation
+        # frame only while SmashAttr is Charging; Ness instead enters dedicated
+        # up/down-smash charge and release states. Count those observations
+        # rather than sequence time so startup never consumes the 60-tick cap.
+        # See https://github.com/doldecomp/melee/blob/a983c0f9cd41d4a46001c493a1929891ac80f9ab/src/melee/ft/ft_0DF0.c#L50-L164
+        object.__setattr__(hold, "_smash_charge_frames", charge_frames)
+        object.__setattr__(hold, "_smash_last_action", action)
+        object.__setattr__(
+            hold,
+            "_smash_last_action_frame",
+            player.action_frame if action is not None else None,
+        )
+        object.__setattr__(hold, "_smash_last_game_frame", game_frame)
+        object.__setattr__(hold, "_smash_charge_complete", charge_complete)
 
     def _charge_completed(self, player: LibPlayerState, hold: Hold) -> bool:
         """Return whether a charging hold finished and the attack animation started."""

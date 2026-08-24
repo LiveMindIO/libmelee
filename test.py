@@ -1811,6 +1811,133 @@ class SimpleControlsInputTests(unittest.TestCase):
                     hold,
                 )
 
+    def test_smash_hold_counts_only_observed_engine_charge_ticks(self) -> None:
+        player = melee.PlayerState(
+            character=melee.Character.NESS,
+            action=melee.Action.STANDING,
+            on_ground=True,
+        )
+        controls, _ = self.controls(player)
+        hold = controls.attack(AttackType.USMASH)
+        self.assertIsInstance(hold, Hold)
+        assert isinstance(hold, Hold)
+
+        for frame in range(1, 21):
+            startup = melee.PlayerState(
+                character=melee.Character.NESS,
+                action=melee.Action(342),
+                action_frame=frame,
+                on_ground=True,
+            )
+            startup_controls, _ = self.controls(startup, frame=frame)
+            self.assertIs(
+                startup_controls.attack(AttackType.USMASH, hold=hold),
+                hold,
+            )
+
+        for charge_frame in range(1, 60):
+            charging = melee.PlayerState(
+                character=melee.Character.NESS,
+                action=melee.Action(343),
+                action_frame=charge_frame,
+                on_ground=True,
+            )
+            charge_controls, _ = self.controls(charging, frame=20 + charge_frame)
+            self.assertIs(
+                charge_controls.attack(AttackType.USMASH, hold=hold),
+                hold,
+            )
+
+        self.assertEqual(hold._smash_charge_frames, 58)
+        self.assertGreater(20 + charge_frame, hold.max_hold_frames)
+
+        final_charge = melee.PlayerState(
+            character=melee.Character.NESS,
+            action=melee.Action(343),
+            action_frame=60,
+            on_ground=True,
+        )
+        final_controls, _ = self.controls(final_charge, frame=80)
+        self.assertIs(
+            final_controls.attack(AttackType.USMASH, hold=hold),
+            hold,
+        )
+
+        full_charge = melee.PlayerState(
+            character=melee.Character.NESS,
+            action=melee.Action(343),
+            action_frame=61,
+            on_ground=True,
+        )
+        full_controls, _ = self.controls(full_charge, frame=81)
+        self.assertIsInstance(
+            full_controls.attack(AttackType.USMASH, hold=hold),
+            AttackFrameData,
+        )
+        self.assertEqual(hold._smash_charge_frames, hold.max_hold_frames)
+
+    def test_smash_hold_observation_is_idempotent_within_one_game_frame(self) -> None:
+        player = melee.PlayerState(
+            character=melee.Character.FOX,
+            action=melee.Action.STANDING,
+            on_ground=True,
+        )
+        controls, _ = self.controls(player)
+        hold = controls.attack(AttackType.USMASH)
+        self.assertIsInstance(hold, Hold)
+        assert isinstance(hold, Hold)
+
+        first_charge = melee.PlayerState(
+            character=melee.Character.FOX,
+            action=melee.Action.UPSMASH,
+            action_frame=7,
+            on_ground=True,
+        )
+        first_controls, _ = self.controls(first_charge, frame=10)
+        self.assertTrue(first_controls.check_hold(hold))
+        self.assertTrue(first_controls.check_hold(hold))
+        self.assertEqual(hold._smash_charge_frames, 0)
+
+        next_controls, _ = self.controls(first_charge, frame=11)
+        self.assertTrue(next_controls.check_hold(hold))
+        self.assertTrue(next_controls.check_hold(hold))
+        self.assertEqual(hold._smash_charge_frames, 1)
+
+        released = melee.PlayerState(
+            character=melee.Character.FOX,
+            action=melee.Action.UPSMASH,
+            action_frame=8,
+            on_ground=True,
+        )
+        released_controls, _ = self.controls(released, frame=12)
+        self.assertIsInstance(
+            released_controls.attack(AttackType.USMASH, hold=hold),
+            AttackFrameData,
+        )
+
+    def test_smash_hold_times_out_when_the_smash_never_starts(self) -> None:
+        player = melee.PlayerState(
+            character=melee.Character.FOX,
+            action=melee.Action.STANDING,
+            on_ground=True,
+        )
+        controls, _ = self.controls(player)
+        hold = controls.attack(AttackType.USMASH)
+        self.assertIsInstance(hold, Hold)
+        assert isinstance(hold, Hold)
+
+        for frame in range(1, 31):
+            waiting_controls, _ = self.controls(player, frame=frame)
+            self.assertIs(
+                waiting_controls.attack(AttackType.USMASH, hold=hold),
+                hold,
+            )
+
+        timed_out_controls, _ = self.controls(player, frame=31)
+        self.assertIsNone(
+            timed_out_controls.attack(AttackType.USMASH, hold=hold)
+        )
+
     def test_ground_charge_hold_stops_when_ground_is_lost(self) -> None:
         grounded = melee.PlayerState(
             character=melee.Character.FOX,
@@ -4064,6 +4191,135 @@ class TechniqueMontageTests(unittest.TestCase):
         self.assertEqual(
             self.controls.take_calls(),
             [("attack", AttackType.USMASH, hold), ("release", hold)],
+        )
+
+    def test_ness_first_charge_packet_projects_release_increment(self):
+        montage = SmashAttackMontage(StickReferenceAxis.UP)
+        hold = self.smash_hold(
+            AttackType.USMASH,
+            melee.Action(342),
+            character=melee.Character.NESS,
+        )
+        self.controls.attack_result = hold
+        self.assertIs(
+            self.tick(montage, melee.Action.STANDING, character=melee.Character.NESS),
+            montage,
+        )
+        self.controls.take_calls()
+
+        montage.release_charge()
+        self.controls.release_result = AttackFrameData(
+            character=melee.Character.NESS,
+            action=melee.Action(343),
+            frame_data=self.frame_data,
+        )
+        self.assertIs(
+            self.tick(montage, melee.Action(343), character=melee.Character.NESS),
+            montage,
+        )
+        self.assertAlmostEqual(
+            montage.current_power(),
+            1.0 + (1 / 60) * 0.3671,
+        )
+
+    def test_ness_duplicate_release_packet_preserves_accumulated_charge(self):
+        montage = SmashAttackMontage(StickReferenceAxis.UP)
+        hold = self.smash_hold(
+            AttackType.USMASH,
+            melee.Action(342),
+            character=melee.Character.NESS,
+        )
+        observed = AttackFrameData(
+            character=melee.Character.NESS,
+            action=melee.Action(343),
+            frame_data=self.frame_data,
+        )
+        self.controls.attack_result = hold
+        self.assertIs(
+            self.tick(montage, melee.Action.STANDING, character=melee.Character.NESS),
+            montage,
+        )
+        self.controls.take_calls()
+        self.controls.attack_result = observed
+
+        for action_frame in (1, 2, 3):
+            self.assertIs(
+                self.tick(
+                    montage,
+                    melee.Action(343),
+                    action_frame=action_frame,
+                    character=melee.Character.NESS,
+                ),
+                montage,
+            )
+            self.controls.take_calls()
+
+        self.assertAlmostEqual(
+            montage.current_power(),
+            1.0 + (2 / 60) * 0.3671,
+        )
+        montage.release_charge()
+        self.controls.release_result = observed
+        self.frame -= 1
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action(343),
+                action_frame=3,
+                character=melee.Character.NESS,
+            ),
+            montage,
+        )
+        self.assertAlmostEqual(
+            montage.current_power(),
+            1.0 + (3 / 60) * 0.3671,
+        )
+
+    def test_common_smash_duplicate_release_packet_projects_final_increment(self):
+        montage = SmashAttackMontage(StickReferenceAxis.UP)
+        hold = self.smash_hold(
+            AttackType.USMASH,
+            melee.Action.UPSMASH,
+        )
+        observed = AttackFrameData(
+            character=melee.Character.FOX,
+            action=melee.Action.UPSMASH,
+            frame_data=self.frame_data,
+        )
+        self.controls.attack_result = hold
+        self.assertIs(self.tick(montage, melee.Action.STANDING), montage)
+        self.controls.take_calls()
+        self.controls.attack_result = observed
+
+        for _ in range(3):
+            self.assertIs(
+                self.tick(
+                    montage,
+                    melee.Action.UPSMASH,
+                    action_frame=7,
+                ),
+                montage,
+            )
+            self.controls.take_calls()
+
+        self.assertAlmostEqual(
+            montage.current_power(),
+            1.0 + (2 / 60) * 0.3671,
+        )
+        montage.release_charge()
+        self.controls.release_result = observed
+        self.frame -= 1
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action.UPSMASH,
+                action_frame=7,
+            ),
+            montage,
+        )
+        self.assertAlmostEqual(
+            montage.current_power(),
+            1.0 + (3 / 60) * 0.3671,
         )
 
     def test_smash_attack_aborts_when_requested_release_fails(self):
@@ -6760,6 +7016,24 @@ class TechniqueMontageTests(unittest.TestCase):
                 self.assertEqual(montage.get_montage_state(), MontageState.Active)
                 self.assertEqual(self.controls.take_calls(), [("release_all",)])
 
+    def test_multishine_reflector_wait_extension_remains_bounded(self):
+        montage = MultishineMontage(frame_limit=2)
+        self.assertIs(self.tick(montage, melee.Action.STANDING), montage)
+        self.controls.take_calls()
+
+        for _ in range(77):
+            self.assertIs(
+                self.tick(montage, melee.Action.REFLECTOR_HIT_GROUND),
+                montage,
+            )
+            self.controls.take_calls()
+
+        self.assertIs(
+            self.tick(montage, melee.Action.REFLECTOR_HIT_GROUND),
+            False,
+        )
+        self.assertEqual(montage.get_montage_state(), MontageState.TimedOut)
+
     def test_multishine_holds_reflector_after_nonfinal_followup_shine(self):
         montage = MultishineMontage(shine_count=3)
         self.tick(montage, melee.Action.STANDING)
@@ -6801,12 +7075,13 @@ class TechniqueMontageTests(unittest.TestCase):
             self.tick(montage, melee.Action.KNEE_BEND, action_frame=action_frame)
             self.controls.take_calls()
 
-        for action in (
-            melee.Action.REFLECTOR_HIT_GROUND,
-            melee.Action.REFLECTOR_END_GROUND,
+        for action, frame_count in (
+            (melee.Action.REFLECTOR_HIT_GROUND, 20),
+            (melee.Action.REFLECTOR_END_GROUND, 18),
         ):
-            self.assertIs(self.tick(montage, action), montage)
-            self.assertEqual(self.controls.take_calls(), [("release_all",)])
+            for _ in range(frame_count):
+                self.assertIs(self.tick(montage, action), montage)
+                self.assertEqual(self.controls.take_calls(), [("release_all",)])
 
         self.assertIs(self.tick(montage, melee.Action.STANDING), True)
         self.assertEqual(montage.get_montage_state(), MontageState.Finished)

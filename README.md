@@ -178,7 +178,9 @@ reported conservatively. The no-argument `can_attack()`, `can_air_attack()`, and
 Charging smashes and supported neutral-B moves return a `Hold`. Do not call
 `SimpleControls.release(hold)` in the frame that created it: pending controller
 input is committed on the next `Console.step()`, so same-frame release neutralizes
-the attack before Dolphin sees it. On a later frame, `release()` acknowledges the
+the attack before Dolphin sees it. Smash holds remain active through startup and
+count their 60-frame limit only while the engine charge window is observed. On a
+later frame, `release()` acknowledges the
 release command but may return `AttackFrameData` seeded with the hold's expected
 action before `PlayerState.action` reports the move. Confirm startup from a later
 game-state snapshot when observed startup matters. An accepted release marks the
@@ -320,7 +322,9 @@ Libmelee includes concrete technique montages:
   During a projectile reflection it holds B
   through non-final Reflector hit animations so they return to the
   jump-cancelable loop; release and final states are held neutral until the
-  sequence can retry or complete.
+  sequence can retry or complete. Fresh Reflector hit and release frames extend
+  the safety budget one-for-one, bounded by one complete hit-plus-release wait
+  per requested shine.
 - `QuickAttackMontage(initial_direction)` performs Pikachu's Quick Attack or
   Pichu's Agility with one or two continuous full-circle directions. The move
   itself starts with cardinal up+B before holding the initial zip vector. Queue the
