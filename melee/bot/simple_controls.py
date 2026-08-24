@@ -5,13 +5,13 @@
 classification ("am I in hitstun?", "can a grab start?", "what motion state am I
 in?") lives on :class:`CharacterState`; :class:`SimpleControls` consults it via
 ``self._character_state`` and adds the controller writes that turn those checks
-into attacks, ledge get-ups, and taunts.
+into attacks, dodges, ledge get-ups, and taunts.
 
 Bots normally receive a :class:`SimpleControls` instance from the runtime on each
 ``game_tick`` call. For state-only reads prefer ``simple_controls.character_state``
-(e.g. ``simple_controls.character_state.can_attack()``) over the deprecated
-thin delegates on :class:`SimpleControls` itself — those wrappers remain only for
-backward compatibility and will be removed.
+(e.g. ``simple_controls.character_state.can_attack(AttackType.FTILT)``) over the
+deprecated thin delegates on :class:`SimpleControls` itself — those wrappers
+remain only for backward compatibility and will be removed.
 
 Typical loop::
 
@@ -40,37 +40,36 @@ from __future__ import annotations
 
 import math
 import warnings
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum, auto
 from typing import TYPE_CHECKING, Final
 
-from melee.controller import Controller
-from melee.enums import Action, Button, Character
-from melee.framedata import FrameData
-from melee.gamestate import GameState, PlayerState as LibPlayerState
-
 from melee.bot.character_state import (
-    AttackType,
-    CharacterState,
-    CharacterStatus,
-    StickReferenceAxis,
-    _ACTIONS_FOR_TYPE,
     _ACTIONABLE_AIR,
-    _ACTIONABLE_GROUND,
+    _ACTIONS_FOR_TYPE,
     _AERIAL_ATTACKS,
-    _AIR_ATTACKS,
-    _GRABBER_ACTIONS,
     _GRAB_THROW_ATTACKS,
     _GRAB_THROW_INPUT_ACTIONS,
+    _GRABBER_ACTIONS,
     _GROUND_ATTACKS,
-    _is_special_action,
     _LEDGE_GETUP_ACTIONS,
     _LEDGE_HANG_ACTIONS,
     _SPECIAL_ATTACKS,
+    AttackType,
+    CharacterState,
+    CharacterStatus,
+    GroundDodgeStickReferenceAxis,
+    HorizontalStickReferenceAxis,
+    StickReferenceAxis,
+    _actions_for_attack_type,
+    _can_attack_by_combat_state,
+    _is_special_action,
     _relative_attack_type,
     attack_is_holdable,
     can_air_attack,
+    can_airdodge,
     can_attack,
+    can_dodge,
     can_grab,
     can_jump,
     can_shield,
@@ -83,12 +82,17 @@ from melee.bot.character_state import (
     is_grabbed,
     is_grabbing,
     is_grabbing_ledge,
-    is_shielding,
     is_shield_broken,
+    is_shielding,
     is_taunting,
     neutral_b_is_chargeable,
     z_air_is_supported,
 )
+from melee.controller import Controller
+from melee.enums import Action, Button, Character
+from melee.framedata import FrameData
+from melee.gamestate import GameState
+from melee.gamestate import PlayerState as LibPlayerState
 
 if TYPE_CHECKING:
     pass
@@ -97,7 +101,9 @@ _INPUT_COMMIT_FRAMES: Final = 12
 _SMASH_MAX_CHARGE_FRAMES: Final = 60
 _NEUTRAL_B_MAX_CHARGE_FRAMES: Final = 120
 _AERIAL_COMMIT_FRAMES: Final = 8
+_TILT_ATTACK_MAGNITUDE: Final = 0.35
 _TILT_TURN_MAGNITUDE: Final = 0.5
+_DODGE_BUTTONS: Final = frozenset({Button.BUTTON_L, Button.BUTTON_R})
 _DIGITAL_BUTTONS: Final = frozenset(Button) - {
     Button.BUTTON_MAIN,
     Button.BUTTON_C,
@@ -107,6 +113,14 @@ _SMASH_CHARGE_ACTIONS: Final = frozenset(
     {
         Action.NEUTRAL_B_CHARGING,
         Action.NEUTRAL_B_CHARGING_AIR,
+    }
+)
+_MEWTWO_SHADOW_BALL_CHARGE_ACTIONS: Final = frozenset(
+    {
+        Action.MEWTWO_SPECIAL_N_START,
+        Action.MEWTWO_SPECIAL_N_LOOP,
+        Action.MEWTWO_SPECIAL_AIR_N_START,
+        Action.MEWTWO_SPECIAL_AIR_N_LOOP,
     }
 )
 
@@ -299,15 +313,15 @@ class Hold:
     stick_y: float
     port: int
     charging: bool
-    released: bool = False
-    release_frame: int | None = None
+    released: bool = field(default=False, compare=False, hash=False)
+    release_frame: int | None = field(default=None, compare=False, hash=False)
 
 
-def _warn_state_deprecated(name: str) -> None:
+def _warn_state_deprecated(name: str, replacement: str | None = None) -> None:
     """Emit a DeprecationWarning for a SimpleControls state-query delegate."""
+    target = replacement or f"simple_controls.character_state.{name}()"
     warnings.warn(
-        f"SimpleControls.{name}() is deprecated; use "
-        f"simple_controls.character_state.{name}() instead.",
+        f"SimpleControls.{name}() is deprecated; use {target} instead.",
         DeprecationWarning,
         stacklevel=3,
     )
@@ -355,7 +369,7 @@ def _commit_frame_limit(hold: Hold) -> int:
 
 
 class SimpleControls:
-    """Apply common Melee attack inputs from a single game-state snapshot.
+    """Apply common Melee inputs from a single game-state snapshot.
 
     Construct a fresh instance each frame (the live-match handler does this
     automatically and passes it into ``BotProtocol.game_tick``). Inputs are
@@ -490,6 +504,94 @@ class SimpleControls:
         self.tilt_stick(StickReferenceAxis.DOWN, 0.0)
         return True
 
+    def dodge(
+        self,
+        direction: GroundDodgeStickReferenceAxis,
+        *,
+        dodge_button: Button = Button.BUTTON_L,
+    ) -> bool:
+        """Apply roll or spot-dodge input for the next committed frame.
+
+        The pending stick and shoulder remain latched until a later frame replaces
+        or clears them; this method does not schedule an automatic release.
+
+        Args:
+            direction: Absolute :attr:`StickReferenceAxis.LEFT` or
+                :attr:`StickReferenceAxis.RIGHT` for a roll, or
+                :attr:`StickReferenceAxis.DOWN` for a spot dodge.
+            dodge_button: Digital L or R shoulder button.
+
+        Returns:
+            ``True`` if dodge inputs were applied; ``False`` when the current
+            character state has no direct ground-dodge transition.
+
+        Raises:
+            ValueError: If ``direction`` is not left/right/down or
+                ``dodge_button`` is not L/R.
+        """
+        if direction not in {
+            StickReferenceAxis.LEFT,
+            StickReferenceAxis.RIGHT,
+            StickReferenceAxis.DOWN,
+        }:
+            raise ValueError(
+                "direction must be StickReferenceAxis.LEFT, StickReferenceAxis.RIGHT, "
+                "or StickReferenceAxis.DOWN"
+            )
+        self._validate_dodge_button(dodge_button)
+        if not self._character_state.can_dodge():
+            return False
+
+        self._controller.release_all()
+        self.tilt_stick(direction, 0.0)
+        self.press_button(dodge_button)
+        return True
+
+    def air_dodge(
+        self,
+        reference_axis: StickReferenceAxis,
+        angle_degrees: float = 0.0,
+        *,
+        magnitude: float = 1.0,
+        dodge_button: Button = Button.BUTTON_L,
+    ) -> bool:
+        """Apply directional air-dodge input for the next committed frame.
+
+        ``reference_axis``, ``angle_degrees``, and ``magnitude`` use the same
+        absolute stick-direction convention as :meth:`tilt_stick`.
+        The pending stick and shoulder remain latched until a later frame replaces
+        or clears them; this method does not schedule an automatic release.
+
+        Args:
+            reference_axis: Absolute controller/screen axis at zero degrees.
+            angle_degrees: Signed rotation; positive is counter-clockwise and
+                negative is clockwise.
+            magnitude: Request-space radial magnitude from ``0.0`` through
+                ``1.0``.
+            dodge_button: Digital L or R shoulder button.
+
+        Returns:
+            ``True`` if air-dodge inputs were applied; ``False`` when the current
+            character state cannot air dodge.
+
+        Raises:
+            ValueError: If ``dodge_button`` is not L/R, an angle or magnitude is
+                non-finite, or ``magnitude`` is outside ``[0, 1]``.
+        """
+        self._validate_dodge_button(dodge_button)
+        stick_x, stick_y = stick_coordinates(
+            reference_axis,
+            angle_degrees,
+            magnitude=magnitude,
+        )
+        if not self._character_state.can_airdodge():
+            return False
+
+        self._controller.release_all()
+        self._controller.tilt_analog(Button.BUTTON_MAIN, stick_x, stick_y)
+        self.press_button(dodge_button)
+        return True
+
     def down_left(self, angle_degrees: float, *, magnitude: float = 1.0, stick: Button = Button.BUTTON_MAIN) -> None:
         """Tilt from down toward left by an angle from 0 through 90 degrees."""
         self._tilt_between_axes(StickReferenceAxis.DOWN, angle_degrees, -1.0, magnitude, stick)
@@ -587,7 +689,7 @@ class SimpleControls:
             return self._continue_attack(hold)
 
         player = self._player()
-        if player is None or not self._can_begin_attack(player, attack_type):
+        if player is None or not self._character_state.can_attack(attack_type):
             return None
 
         current = self._attack_frame_data(player, attack_type)
@@ -726,7 +828,12 @@ class SimpleControls:
             return None
 
         player = self._player()
-        if player is None or self._hold_interrupted(player, hold):
+        if (
+            player is None
+            or player.character != hold.character
+            or self._port != hold.port
+            or self._hold_interrupted(player, hold)
+        ):
             return None
 
         self._controller.release_all()
@@ -736,6 +843,11 @@ class SimpleControls:
             # command whose result cannot be observed until a later game frame.
             # Preserve useful metadata without claiming PlayerState confirmation.
             action = hold.action
+        # DESNOTE(jbarber, 2026-08-21): Hold remains externally immutable and
+        # hash-compatible. These non-comparing lifecycle fields are framework-
+        # owned so an accepted release cannot be replayed.
+        object.__setattr__(hold, "released", True)
+        object.__setattr__(hold, "release_frame", self._game_state.frame)
 
         return AttackFrameData(
             character=player.character,
@@ -807,9 +919,15 @@ class SimpleControls:
         return self._character_state.is_grabbing_ledge()
 
     def can_attack(self) -> bool:
-        """Deprecated: use :attr:`character_state` :meth:`.can_attack`."""
-        _warn_state_deprecated("can_attack")
-        return self._character_state.can_attack()
+        """Deprecated: use ``character_state.can_attack(attack_type)``."""
+        _warn_state_deprecated(
+            "can_attack",
+            "simple_controls.character_state.can_attack(attack_type)",
+        )
+        player = self._player()
+        if player is None:
+            return False
+        return _can_attack_by_combat_state(player, self._frame_data)
 
     def can_shield(self) -> bool:
         """Deprecated: use :attr:`character_state` :meth:`.can_shield`."""
@@ -822,9 +940,12 @@ class SimpleControls:
         return self._character_state.can_jump()
 
     def can_grab(self) -> bool:
-        """Deprecated: use :attr:`character_state` :meth:`.can_grab`."""
-        _warn_state_deprecated("can_grab")
-        return self._character_state.can_grab()
+        """Deprecated: use ``character_state.can_attack(AttackType.GRAB)``."""
+        _warn_state_deprecated(
+            "can_grab",
+            "simple_controls.character_state.can_attack(AttackType.GRAB)",
+        )
+        return self._character_state.can_attack(AttackType.GRAB)
 
     def can_z_air(self) -> bool:
         """Deprecated: use :attr:`character_state` :meth:`.can_z_air`."""
@@ -832,9 +953,12 @@ class SimpleControls:
         return self._character_state.can_z_air()
 
     def can_air_attack(self) -> bool:
-        """Deprecated: use :attr:`character_state` :meth:`.can_air_attack`."""
-        _warn_state_deprecated("can_air_attack")
-        return self._character_state.can_air_attack()
+        """Deprecated: use ``character_state.can_attack(aerial_type)``."""
+        _warn_state_deprecated(
+            "can_air_attack",
+            "simple_controls.character_state.can_attack(aerial_type)",
+        )
+        return self._character_state.can_attack(AttackType.NAIR)
 
     def is_taunting(self) -> bool:
         """Deprecated: use :attr:`character_state` :meth:`.is_taunting`."""
@@ -853,6 +977,12 @@ class SimpleControls:
     def _player(self) -> LibPlayerState | None:
         """Return the controlled port's ``PlayerState``, if present."""
         return self._game_state.players.get(self._port)
+
+    @staticmethod
+    def _validate_dodge_button(dodge_button: Button) -> None:
+        """Reject buttons that cannot initiate a dodge."""
+        if dodge_button not in _DODGE_BUTTONS:
+            raise ValueError("dodge_button must be Button.BUTTON_L or Button.BUTTON_R")
 
     def _can_ledge_recovery(self, player: LibPlayerState) -> bool:
         """Return whether ``ledge_recovery`` may act on ``player``."""
@@ -891,11 +1021,7 @@ class SimpleControls:
 
     def _hold_matches(self, hold: Hold, attack_type: AttackType) -> bool:
         """Return whether ``hold`` belongs to this port and ``attack_type``."""
-        return (
-            hold.attack_type == attack_type
-            and hold.port == self._port
-            and not hold.released
-        )
+        return hold.attack_type == attack_type and hold.port == self._port and not hold.released
 
     def _continue_attack(self, hold: Hold) -> None | Hold | AttackFrameData:
         """Apply the next frame of inputs for an in-progress ``hold``.
@@ -921,7 +1047,10 @@ class SimpleControls:
         if hold.charging:
             self._apply_charge_inputs(hold)
             charging_action = self._current_attack_action(player, hold.attack_type)
-            if charging_action is not None and not self._is_charge_action(charging_action):
+            if charging_action is not None and not self._is_charge_action(
+                player.character,
+                charging_action,
+            ):
                 return AttackFrameData(
                     character=player.character,
                     action=charging_action,
@@ -945,11 +1074,7 @@ class SimpleControls:
     ) -> Hold:
         """Start a smash or chargeable neutral-B hold (``charging=True``)."""
         action = _primary_action(player.character, attack_type)
-        max_hold = (
-            _NEUTRAL_B_MAX_CHARGE_FRAMES
-            if attack_type is AttackType.NEUTRAL_B
-            else _SMASH_MAX_CHARGE_FRAMES
-        )
+        max_hold = _NEUTRAL_B_MAX_CHARGE_FRAMES if attack_type is AttackType.NEUTRAL_B else _SMASH_MAX_CHARGE_FRAMES
         hold = Hold(
             attack_type=attack_type,
             character=player.character,
@@ -1042,12 +1167,12 @@ class SimpleControls:
         during smash charge).
         """
         if hold.attack_type is AttackType.Z_AIR:
-            if not self._character_state.can_z_air():
+            if not self._character_state.can_attack(AttackType.Z_AIR):
                 return True
         elif hold.attack_type is AttackType.GRAB:
-            if not self._character_state.can_grab():
+            if not self._character_state.can_attack(AttackType.GRAB):
                 return True
-        elif not self._character_state.can_attack():
+        elif not _can_attack_by_combat_state(player, self._frame_data):
             return True
         if hold.attack_type in _GRAB_THROW_ATTACKS:
             if not isinstance(player.action, Action):
@@ -1068,63 +1193,6 @@ class SimpleControls:
                 return False
             if player.action != Action.DASHING:
                 return True
-        return False
-
-    def _can_begin_attack(self, player: LibPlayerState, attack_type: AttackType) -> bool:
-        """Return whether ``attack_type`` may start from ``player``'s current state.
-
-        Requires neutral-ish action states (see ``_ACTIONABLE_GROUND`` /
-        ``_ACTIONABLE_AIR``), no hitstun, no grab (except ``AttackType.GRAB``),
-        and ground/air compatibility for the requested move.
-        """
-        if attack_type is AttackType.Z_AIR:
-            return self._character_state.can_z_air()
-        if attack_type is AttackType.GRAB:
-            return self._character_state.can_grab()
-        if not self._character_state.can_attack():
-            return False
-        if attack_type in _GRAB_THROW_ATTACKS:
-            return isinstance(player.action, Action) and (
-                player.action in _GRAB_THROW_INPUT_ACTIONS
-            )
-        if player.action in _GRABBER_ACTIONS and attack_type not in {
-            AttackType.GRAB,
-            AttackType.Z_AIR,
-        }:
-            return False
-
-        if attack_type is AttackType.DASH_ATTACK:
-            return (
-                player.on_ground
-                and isinstance(player.action, Action)
-                and player.action == Action.DASHING
-            )
-
-        if attack_type in _GROUND_ATTACKS:
-            if not player.on_ground:
-                return False
-            if not isinstance(player.action, Action):
-                return False
-            return player.action in _ACTIONABLE_GROUND
-
-        if attack_type in _AIR_ATTACKS:
-            if player.on_ground and (
-                not isinstance(player.action, Action)
-                or player.action not in _ACTIONABLE_GROUND
-            ):
-                return False
-            if not player.on_ground and (
-                not isinstance(player.action, Action)
-                or player.action not in _ACTIONABLE_AIR
-            ):
-                return False
-            return True
-
-        if attack_type in _SPECIAL_ATTACKS:
-            if player.on_ground:
-                return isinstance(player.action, Action) and player.action in _ACTIONABLE_GROUND
-            return isinstance(player.action, Action) and player.action in _ACTIONABLE_AIR
-
         return False
 
     def _attack_frame_data(
@@ -1149,7 +1217,7 @@ class SimpleControls:
     ) -> Action | None:
         """Map ``player.action`` to ``attack_type``, if the move is active.
 
-        First checks membership in ``_ACTIONS_FOR_TYPE``. Moves without hitboxes
+        First checks character-aware action membership. Moves without hitboxes
         (grabs, many specials) fall through to ``FrameData.is_grab`` or
         :func:`_is_special_action` because ``FrameData.is_attack`` returns
         ``False`` for them.
@@ -1160,8 +1228,7 @@ class SimpleControls:
         """
         if not isinstance(player.action, Action):
             return None
-        relative_attack_type = _relative_attack_type(attack_type)
-        if player.action not in _ACTIONS_FOR_TYPE[relative_attack_type]:
+        if player.action not in _actions_for_attack_type(player.character, attack_type):
             return None
         if attack_type in _GRAB_THROW_ATTACKS:
             return player.action
@@ -1186,13 +1253,29 @@ class SimpleControls:
         """Return main-stick ``(x, y)`` for ``attack_type`` using ``player.facing``."""
         toward = 1.0 if player.facing else 0.0
         away = 0.0 if player.facing else 1.0
+        tilt_offset = _TILT_ATTACK_MAGNITUDE / 2.0
+        tilt_low = 0.5 - tilt_offset
+        tilt_high = 0.5 + tilt_offset
+        tilt_toward = tilt_high if player.facing else tilt_low
+
+        # DESNOTE(jbarber, 2026-08-22): Standing IASA checks smashes before tilts.
+        # NTSC 1.02 PlCo.dat uses +/-0.25 tilt thresholds, +/-0.8 horizontal
+        # smash thresholds, +0.6625 for up-smash, and -0.6625 for down-smash.
+        # A 0.35 centered magnitude stays strictly inside that tilt-only range
+        # after Dolphin quantization with analog correction enabled (+/-28 raw)
+        # or disabled (-45/+44 raw); the nearest directional boundaries are
+        # +/-20 for tilts and conservatively +/-53 for vertical smashes.
+        # See https://github.com/doldecomp/melee/blob/a983c0f9cd41d4a46001c493a1929891ac80f9ab/src/melee/ft/chara/ftCommon/ftCo_Wait.c#L43-L56
+        # https://github.com/doldecomp/melee/blob/a983c0f9cd41d4a46001c493a1929891ac80f9ab/src/melee/ft/chara/ftCommon/ftCo_AttackHi4.c#L25-L35
+        # https://github.com/doldecomp/melee/blob/a983c0f9cd41d4a46001c493a1929891ac80f9ab/src/melee/ft/chara/ftCommon/ftCo_AttackLw4.c#L22-L31
+        # and https://github.com/barrelofsulfuricacid-gif/ultra-performance-platform-fighter/blob/4012e3ed7c9e5c05f95f25f1beaf407d6d3b21ab/tools/import_ssbm_common_data.py#L108-L116
         mapping: dict[AttackType, tuple[float, float]] = {
             AttackType.JAB: (0.5, 0.5),
-            AttackType.FTILT: (toward, 0.5),
-            AttackType.LTILT: (0.0, 0.5),
-            AttackType.RTILT: (1.0, 0.5),
-            AttackType.UTILT: (0.5, 1.0),
-            AttackType.DTILT: (0.5, 0.0),
+            AttackType.FTILT: (tilt_toward, 0.5),
+            AttackType.LTILT: (tilt_low, 0.5),
+            AttackType.RTILT: (tilt_high, 0.5),
+            AttackType.UTILT: (0.5, tilt_high),
+            AttackType.DTILT: (0.5, tilt_low),
             AttackType.FSMASH: (toward, 0.5),
             AttackType.LSMASH: (0.0, 0.5),
             AttackType.RSMASH: (1.0, 0.5),
@@ -1219,18 +1302,22 @@ class SimpleControls:
         }
         return mapping[attack_type]
 
-    def _is_charge_action(self, action: Action) -> bool:
+    def _is_charge_action(self, character: Character, action: Action) -> bool:
         """Return whether ``action`` is a hold-to-charge neutral-B state."""
+        if character is Character.MEWTWO:
+            return action in _MEWTWO_SHADOW_BALL_CHARGE_ACTIONS
         return action in _SMASH_CHARGE_ACTIONS
 
     def _charge_completed(self, player: LibPlayerState, hold: Hold) -> bool:
         """Return whether a charging hold finished and the attack animation started."""
         if not isinstance(player.action, Action):
             return False
-        if player.action in _SMASH_CHARGE_ACTIONS:
+        if self._is_charge_action(player.character, player.action):
             return False
-        relative_attack_type = _relative_attack_type(hold.attack_type)
-        return player.action in _ACTIONS_FOR_TYPE[relative_attack_type]
+        return player.action in _actions_for_attack_type(
+            player.character,
+            hold.attack_type,
+        )
 
 
 __all__ = [
@@ -1238,7 +1325,9 @@ __all__ = [
     "AttackType",
     "CharacterState",
     "CharacterStatus",
+    "GroundDodgeStickReferenceAxis",
     "Hold",
+    "HorizontalStickReferenceAxis",
     "LedgeRecoveryOption",
     "SimpleControls",
     "StickReferenceAxis",
@@ -1246,7 +1335,9 @@ __all__ = [
     # callers that imported these names from melee.bot.simple_controls.
     "attack_is_holdable",
     "can_air_attack",
+    "can_airdodge",
     "can_attack",
+    "can_dodge",
     "can_grab",
     "can_jump",
     "can_shield",

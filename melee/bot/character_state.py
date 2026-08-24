@@ -18,8 +18,11 @@ compatibility and will be removed.
 from __future__ import annotations
 
 from enum import Enum, auto
-from typing import Final
+from typing import Final, Literal, TypeAlias, overload
 
+from typing_extensions import deprecated
+
+from melee.bot.framedata_query import _SPECIAL_SLOT_ACTION_IDS
 from melee.enums import Action, Character
 from melee.framedata import FrameData
 from melee.gamestate import (
@@ -60,8 +63,6 @@ _FALSE_HITSTUN_NEUTRAL_ACTIONS: Final = frozenset(
         Action.DAIR_LANDING,
     }
 )
-# States SimpleControls treats as grounded and actionable for starting ground moves.
-_ACTIONABLE_GROUND: Final = _FALSE_HITSTUN_NEUTRAL_ACTIONS
 _ACTIONABLE_AIR: Final = frozenset(
     {
         Action.JUMPING_FORWARD,
@@ -74,8 +75,14 @@ _ACTIONABLE_AIR: Final = frozenset(
         Action.FALLING_AERIAL,
         Action.FALLING_AERIAL_FORWARD,
         Action.FALLING_AERIAL_BACKWARD,
+        Action.PLATFORM_DROP,
     }
 )
+# DESNOTE(jbarber, 2026-08-22): DamageFall (TUMBLING) omits EscapeAir but checks
+# aerial specials, tether Z-air, aerial attacks, and aerial jump after hitstun.
+# Keep it attackable without adding it to the normal-air dodge set above.
+# See https://github.com/doldecomp/melee/blob/a983c0f9cd41d4a46001c493a1929891ac80f9ab/src/melee/ft/chara/ftCommon/ftCo_DamageFall.c#L119-L139
+_ATTACKABLE_AIR: Final = _ACTIONABLE_AIR | {Action.TUMBLING}
 # Characters whose neutral-B enters NEUTRAL_B_CHARGING instead of firing immediately.
 _NEUTRAL_B_CHARGEABLE: Final = frozenset(
     {
@@ -132,10 +139,14 @@ _GRABBED_VICTIM_ACTIONS: Final = frozenset(
         Action.GRAB_FOOT,
     }
 )
+# DESNOTE(jbarber, 2026-08-22): Throw direction checks run from CatchWait IASA.
+# CatchAttack (pummel) has no IASA callback, so a throw cannot begin until the
+# state returns to CatchWait.
+# See https://github.com/doldecomp/melee/blob/a983c0f9cd41d4a46001c493a1929891ac80f9ab/src/melee/ft/chara/ftCommon/ftCo_CatchWait.c
+# See https://github.com/doldecomp/melee/blob/a983c0f9cd41d4a46001c493a1929891ac80f9ab/src/melee/ft/chara/ftCommon/ftCo_CatchAttack.c
 _GRAB_THROW_INPUT_ACTIONS: Final = frozenset(
     {
         Action.GRAB_WAIT,
-        Action.GRAB_PUMMEL,
     }
 )
 _LEDGE_HANG_ACTIONS: Final = frozenset(
@@ -299,6 +310,18 @@ class StickReferenceAxis(Enum):
     LEFT = 180.0
 
 
+HorizontalStickReferenceAxis: TypeAlias = Literal[
+    StickReferenceAxis.LEFT,
+    StickReferenceAxis.RIGHT,
+]
+
+GroundDodgeStickReferenceAxis: TypeAlias = Literal[
+    StickReferenceAxis.LEFT,
+    StickReferenceAxis.RIGHT,
+    StickReferenceAxis.DOWN,
+]
+
+
 class AttackType(Enum):
     """Logical attack input a bot can request from :class:`SimpleControls`.
 
@@ -311,18 +334,17 @@ class AttackType(Enum):
     Ground-only: ``JAB``, ``FTILT``, ``LTILT``, ``RTILT``, ``UTILT``, ``DTILT``,
     ``FSMASH``, ``LSMASH``, ``RSMASH``, ``USMASH``, ``DSMASH``, ``GRAB``.
 
-    ``DASH_ATTACK`` requires ``Action.DASHING`` — the bot must enter a dash with
-    raw movement inputs before calling it; SimpleControls does not walk or dash
-    on the bot's behalf.
+    ``DASH_ATTACK`` requires ``Action.DASHING``, ``Action.RUNNING``, or
+    ``Action.RUN_DIRECT``. The bot must enter dash/run with raw movement inputs
+    before calling it; SimpleControls does not move on the bot's behalf.
 
-    Air-only (or grounded jump startup): ``NAIR``, ``FAIR``, ``BAIR``, ``UAIR``,
-    ``DAIR``.
+    Air-only: ``NAIR``, ``FAIR``, ``BAIR``, ``UAIR``, ``DAIR``.
 
     Specials (ground or air): ``NEUTRAL_B``, ``SIDE_B``, ``LSPECIAL``, ``RSPECIAL``,
     ``UP_B``, ``DOWN_B``. ``LEFT_B`` and ``RIGHT_B`` are deprecated aliases for
     ``LSPECIAL`` and ``RSPECIAL``.
 
-    Grab throws (requires ``GRAB_WAIT`` / ``GRAB_PUMMEL``): ``FTHROW``, ``BTHROW``,
+    Grab throws (requires ``GRAB_WAIT``): ``FTHROW``, ``BTHROW``,
     ``UTHROW``, ``DTHROW``. Throws are stick-only; ``A`` pummels during a grab.
     ``Z_AIR`` is air-only for tether-grab characters (Samus, Link, Young Link).
 
@@ -403,10 +425,16 @@ class CharacterStatus(Enum):
     when a hit connects. The character is locked out of all input until hitlag
     clears; treated as a subset of hitstun by :func:`in_hitstun`."""
 
+    Tumbling = auto()
+    """Airborne knockback tumble (``TUMBLING``) after reported hitstun has
+    cleared. Permits aerial attacks, specials, tether Z-air, and aerial jump,
+    but not air dodge."""
+
     Shielding = auto()
     """Holding shield (``SHIELD`` / ``SHIELD_START`` / ``SHIELD_REFLECT`` /
     ``SHIELD_STUN`` / ``SHIELD_RELEASE``). Blocks attack/grab input but allows
-    grab out of shield (``can_grab`` permits this as a special case)."""
+    grab out of shield (``can_attack(AttackType.GRAB)`` permits this as a
+    special case)."""
 
     ShieldBroken = auto()
     """Shield-break animation suite (``SHIELD_BREAK_FLY`` through
@@ -414,12 +442,10 @@ class CharacterStatus(Enum):
     stun-locked for an extended duration; blocks all input."""
 
     Dodging = auto()
-    """A roll, spot-dodge, or air-dodge (caught via libmelee
-    ``FrameData.is_roll``: ``SPOTDODGE``, ``ROLL_FORWARD``,
-    ``ROLL_BACKWARD``, successful techs ``NEUTRAL_TECH`` / ``FORWARD_TECH``
-    / ``BACKWARD_TECH``, ledge rolls/getups if not caught earlier, etc.). The
-    character is intangible or has body-property invulnerability for part of
-    the animation. Also includes the 5 active roll-getup options from
+    """A roll, spot-dodge, or ``AIRDODGE``. Ground dodges and successful techs
+    are caught through libmelee ``FrameData.is_roll``; air dodge is classified
+    explicitly. The character is intangible or has body-property invulnerability
+    for part of the animation. Also includes the 5 active roll-getup options from
     knockdown (``GROUND_ROLL_*_UP`` / ``GROUND_ROLL_*_DOWN`` /
     ``GROUND_ROLL_SPOT_DOWN`` — see :data:`_GETUP_ROLL_ACTIONS`): once the
     player commits to a roll from knockdown they are dodging, not lying
@@ -478,7 +504,7 @@ class CharacterStatus(Enum):
     ``TURNING_RUN``). Actionable; ``DASH_ATTACK`` requires being here."""
 
 
-# CharacterStatus values where standard attack/shield input cannot begin.
+# CharacterStatus values blocked by the deprecated broad attack-state query.
 _BLOCKS_ATTACK_INPUT: Final = frozenset(
     {
         CharacterStatus.HitLag,
@@ -540,6 +566,180 @@ _AIR_ATTACKS: Final = frozenset(
         AttackType.DAIR,
     }
 )
+# DESNOTE(jbarber, 2026-08-22): Common grounded actions do not share one IASA
+# table. These capability-specific sets follow the direct transitions in the
+# common Wait, Walk, Turn, Dash, Run, Squat, Ottotto, and KneeBend states.
+# Character-owned action states are intentionally conservative.
+# See https://github.com/doldecomp/melee/blob/a983c0f9cd41d4a46001c493a1929891ac80f9ab/src/melee/ft/chara/ftCommon/ftCo_Wait.c
+# See https://github.com/doldecomp/melee/blob/a983c0f9cd41d4a46001c493a1929891ac80f9ab/src/melee/ft/chara/ftCommon/ftCo_Walk.c
+# See https://github.com/doldecomp/melee/blob/a983c0f9cd41d4a46001c493a1929891ac80f9ab/src/melee/ft/chara/ftCommon/ftCo_Turn.c
+# See https://github.com/doldecomp/melee/blob/a983c0f9cd41d4a46001c493a1929891ac80f9ab/src/melee/ft/chara/ftCommon/ftCo_Dash.c
+# See https://github.com/doldecomp/melee/blob/a983c0f9cd41d4a46001c493a1929891ac80f9ab/src/melee/ft/chara/ftCommon/ftCo_Run.c
+# See https://github.com/doldecomp/melee/blob/a983c0f9cd41d4a46001c493a1929891ac80f9ab/src/melee/ft/chara/ftCommon/ftCo_RunDirect.c
+# See https://github.com/doldecomp/melee/blob/a983c0f9cd41d4a46001c493a1929891ac80f9ab/src/melee/ft/chara/ftCommon/ftCo_TurnRun.c
+# See https://github.com/doldecomp/melee/blob/a983c0f9cd41d4a46001c493a1929891ac80f9ab/src/melee/ft/chara/ftCommon/ftCo_RunBrake.c
+# See https://github.com/doldecomp/melee/blob/a983c0f9cd41d4a46001c493a1929891ac80f9ab/src/melee/ft/chara/ftCommon/ftCo_Squat.c
+# See https://github.com/doldecomp/melee/blob/a983c0f9cd41d4a46001c493a1929891ac80f9ab/src/melee/ft/chara/ftCommon/ftCo_SquatWait.c
+# See https://github.com/doldecomp/melee/blob/a983c0f9cd41d4a46001c493a1929891ac80f9ab/src/melee/ft/chara/ftCommon/ftCo_SquatRv.c
+# See https://github.com/doldecomp/melee/blob/a983c0f9cd41d4a46001c493a1929891ac80f9ab/src/melee/ft/chara/ftCommon/ftCo_Ottotto.c
+# See https://github.com/doldecomp/melee/blob/a983c0f9cd41d4a46001c493a1929891ac80f9ab/src/melee/ft/chara/ftCommon/ftCo_KneeBend.c
+# See https://github.com/doldecomp/melee/blob/a983c0f9cd41d4a46001c493a1929891ac80f9ab/src/melee/ft/chara/ftCommon/ftCo_AppealS.c
+_GROUND_NORMAL_ACTIONS: Final = frozenset(
+    {
+        Action.STANDING,
+        Action.WALK_SLOW,
+        Action.WALK_MIDDLE,
+        Action.WALK_FAST,
+        Action.TURNING,
+        Action.CROUCH_START,
+        Action.CROUCHING,
+        Action.CROUCH_END,
+        Action.EDGE_TEETERING_START,
+        Action.EDGE_TEETERING,
+    }
+)
+_GROUND_SPECIAL_ALL_ACTIONS: Final = frozenset(
+    {
+        Action.STANDING,
+        Action.WALK_SLOW,
+        Action.WALK_MIDDLE,
+        Action.WALK_FAST,
+        Action.RUNNING,
+        Action.RUN_DIRECT,
+        Action.CROUCH_START,
+        Action.EDGE_TEETERING_START,
+        Action.EDGE_TEETERING,
+    }
+)
+_GROUND_GRAB_ACTIONS: Final = frozenset(
+    {
+        Action.STANDING,
+        Action.WALK_SLOW,
+        Action.WALK_MIDDLE,
+        Action.WALK_FAST,
+        Action.TURNING,
+        Action.DASHING,
+        Action.RUNNING,
+        Action.RUN_DIRECT,
+        Action.KNEE_BEND,
+        Action.CROUCH_START,
+        Action.EDGE_TEETERING_START,
+        Action.EDGE_TEETERING,
+    }
+)
+_GROUND_JUMP_ACTIONS: Final = frozenset(
+    {
+        Action.STANDING,
+        Action.WALK_SLOW,
+        Action.WALK_MIDDLE,
+        Action.WALK_FAST,
+        Action.TURNING,
+        Action.DASHING,
+        Action.RUNNING,
+        Action.RUN_DIRECT,
+        Action.TURNING_RUN,
+        Action.RUN_BRAKE,
+        Action.CROUCH_START,
+        Action.CROUCHING,
+        Action.CROUCH_END,
+        Action.EDGE_TEETERING_START,
+        Action.EDGE_TEETERING,
+    }
+)
+_GROUND_TAUNT_ACTIONS: Final = frozenset(
+    {
+        Action.STANDING,
+        Action.WALK_SLOW,
+        Action.WALK_MIDDLE,
+        Action.WALK_FAST,
+        Action.TURNING,
+        Action.DASHING,
+        Action.RUNNING,
+        Action.RUN_DIRECT,
+        Action.CROUCH_START,
+        Action.CROUCHING,
+        Action.CROUCH_END,
+        Action.EDGE_TEETERING_START,
+        Action.EDGE_TEETERING,
+    }
+)
+# DESNOTE(jbarber, 2026-08-22): Pass and DamageFall run aerial-jump checks;
+# FallSpecial also permits an aerial jump despite rejecting EscapeAir and normal
+# offense. The remaining-jump count is still required at the public boundary.
+# See https://github.com/doldecomp/melee/blob/a983c0f9cd41d4a46001c493a1929891ac80f9ab/src/melee/ft/chara/ftCommon/ftCo_Pass.c
+# See https://github.com/doldecomp/melee/blob/a983c0f9cd41d4a46001c493a1929891ac80f9ab/src/melee/ft/chara/ftCommon/ftCo_DamageFall.c#L119-L139
+# See https://github.com/doldecomp/melee/blob/a983c0f9cd41d4a46001c493a1929891ac80f9ab/src/melee/ft/chara/ftCommon/ftCo_FallSpecial.c#L80-L85
+_AIR_JUMP_ACTIONS: Final = _ATTACKABLE_AIR | frozenset(
+    {
+        Action.DEAD_FALL,
+        Action.SPECIAL_FALL_FORWARD,
+        Action.SPECIAL_FALL_BACK,
+    }
+)
+# DESNOTE(jbarber, 2026-08-22): These common actions have a direct Escape path.
+# DASHING and SHIELD_RELEASE remain action-level answers because PlayerState does
+# not expose their internal timing windows; SHIELD_STUN has an empty IASA.
+# See https://github.com/doldecomp/melee/blob/a983c0f9cd41d4a46001c493a1929891ac80f9ab/src/melee/ft/chara/ftCommon/ftCo_Escape.c
+# See https://github.com/doldecomp/melee/blob/a983c0f9cd41d4a46001c493a1929891ac80f9ab/src/melee/ft/chara/ftCommon/ftCo_Wait.c#L39-L62
+# See https://github.com/doldecomp/melee/blob/a983c0f9cd41d4a46001c493a1929891ac80f9ab/src/melee/ft/chara/ftCommon/ftCo_Guard.c
+# See https://github.com/doldecomp/melee/blob/a983c0f9cd41d4a46001c493a1929891ac80f9ab/src/melee/ft/chara/ftCommon/ftCo_Dash.c#L84-L139
+# See https://github.com/doldecomp/melee/blob/a983c0f9cd41d4a46001c493a1929891ac80f9ab/src/melee/ft/chara/ftCommon/ftCo_KneeBend.c#L61-L68
+_GROUND_DODGE_ACTIONS: Final = frozenset(
+    {
+        Action.STANDING,
+        Action.DASHING,
+        Action.SHIELD_START,
+        Action.SHIELD,
+        Action.SHIELD_RELEASE,
+        Action.SHIELD_REFLECT,
+    }
+)
+_SHIELD_CANCEL_ACTIONS: Final = frozenset(
+    {
+        Action.SHIELD_START,
+        Action.SHIELD,
+        Action.SHIELD_RELEASE,
+        Action.SHIELD_REFLECT,
+    }
+)
+# DESNOTE(jbarber, 2026-08-22): Guard transitions are action-specific, so the
+# broad false-hitstun neutral bucket cannot back can_shield(). Landing and dash
+# have hidden interrupt windows; report dash as action-level eligible and reject
+# landing states rather than claiming eligibility that PlayerState cannot prove.
+# See https://github.com/doldecomp/melee/blob/a983c0f9cd41d4a46001c493a1929891ac80f9ab/src/melee/ft/chara/ftCommon/ftCo_Wait.c#L39-L62
+# See https://github.com/doldecomp/melee/blob/a983c0f9cd41d4a46001c493a1929891ac80f9ab/src/melee/ft/chara/ftCommon/ftCo_Walk.c#L75-L99
+# See https://github.com/doldecomp/melee/blob/a983c0f9cd41d4a46001c493a1929891ac80f9ab/src/melee/ft/chara/ftCommon/ftCo_Turn.c
+# See https://github.com/doldecomp/melee/blob/a983c0f9cd41d4a46001c493a1929891ac80f9ab/src/melee/ft/chara/ftCommon/ftCo_Run.c
+# See https://github.com/doldecomp/melee/blob/a983c0f9cd41d4a46001c493a1929891ac80f9ab/src/melee/ft/chara/ftCommon/ftCo_Squat.c
+# See https://github.com/doldecomp/melee/blob/a983c0f9cd41d4a46001c493a1929891ac80f9ab/src/melee/ft/chara/ftCommon/ftCo_TurnRun.c
+# See https://github.com/doldecomp/melee/blob/a983c0f9cd41d4a46001c493a1929891ac80f9ab/src/melee/ft/chara/ftCommon/ftCo_RunBrake.c
+# See https://github.com/doldecomp/melee/blob/a983c0f9cd41d4a46001c493a1929891ac80f9ab/src/melee/ft/chara/ftCommon/ftCo_KneeBend.c#L61-L68
+# See https://github.com/doldecomp/melee/blob/a983c0f9cd41d4a46001c493a1929891ac80f9ab/src/melee/ft/chara/ftCommon/ftCo_Landing.c#L157-L185
+# See https://github.com/doldecomp/melee/blob/a983c0f9cd41d4a46001c493a1929891ac80f9ab/src/melee/ft/chara/ftCommon/ftCo_LandingAir.c
+_SHIELD_START_ACTIONS: Final = frozenset(
+    {
+        Action.STANDING,
+        Action.WALK_SLOW,
+        Action.WALK_MIDDLE,
+        Action.WALK_FAST,
+        Action.TURNING,
+        Action.DASHING,
+        Action.RUNNING,
+        Action.RUN_DIRECT,
+        Action.CROUCH_START,
+        Action.CROUCHING,
+        Action.CROUCH_END,
+        Action.EDGE_TEETERING_START,
+        Action.EDGE_TEETERING,
+    }
+)
+# DESNOTE(jbarber, 2026-08-22): Yoshi's character-specific guard actions occupy
+# raw IDs whose canonical Action aliases describe unrelated moves. GuardOn,
+# GuardHold, GuardOff, and GuardOn_1 have Escape paths; GuardDamage (344) does not.
+# Catch is absent from GuardOff, so its accepted raw-ID set is narrower.
+# See https://github.com/doldecomp/melee/blob/a983c0f9cd41d4a46001c493a1929891ac80f9ab/src/melee/ft/chara/ftYoshi/ftYs_Guard.c
+_YOSHI_DODGEABLE_SHIELD_IDS: Final = frozenset({341, 342, 343, 345})
+_YOSHI_GRABBABLE_SHIELD_IDS: Final = frozenset({341, 342, 345})
 _SPECIAL_ATTACKS: Final = frozenset(
     {
         AttackType.NEUTRAL_B,
@@ -663,9 +863,55 @@ _ACTIONS_FOR_TYPE: Final = {
     AttackType.DTHROW: _action_set("THROW_DOWN"),
 }
 
-_ALL_ATTACK_ACTIONS: Final = frozenset(
-    action for actions in _ACTIONS_FOR_TYPE.values() for action in actions
-)
+# DESNOTE(jbarber, 2026-08-21): Action names are aliases for character-relative
+# raw IDs. Use each doldecomp MotionState table's move-ID assignment rather than
+# adding raw ranges to the global set and changing other fighters' meanings. See
+# https://github.com/doldecomp/melee/tree/68f92c47d697c98e80911a14218f74982915acc9/src/melee/ft/chara
+_SPECIAL_SLOT_FOR_ATTACK_TYPE: Final[dict[AttackType, str]] = {
+    AttackType.NEUTRAL_B: "neutral-special",
+    AttackType.SIDE_B: "side-special",
+    AttackType.UP_B: "up-special",
+    AttackType.DOWN_B: "down-special",
+}
+_CHARACTER_SPECIAL_ACTIONS: Final[dict[Character, dict[str, frozenset[Action]]]] = {
+    character: {slot: frozenset(Action(action_id) for action_id in action_ids) for slot, action_ids in slots.items()}
+    for character, slots in _SPECIAL_SLOT_ACTION_IDS.items()
+}
+_CHARACTER_ALL_SPECIAL_ACTIONS: Final[dict[Character, frozenset[Action]]] = {
+    character: frozenset(action for actions in slots.values() for action in actions)
+    for character, slots in _CHARACTER_SPECIAL_ACTIONS.items()
+}
+
+
+def _actions_for_attack_type(
+    character: Character,
+    attack_type: AttackType,
+) -> frozenset[Action]:
+    """Return active actions for a move, including character-specific aliases."""
+    relative_attack_type = _relative_attack_type(attack_type)
+    special_slot = _SPECIAL_SLOT_FOR_ATTACK_TYPE.get(relative_attack_type)
+    character_specials = _CHARACTER_SPECIAL_ACTIONS.get(character)
+    if special_slot is not None and character_specials is not None:
+        return character_specials[special_slot]
+    return _ACTIONS_FOR_TYPE[relative_attack_type]
+
+
+_ALL_ATTACK_ACTIONS: Final = frozenset(action for actions in _ACTIONS_FOR_TYPE.values() for action in actions)
+
+
+def _is_attack_action(
+    character: Character,
+    action: Action,
+    frame_data: FrameData,
+) -> bool:
+    """Return whether a character-relative action is an attack or special."""
+    return (
+        action in _ALL_ATTACK_ACTIONS
+        or action in _CHARACTER_ALL_SPECIAL_ACTIONS.get(character, ())
+        or frame_data.is_attack(character, action)
+    )
+
+
 _PLATFORM_KINDS: Final = frozenset(
     {StageSurfaceKind.SOLID_FLOOR, StageSurfaceKind.SEMISOLID}
 )
@@ -717,14 +963,14 @@ class CharacterState:
     """Read-only high-level state for one controller port.
 
     Construct with a :class:`melee.gamestate.GameState` snapshot, a port number,
-    and an optional shared :class:`melee.framedata.FrameData`. All public methods
-    accept an optional ``player`` override; when omitted they read the port bound
-    at construction.
+    and an optional shared :class:`melee.framedata.FrameData`. Public methods read
+    the port bound at construction; :meth:`can_attack` also receives the intended
+    :class:`AttackType`.
 
     :class:`SimpleControls` owns a :class:`CharacterState` (exposed via
     ``simple_controls.character_state``) and routes every state check through it.
-    Prefer ``simple_controls.character_state.can_attack(player)`` over the
-    deprecated ``simple_controls.can_attack(player)`` wrapper.
+    Prefer ``simple_controls.character_state.can_attack(attack_type)`` over the
+    deprecated ``simple_controls.can_attack()`` wrapper.
     """
 
     def __init__(
@@ -988,7 +1234,7 @@ class CharacterState:
         ledge = select(ledges, key=lambda candidate: candidate.position.x)
         return abs(self.position_x - ledge.position.x)
 
-    def forward_axis(self) -> StickReferenceAxis:
+    def forward_axis(self) -> HorizontalStickReferenceAxis:
         """Return the absolute horizontal axis the bound player faces.
 
         Defaults to right when the port is absent, matching
@@ -999,7 +1245,7 @@ class CharacterState:
             return StickReferenceAxis.RIGHT
         return StickReferenceAxis.LEFT
 
-    def backward_axis(self) -> StickReferenceAxis:
+    def backward_axis(self) -> HorizontalStickReferenceAxis:
         """Return the absolute horizontal axis behind the bound player.
 
         Defaults to left when the port is absent, opposite the default forward
@@ -1105,12 +1351,25 @@ class CharacterState:
             return False
         return is_grabbing_ledge(target, self._frame_data)
 
-    def can_attack(self) -> bool:
-        """Return whether standard attack input is not blocked by combat state."""
+    @overload
+    @deprecated("Pass the intended AttackType to can_attack().")
+    def can_attack(self) -> bool: ...
+
+    @overload
+    def can_attack(self, attack_type: AttackType) -> bool: ...
+
+    def can_attack(self, attack_type: AttackType | None = None) -> bool:
+        """Return whether an attack could start from the current state.
+
+        The no-argument broad combat-state query is deprecated. Pass the exact
+        :class:`AttackType` the bot intends to request.
+        """
         target = self.player()
         if target is None:
             return False
-        return can_attack(target, self._frame_data)
+        if attack_type is None:
+            return _can_attack_by_combat_state(target, self._frame_data)
+        return can_attack(target, self._frame_data, attack_type)
 
     def can_shield(self) -> bool:
         """Return whether shield input is not blocked by combat state."""
@@ -1118,6 +1377,20 @@ class CharacterState:
         if target is None:
             return False
         return can_shield(target, self._frame_data)
+
+    def can_dodge(self) -> bool:
+        """Return whether a ground dodge has an input path from this state."""
+        target = self.player()
+        if target is None:
+            return False
+        return can_dodge(target, self._frame_data)
+
+    def can_airdodge(self) -> bool:
+        """Return whether an air dodge could start from this state."""
+        target = self.player()
+        if target is None:
+            return False
+        return can_airdodge(target, self._frame_data)
 
     def can_jump(self) -> bool:
         """Return whether a ground or remaining aerial jump could start."""
@@ -1139,26 +1412,28 @@ class CharacterState:
             return False
         return target.action in _PLATFORM_DROP_ACTIONS
 
+    @deprecated("Use can_attack(AttackType.GRAB) instead.")
     def can_grab(self) -> bool:
-        """Return whether a grounded grab could start (including out of shield)."""
+        """Deprecated: use ``can_attack(AttackType.GRAB)``."""
         target = self.player()
         if target is None:
             return False
-        return can_grab(target, self._frame_data)
+        return can_attack(target, self._frame_data, AttackType.GRAB)
 
     def can_z_air(self) -> bool:
         """Return whether a tether Z Air could start in the current air state."""
         target = self.player()
         if target is None:
             return False
-        return can_z_air(target, self._frame_data)
+        return can_attack(target, self._frame_data, AttackType.Z_AIR)
 
+    @deprecated("Use can_attack() with the intended aerial type instead.")
     def can_air_attack(self) -> bool:
-        """Return whether an aerial could start from the current action state."""
+        """Deprecated: use ``can_attack`` with the intended aerial type."""
         target = self.player()
         if target is None:
             return False
-        return can_air_attack(target, self._frame_data)
+        return can_attack(target, self._frame_data, AttackType.NAIR)
 
     def is_taunting(self) -> bool:
         """Return whether the controlled port is in a taunt animation."""
@@ -1191,14 +1466,14 @@ def is_taunting(player: LibPlayerState, frame_data: FrameData | None = None) -> 
 def can_taunt(player: LibPlayerState, frame_data: FrameData) -> bool:
     """Return whether taunt input could start from ``player``'s current state.
 
-    Shared helper for bots and :class:`CharacterState`. Taunt requires grounded,
-    actionable locomotion on stage — not hitstun, grab, ledge hang, or air.
+    Shared helper for bots and :class:`CharacterState`. Taunt requires a common
+    grounded action with a direct Appeal transition.
     """
     if is_taunting(player, frame_data):
         return False
-    if not can_attack(player, frame_data):
+    if not _can_attack_by_combat_state(player, frame_data):
         return False
-    if not player.on_ground or player.off_stage:
+    if not player.on_ground:
         return False
     if player.action in _GRABBER_ACTIONS:
         return False
@@ -1206,7 +1481,7 @@ def can_taunt(player: LibPlayerState, frame_data: FrameData) -> bool:
         return False
     if not isinstance(player.action, Action):
         return False
-    return player.action in _ACTIONABLE_GROUND
+    return player.action in _GROUND_TAUNT_ACTIONS
 
 
 def get_state(player: LibPlayerState, frame_data: FrameData) -> CharacterStatus:
@@ -1228,6 +1503,8 @@ def get_state(player: LibPlayerState, frame_data: FrameData) -> CharacterStatus:
         return CharacterStatus.ShieldBroken
     if _in_real_hitstun(player, frame_data):
         return CharacterStatus.Hitstun
+    if player.action is Action.TUMBLING:
+        return CharacterStatus.Tumbling
     if isinstance(player.action, Action) and player.action in _GETUP_ROLL_ACTIONS:
         return CharacterStatus.Dodging
     if isinstance(player.action, Action) and player.action in _KNOCKDOWN_ACTIONS:
@@ -1241,11 +1518,17 @@ def get_state(player: LibPlayerState, frame_data: FrameData) -> CharacterStatus:
         player.action,
     ):
         return CharacterStatus.Dodging
+    # DESNOTE(jbarber, 2026-08-22): FrameData.is_roll omits EscapeAir, whose
+    # common motion state is Action.AIRDODGE (236), so classify it explicitly.
+    # See https://github.com/doldecomp/melee/blob/a983c0f9cd41d4a46001c493a1929891ac80f9ab/src/melee/ft/ftmotionstates.c#L2736-L2745
+    if player.action is Action.AIRDODGE:
+        return CharacterStatus.Dodging
     if isinstance(player.action, Action) and player.action in _GRABBING_ENEMY_ACTIONS:
         return CharacterStatus.GrabbingEnemy
-    if isinstance(player.action, Action) and (
-        player.action in _ALL_ATTACK_ACTIONS
-        or frame_data.is_attack(player.character, player.action)
+    if isinstance(player.action, Action) and _is_attack_action(
+        player.character,
+        player.action,
+        frame_data,
     ):
         return CharacterStatus.Attacking
     if player.on_ground and isinstance(player.action, Action):
@@ -1297,7 +1580,7 @@ def is_grabbing_ledge(player: LibPlayerState, frame_data: FrameData) -> bool:
 
 
 def is_dodging(player: LibPlayerState, frame_data: FrameData) -> bool:
-    """Return whether ``player`` is in a roll or spot-dodge animation."""
+    """Return whether ``player`` is in a ground- or air-dodge animation."""
     return get_state(player, frame_data) is CharacterStatus.Dodging
 
 
@@ -1359,44 +1642,209 @@ def is_getting_up(player: LibPlayerState, frame_data: FrameData) -> bool:
     return player.action in _GETTING_UP_ACTIONS
 
 
-def can_attack(player: LibPlayerState, frame_data: FrameData) -> bool:
-    """Return whether standard attack input is not blocked by combat state."""
+def _can_attack_by_combat_state(
+    player: LibPlayerState,
+    frame_data: FrameData,
+) -> bool:
+    """Return the legacy broad combat-state eligibility result."""
     return get_state(player, frame_data) not in _BLOCKS_ATTACK_INPUT
 
 
+@overload
+@deprecated("Pass the intended AttackType to can_attack().")
+def can_attack(player: LibPlayerState, frame_data: FrameData) -> bool: ...
+
+
+@overload
+def can_attack(
+    player: LibPlayerState,
+    frame_data: FrameData,
+    attack_type: AttackType,
+) -> bool: ...
+
+
+def can_attack(
+    player: LibPlayerState,
+    frame_data: FrameData,
+    attack_type: AttackType | None = None,
+) -> bool:
+    """Return whether ``attack_type`` could start from ``player``'s state.
+
+    Calling without ``attack_type`` retains the deprecated broad combat-state
+    query for compatibility.
+    """
+    if attack_type is None:
+        return _can_attack_by_combat_state(player, frame_data)
+
+    match attack_type:
+        case AttackType.GRAB:
+            return _can_grab(player, frame_data)
+        case AttackType.Z_AIR:
+            return _can_z_air(player, frame_data)
+        case _:
+            pass
+
+    if not _can_attack_by_combat_state(player, frame_data):
+        return False
+    if not isinstance(player.action, Action):
+        return False
+
+    # DESNOTE(jbarber, 2026-08-21): KneeBend IASA checks only up-special (through
+    # the misleadingly named ftCo_Attack100_CheckInput), grab, and up-smash.
+    # AttackAir starts in Jump IASA after jump squat.
+    # See https://github.com/doldecomp/melee/blob/a983c0f9cd41d4a46001c493a1929891ac80f9ab/src/melee/ft/chara/ftCommon/ftCo_KneeBend.c#L61-L68
+    # See https://github.com/doldecomp/melee/blob/a983c0f9cd41d4a46001c493a1929891ac80f9ab/src/melee/ft/chara/ftCommon/ftCo_Attack100.c#L154-L164
+    match attack_type, player.action, player.on_ground:
+        case attack, action, _ if attack in _GRAB_THROW_ATTACKS:
+            return action in _GRAB_THROW_INPUT_ACTIONS
+        case _, action, _ if action in _GRABBER_ACTIONS:
+            return False
+        case attack, Action.KNEE_BEND, True:
+            return attack in {AttackType.UP_B, AttackType.USMASH}
+        case AttackType.DASH_ATTACK, action, True:
+            return action in {Action.DASHING, Action.RUNNING, Action.RUN_DIRECT}
+        case AttackType.DASH_ATTACK, _, _:
+            return False
+        case attack, Action.DASHING, True if attack in _GROUND_ATTACKS:
+            return attack in {AttackType.FSMASH, AttackType.LSMASH, AttackType.RSMASH}
+        case attack, action, True if attack in _GROUND_ATTACKS:
+            return action in _GROUND_NORMAL_ACTIONS
+        case attack, action, False if attack in _AIR_ATTACKS:
+            return action in _ATTACKABLE_AIR
+        case attack, _, _ if attack in _GROUND_ATTACKS | _AIR_ATTACKS:
+            return False
+        case (
+            AttackType.SIDE_B | AttackType.LSPECIAL | AttackType.RSPECIAL,
+            Action.DASHING,
+            True,
+        ):
+            return True
+        case attack, Action.TURNING, True if attack in _SPECIAL_ATTACKS:
+            return attack is not AttackType.NEUTRAL_B
+        case attack, Action.CROUCH_END, True if attack in _SPECIAL_ATTACKS:
+            return attack in {AttackType.UP_B, AttackType.DOWN_B}
+        case attack, Action.CROUCHING, True if attack in _SPECIAL_ATTACKS:
+            return attack in {AttackType.UP_B, AttackType.DOWN_B}
+        case attack, action, True if attack in _SPECIAL_ATTACKS:
+            return action in _GROUND_SPECIAL_ALL_ACTIONS
+        case attack, action, False if attack in _SPECIAL_ATTACKS:
+            return action in _ATTACKABLE_AIR
+        case attack, _, _ if attack in _SPECIAL_ATTACKS:
+            return False
+        case _:
+            return False
+
+
 def can_shield(player: LibPlayerState, frame_data: FrameData) -> bool:
-    """Return whether shield input is not blocked by combat state."""
-    return can_attack(player, frame_data)
+    """Return whether the action has a direct grounded Guard transition.
+
+    Dash eligibility is action-level because its internal Guard window is not
+    represented by :class:`PlayerState`.
+    """
+    if not player.on_ground or not isinstance(player.action, Action):
+        return False
+    if player.hitlag_left > 0 or _in_real_hitstun(player, frame_data):
+        return False
+    return player.action in _SHIELD_START_ACTIONS
+
+
+def _is_common_actionable_shield_phase(player: LibPlayerState) -> bool:
+    """Return whether a standard shield phase exposes common cancel checks."""
+    if not isinstance(player.action, Action):
+        return False
+    return player.character is not Character.YOSHI and player.action in _SHIELD_CANCEL_ACTIONS
+
+
+def can_dodge(player: LibPlayerState, frame_data: FrameData) -> bool:
+    """Return whether the current action has a direct ground Escape path.
+
+    Early dash and shield-release paths depend on internal engine fields absent
+    from :class:`PlayerState`, so this reports action-level eligibility.
+    """
+    if not player.on_ground or not isinstance(player.action, Action):
+        return False
+    if player.hitlag_left > 0 or _in_real_hitstun(player, frame_data):
+        return False
+    if player.character is Character.YOSHI and player.action.value in _YOSHI_DODGEABLE_SHIELD_IDS:
+        return True
+    return player.action in _GROUND_DODGE_ACTIONS
+
+
+def can_airdodge(player: LibPlayerState, frame_data: FrameData) -> bool:
+    """Return whether an air dodge could start from a normal jump/fall state.
+
+    Helpless ``DEAD_FALL`` / ``SPECIAL_FALL_*`` states after Up-B are excluded.
+    """
+    # DESNOTE(jbarber, 2026-08-22): Normal Jump/Fall IASA calls EscapeAir;
+    # DamageFall and FallSpecial do not. DEAD_FALL is neutral helpless FallSpecial.
+    # See https://github.com/doldecomp/melee/blob/a983c0f9cd41d4a46001c493a1929891ac80f9ab/src/melee/ft/chara/ftCommon/ftCo_Fall.c#L119-L156
+    # See https://github.com/doldecomp/melee/blob/a983c0f9cd41d4a46001c493a1929891ac80f9ab/src/melee/ft/chara/ftCommon/ftCo_Jump.c#L178-L194
+    # See https://github.com/doldecomp/melee/blob/a983c0f9cd41d4a46001c493a1929891ac80f9ab/src/melee/ft/chara/ftCommon/ftCo_EscapeAir.c#L27-L35
+    # See https://github.com/doldecomp/melee/blob/a983c0f9cd41d4a46001c493a1929891ac80f9ab/src/melee/ft/chara/ftCommon/ftCo_DamageFall.c#L119-L139
+    # See https://github.com/doldecomp/melee/blob/a983c0f9cd41d4a46001c493a1929891ac80f9ab/src/melee/ft/chara/ftCommon/ftCo_FallSpecial.c#L80-L85
+    if player.on_ground or not isinstance(player.action, Action):
+        return False
+    if player.hitlag_left > 0 or _in_real_hitstun(player, frame_data):
+        return False
+    return player.action in _ACTIONABLE_AIR
 
 
 def can_jump(player: LibPlayerState, frame_data: FrameData) -> bool:
     """Return whether a ground or remaining aerial jump could start.
 
-    Every shield phase permits jump-canceling for the roster except Yoshi, whose
-    unique shield cannot be jumped out of. Outside shield, the player must be in
-    an actionable ground or air state and retain an aerial jump when airborne.
+    Actionable shield phases permit jump-canceling for the roster except Yoshi,
+    whose unique shield cannot be jumped out of; shield stun does not. Outside
+    shield, the player must be in an actionable ground or air state and retain an
+    aerial jump when airborne.
     """
+    # GuardSetOff (SHIELD_STUN) has an empty IASA; other common actionable shield
+    # phases check jump. Yoshi cannot jump from shield.
+    # See https://github.com/doldecomp/melee/blob/a983c0f9cd41d4a46001c493a1929891ac80f9ab/src/melee/ft/chara/ftCommon/ftCo_Guard.c
+    if player.hitlag_left > 0 or _in_real_hitstun(player, frame_data):
+        return False
+    if player.on_ground and _is_common_actionable_shield_phase(player):
+        return True
     if is_shielding(player, frame_data):
-        return player.character is not Character.YOSHI
-    if not can_attack(player, frame_data) or not isinstance(player.action, Action):
+        return False
+    if not _can_attack_by_combat_state(player, frame_data) or not isinstance(player.action, Action):
         return False
     if player.on_ground:
-        return player.action in _ACTIONABLE_GROUND
-    return player.jumps_left > 0 and player.action in _ACTIONABLE_AIR
+        return player.action in _GROUND_JUMP_ACTIONS
+    return player.jumps_left > 0 and player.action in _AIR_JUMP_ACTIONS
 
 
+@deprecated("Use can_attack(..., AttackType.GRAB) instead.")
 def can_grab(player: LibPlayerState, frame_data: FrameData) -> bool:
+    """Deprecated: use ``can_attack(..., AttackType.GRAB)``."""
+    return can_attack(player, frame_data, AttackType.GRAB)
+
+
+def _can_grab(player: LibPlayerState, frame_data: FrameData) -> bool:
     """Return whether a grounded grab could start (including out of shield)."""
-    if get_state(player, frame_data) in _BLOCKS_GRAB_INPUT:
-        return False
     if not player.on_ground or not isinstance(player.action, Action):
         return False
-    if is_shielding(player, frame_data):
+    if player.hitlag_left > 0 or _in_real_hitstun(player, frame_data):
+        return False
+    if player.character is Character.YOSHI and 341 <= player.action.value <= 345:
+        return player.action.value in _YOSHI_GRABBABLE_SHIELD_IDS
+    if get_state(player, frame_data) in _BLOCKS_GRAB_INPUT:
+        return False
+    # GuardSetOff (SHIELD_STUN) has an empty IASA; actionable shield phases call
+    # Catch input checks. Shield release remains an action-level conditional path.
+    # See https://github.com/doldecomp/melee/blob/a983c0f9cd41d4a46001c493a1929891ac80f9ab/src/melee/ft/chara/ftCommon/ftCo_Guard.c
+    if _is_common_actionable_shield_phase(player):
         return True
-    return player.action in _ACTIONABLE_GROUND
+    if is_shielding(player, frame_data):
+        return False
+    return player.action in _GROUND_GRAB_ACTIONS
 
 
 def can_z_air(player: LibPlayerState, frame_data: FrameData) -> bool:
+    """Return whether a tether Z Air could start in the current air state."""
+    return can_attack(player, frame_data, AttackType.Z_AIR)
+
+
+def _can_z_air(player: LibPlayerState, frame_data: FrameData) -> bool:
     """Return whether a tether Z Air could start in the current air state."""
     if player.character not in _Z_AIR_CHARACTERS:
         return False
@@ -1404,18 +1852,13 @@ def can_z_air(player: LibPlayerState, frame_data: FrameData) -> bool:
         return False
     if player.on_ground or not isinstance(player.action, Action):
         return False
-    return player.action in _ACTIONABLE_AIR
+    return player.action in _ATTACKABLE_AIR
 
 
+@deprecated("Use can_attack() with the intended aerial type instead.")
 def can_air_attack(player: LibPlayerState, frame_data: FrameData) -> bool:
-    """Return whether an aerial could start from the current action state."""
-    if not can_attack(player, frame_data):
-        return False
-    if not isinstance(player.action, Action):
-        return False
-    if player.on_ground:
-        return player.action in _ACTIONABLE_GROUND
-    return player.action in _ACTIONABLE_AIR
+    """Deprecated: use ``can_attack`` with the intended aerial type."""
+    return can_attack(player, frame_data, AttackType.NAIR)
 
 
 def _in_real_hitstun(player: LibPlayerState, frame_data: FrameData) -> bool:
@@ -1431,13 +1874,13 @@ def _stale_hitstun_is_actionable(player: LibPlayerState, frame_data: FrameData) 
     if isinstance(player.action, UnknownAnimation):
         return True
     action = player.action
+    if action is Action.AIRDODGE:
+        return True
     if action in _FALSE_HITSTUN_NEUTRAL_ACTIONS:
         return True
     if action in _ACTIONABLE_AIR:
         return True
-    if action in _ALL_ATTACK_ACTIONS:
-        return True
-    if frame_data.is_attack(player.character, action):
+    if _is_attack_action(player.character, action, frame_data):
         return True
     if frame_data.is_shield(action):
         return True
@@ -1509,10 +1952,7 @@ def attack_is_holdable(attack_type: AttackType, character: Character) -> bool:
 def _is_special_action(action: Action) -> bool:
     """Return whether ``action`` is any B-special animation.
 
-    Uses the same raw action-ID threshold as libmelee ``FrameData.is_bmove`` but
-    skips the ``Action.UNKNOWN_ANIMATION`` guard — that member is missing from the
-    shipped ``melee`` package and causes ``AttributeError`` if ``is_bmove`` is
-    called directly.
+    Uses the same raw action-ID threshold as libmelee ``FrameData.is_bmove``.
 
     This is intentionally broad: side-B, up-B, and down-B share many
     character-specific ``Action`` names (often ``SWORD_DANCE_*``), so
@@ -1526,10 +1966,14 @@ __all__ = [
     "AttackType",
     "CharacterState",
     "CharacterStatus",
+    "GroundDodgeStickReferenceAxis",
+    "HorizontalStickReferenceAxis",
     "StickReferenceAxis",
     "attack_is_holdable",
     "can_air_attack",
+    "can_airdodge",
     "can_attack",
+    "can_dodge",
     "can_grab",
     "can_jump",
     "can_shield",

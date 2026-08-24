@@ -44,22 +44,15 @@ from pathlib import Path
 from typing import Final, TextIO, TypedDict
 
 import melee
-from melee.enums import Action, AttackState, Character
-from melee.framedata import FrameData
-
 from melee.bot.action_names import (
     action_name,
     action_state_ident,
     character_section_name,
 )
+from melee.enums import Action, AttackState, Character
+from melee.framedata import FrameData
 
 _MAX_CSV_ROWS: Final[int] = 200
-_SPECIAL_SLOT_ORDER: Final[tuple[str, ...]] = (
-    "neutral-special",
-    "side-special",
-    "up-special",
-    "down-special",
-)
 _SPECIAL_SLOT_ALIASES: Final[dict[str, str]] = {
     "neutral-special": "neutral-special",
     "neutral special": "neutral-special",
@@ -86,6 +79,176 @@ _NORMALIZE_RE = re.compile(r"[^a-z0-9]+")
 _SPECIAL_SLOT_BY_NORMALIZED: Final[dict[str, str]] = {
     _NORMALIZE_RE.sub("", alias.strip().lower()): slot
     for alias, slot in _SPECIAL_SLOT_ALIASES.items()
+}
+# DESNOTE(jbarber, 2026-08-21): Formatted labels cannot identify special slots:
+# blocks vary by fighter, Peach orders down-B before neutral-B, Kirby has copy
+# move IDs, and some special-looking Samus states are tagged Default. These IDs
+# follow each doldecomp MotionState table's FtMoveId field at commit 68f92c47;
+# resolution still filters actions absent from libmelee's enum or framedata.csv.
+# See https://github.com/doldecomp/melee/tree/68f92c47d697c98e80911a14218f74982915acc9/src/melee/ft/chara
+_SPECIAL_SLOT_ACTION_IDS: Final[dict[Character, dict[str, tuple[int, ...]]]] = {
+    Character.MARIO: {
+        "neutral-special": (343, 344),
+        "side-special": (345, 346),
+        "up-special": (347, 348),
+        "down-special": (349, 350),
+    },
+    Character.FOX: {
+        "neutral-special": tuple(range(341, 347)),
+        "side-special": tuple(range(347, 353)),
+        "up-special": tuple(range(353, 360)),
+        "down-special": tuple(range(360, 370)),
+    },
+    Character.CPTFALCON: {
+        "neutral-special": tuple(range(347, 349)),
+        "side-special": tuple(range(349, 353)),
+        "up-special": tuple(range(353, 357)),
+        "down-special": tuple(range(357, 364)),
+    },
+    Character.DK: {
+        "neutral-special": tuple(range(369, 379)),
+        "side-special": (379, 380),
+        "up-special": (381, 382),
+        "down-special": tuple(range(383, 387)),
+    },
+    Character.KIRBY: {
+        "neutral-special": tuple(range(353, 383)) + tuple(range(399, 544)),
+        "side-special": (383, 384),
+        "up-special": tuple(range(385, 393)),
+        "down-special": tuple(range(393, 399)),
+    },
+    Character.BOWSER: {
+        "neutral-special": tuple(range(341, 347)),
+        "side-special": tuple(range(347, 359)),
+        "up-special": (359, 360),
+        "down-special": (361, 362, 363),
+    },
+    Character.LINK: {
+        "neutral-special": tuple(range(344, 350)),
+        "side-special": tuple(range(350, 356)),
+        "up-special": (356, 357),
+        "down-special": (358, 359),
+    },
+    Character.SHEIK: {
+        "neutral-special": tuple(range(341, 349)),
+        "side-special": tuple(range(349, 355)),
+        "up-special": tuple(range(355, 361)),
+        "down-special": tuple(range(361, 365)),
+    },
+    Character.NESS: {
+        "neutral-special": tuple(range(348, 356)),
+        "side-special": (356, 357),
+        "up-special": tuple(range(358, 367)),
+        "down-special": tuple(range(367, 377)),
+    },
+    Character.PEACH: {
+        "neutral-special": tuple(range(365, 369)),
+        "side-special": tuple(range(354, 361)),
+        "up-special": tuple(range(361, 365)),
+        "down-special": (352, 353),
+    },
+    Character.POPO: {
+        "neutral-special": (341, 342),
+        "side-special": tuple(range(343, 347)) + (359, 360),
+        "up-special": tuple(range(347, 357)) + tuple(range(361, 367)),
+        "down-special": (357, 358),
+    },
+    Character.NANA: {
+        "neutral-special": (341, 342),
+        "side-special": tuple(range(343, 347)) + (359, 360),
+        "up-special": tuple(range(347, 357)) + tuple(range(361, 367)),
+        "down-special": (357, 358),
+    },
+    Character.PIKACHU: {
+        "neutral-special": (341, 342),
+        "side-special": tuple(range(343, 353)),
+        "up-special": tuple(range(353, 359)),
+        "down-special": tuple(range(359, 367)),
+    },
+    Character.SAMUS: {
+        "neutral-special": tuple(range(343, 349)),
+        "side-special": tuple(range(349, 353)),
+        "up-special": (353, 354),
+        "down-special": (355, 356),
+    },
+    Character.YOSHI: {
+        "neutral-special": tuple(range(346, 356)),
+        "side-special": tuple(range(356, 364)),
+        "up-special": (364, 365),
+        "down-special": (366, 367, 368),
+    },
+    Character.JIGGLYPUFF: {
+        "neutral-special": tuple(range(346, 363)),
+        "side-special": (363, 364),
+        "up-special": tuple(range(365, 369)),
+        "down-special": tuple(range(369, 373)),
+    },
+    Character.MEWTWO: {
+        "neutral-special": tuple(range(341, 351)),
+        "side-special": (351, 352),
+        "up-special": tuple(range(353, 359)),
+        "down-special": (359, 360),
+    },
+    Character.LUIGI: {
+        "neutral-special": (341, 342),
+        "side-special": tuple(range(343, 355)),
+        "up-special": (355, 356),
+        "down-special": (357, 358),
+    },
+    Character.MARTH: {
+        "neutral-special": tuple(range(341, 349)),
+        "side-special": tuple(range(349, 367)),
+        "up-special": (367, 368),
+        "down-special": tuple(range(369, 373)),
+    },
+    Character.ZELDA: {
+        "neutral-special": (341, 342),
+        "side-special": tuple(range(343, 349)),
+        "up-special": tuple(range(349, 355)),
+        "down-special": tuple(range(355, 359)),
+    },
+    Character.YLINK: {
+        "neutral-special": tuple(range(344, 350)),
+        "side-special": tuple(range(350, 356)),
+        "up-special": (356, 357),
+        "down-special": (358, 359),
+    },
+    Character.DOC: {
+        "neutral-special": (343, 344),
+        "side-special": (345, 346),
+        "up-special": (347, 348),
+        "down-special": (349, 350),
+    },
+    Character.FALCO: {
+        "neutral-special": tuple(range(341, 347)),
+        "side-special": tuple(range(347, 353)),
+        "up-special": tuple(range(353, 360)),
+        "down-special": tuple(range(360, 370)),
+    },
+    Character.PICHU: {
+        "neutral-special": (341, 342),
+        "side-special": tuple(range(343, 353)),
+        "up-special": tuple(range(353, 359)),
+        "down-special": tuple(range(359, 367)),
+    },
+    Character.GAMEANDWATCH: {
+        "neutral-special": (353, 354),
+        "side-special": tuple(range(355, 373)),
+        "up-special": (373, 374),
+        "down-special": tuple(range(375, 381)),
+    },
+    Character.GANONDORF: {
+        "neutral-special": tuple(range(347, 349)),
+        "side-special": tuple(range(349, 353)),
+        "up-special": tuple(range(353, 357)),
+        "down-special": tuple(range(357, 364)),
+    },
+    Character.ROY: {
+        "neutral-special": tuple(range(341, 349)),
+        "side-special": tuple(range(349, 367)),
+        "up-special": (367, 368),
+        "down-special": tuple(range(369, 373)),
+    },
 }
 _CHARACTER_ALIASES: Final[dict[str, Character]] = {
     "mario": Character.MARIO,
@@ -420,31 +583,6 @@ def resolve_character(character: str | int) -> Character:
     raise FramedataQueryError(msg)
 
 
-def _is_bmove(character: Character, action: Action) -> bool:
-    """Return whether ``action`` is a special ("B-move") for ``character``.
-
-    Mirrors libmelee's ``FrameData.is_bmove``, which references
-    ``Action.UNKNOWN_ANIMATION`` (not defined in this fork). Handles the
-    Peach float-cancel / side-B exceptions locally.
-    """
-    # DESNOTE(jbarber, 2026-07-07): libmelee FrameData.is_bmove references
-    # Action.UNKNOWN_ANIMATION, which this fork does not define; mirror the
-    # value check and Peach exceptions locally.
-    if character == Character.PEACH and action in (
-        Action.LASER_GUN_PULL,
-        Action.NEUTRAL_B_CHARGING,
-        Action.NEUTRAL_B_ATTACKING,
-    ):
-        return False
-    if character == Character.PEACH and action in (
-        Action.SWORD_DANCE_2_MID,
-        Action.SWORD_DANCE_1,
-        Action.SWORD_DANCE_2_HIGH,
-    ):
-        return False
-    return action.value >= Action.LASER_GUN_PULL.value
-
-
 def _resolve_action_entry(character: Character, action: Action) -> ResolvedAction:
     """Build a :class:`ResolvedAction` from an ``(character, action)`` pair."""
     action_id = int(action.value)
@@ -455,26 +593,6 @@ def _resolve_action_entry(character: Character, action: Action) -> ResolvedActio
         action_label=action_name(character, action),
         action_state=action_state_ident(character, action_id),
     )
-
-
-def _special_slot_groups(character: Character) -> list[tuple[str, list[ResolvedAction]]]:
-    """Group ``character``'s B-moves into labeled sub-action families.
-
-    Returns a list of ``(label, entries)`` tuples ordered by the first action
-    ID in each group. ``entries`` is sorted by ``action_id``.
-    """
-    frame_data = _frame_data()
-    grouped: dict[str, list[ResolvedAction]] = {}
-    for action in frame_data.framedata[character]:
-        if not _is_bmove(character, action):
-            continue
-        entry = _resolve_action_entry(character, action)
-        grouped.setdefault(entry.action_label, []).append(entry)
-    ordered = sorted(
-        grouped.items(),
-        key=lambda item: min(resolved.action_id for resolved in item[1]),
-    )
-    return [(label, sorted(entries, key=lambda entry: entry.action_id)) for label, entries in ordered]
 
 
 def _resolve_special_slot(character: Character, slot: str) -> list[ResolvedAction]:
@@ -489,18 +607,28 @@ def _resolve_special_slot(character: Character, slot: str) -> list[ResolvedActio
     if normalized is None:
         msg = f"unknown special slot: {slot!r}"
         raise FramedataQueryError(msg)
-    groups = _special_slot_groups(character)
-    try:
-        index = _SPECIAL_SLOT_ORDER.index(normalized)
-    except ValueError as exc:
-        raise FramedataQueryError(f"unknown special slot: {slot!r}") from exc
-    if index >= len(groups):
-        msg = (
-            f"{character.name} has no {_SPECIAL_SLOT_ORDER[index]!r} "
-            f"(only {len(groups)} special groups)"
-        )
+    special_action_ids = _SPECIAL_SLOT_ACTION_IDS.get(character, {}).get(normalized)
+    if special_action_ids is None:
+        msg = f"no {normalized!r} motion-state mapping for {character.name}"
         raise FramedataQueryError(msg)
-    return groups[index][1]
+
+    available_actions = _frame_data().framedata.get(character)
+    if available_actions is None:
+        msg = f"no framedata for {character.name}"
+        raise FramedataQueryError(msg)
+
+    actions: list[ResolvedAction] = []
+    for action_id in special_action_ids:
+        try:
+            action = Action(action_id)
+        except ValueError:
+            continue
+        if action in available_actions:
+            actions.append(_resolve_action_entry(character, action))
+    if not actions:
+        msg = f"no framedata for {character.name} {normalized!r}"
+        raise FramedataQueryError(msg)
+    return actions
 
 
 def _match_actions_by_label(character: Character, query: str) -> list[ResolvedAction]:
@@ -674,7 +802,7 @@ def _collect_tags(character: Character, actions: Sequence[ResolvedAction]) -> li
         action = entry.action
         if frame_data.is_grab(character, action):
             tags.add("GRAB")
-        if _is_bmove(character, action):
+        if frame_data.is_bmove(character, action):
             tags.add("B_MOVE")
         if frame_data.is_attack(character, action):
             tags.add("ATTACK")

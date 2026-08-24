@@ -62,7 +62,8 @@ class BotProtocol(Protocol[A]):
                 reused across every bot and match. Use it for spacing, punish,
                 and recovery queries instead of constructing your own.
             player_state: Read-only :class:`CharacterState` for this bot's port.
-                Use ``player_state.get_state()``, ``player_state.can_attack()``,
+                Use ``player_state.get_state()``,
+                ``player_state.can_attack(attack_type)``,
                 ``player_state.is_grabbing()``, etc. for high-level combat
                 classification. Access the raw :class:`melee.gamestate.PlayerState`
                 via ``player_state.player()`` when you need per-frame fields like
