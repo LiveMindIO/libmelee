@@ -19,8 +19,10 @@ _BOW_FULL_CHARGE_ACTIONS: Final = frozenset({Action(345), Action(348)})
 _BOW_RELEASE_ACTIONS: Final = frozenset({Action(346), Action(349)})
 # DESNOTE(jbarber, 2026-08-23): The bow IASA increments its private charge
 # counter only after each character's subaction enables release. A bot request
-# commits one Console.step later, so observed frame 17 for Link or 14 for Young
-# Link is the first safe release request and maps to normalized power 0. Their
+# commits one Console.step later, so observed frame 17 is the first safe release
+# request for both Link and Young Link. Young Link's 1.33 animation rate skips
+# frame 16 before its frame-18 command enables charging. The projected power
+# includes the IASA increment that consumes the release. Their
 # PlLk.dat/PlCl.dat ext_attr x0 counters cap at 60/45; entering the loop state
 # sets the counter directly to that cap. See:
 # https://github.com/doldecomp/melee/blob/a983c0f9cd41d4a46001c493a1929891ac80f9ab/src/melee/ft/chara/ftLink/ftLk_SpecialN.c#L418-L450
@@ -28,7 +30,7 @@ _BOW_RELEASE_ACTIONS: Final = frozenset({Action(346), Action(349)})
 # https://www.ssbwiki.com/Young_Link_(SSBM)/Neutral_special
 _FIRST_RELEASE_REQUEST_FRAME: Final[dict[Character, int]] = {
     Character.LINK: 17,
-    Character.YLINK: 14,
+    Character.YLINK: 17,
 }
 _MAX_CHARGE_FRAMES: Final[dict[Character, int]] = {
     Character.LINK: 60,

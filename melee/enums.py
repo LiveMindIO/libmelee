@@ -1495,7 +1495,7 @@ PSI Magnet yoyo strike). Classifies as the attacking state via frame data."""
     # DESNOTE(jbarber, 2026-08-21): These aliases follow each character's
     # MotionState identifiers. Python Enum aliases share the first-declared
     # member's identity, so Action(raw).name keeps its existing canonical name.
-    # See https://github.com/doldecomp/melee/tree/68f92c47d697c98e80911a14218f74982915acc9/src/melee/ft/chara
+    # See https://github.com/doldecomp/melee/tree/a983c0f9cd41d4a46001c493a1929891ac80f9ab/src/melee/ft/chara
     MARIO_SPECIAL_N = 343
     MARIO_SPECIAL_AIR_N = 344
     MARIO_SPECIAL_S = 345

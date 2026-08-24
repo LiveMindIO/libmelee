@@ -58,8 +58,8 @@ class _SmashAttackState:
 
 
 def _validate_max_charge_frames(max_charge_frames: int) -> None:
-    if not 0 <= max_charge_frames <= _GAME_MAX_CHARGE_FRAMES:
-        raise ValueError("max_charge_frames must be between 0 and 60")
+    if max_charge_frames == 1 or not 0 <= max_charge_frames <= _GAME_MAX_CHARGE_FRAMES:
+        raise ValueError("max_charge_frames must be 0 or between 2 and 60")
 
 
 class SmashAttackMontage(StatefulInputMontage[_SmashAttackState]):
@@ -69,9 +69,13 @@ class SmashAttackMontage(StatefulInputMontage[_SmashAttackState]):
     ``LSMASH``, and ``RSMASH`` respectively. ``max_charge_frames`` is the
     maximum number of observed in-game charge ticks for which this montage keeps
     A+stick held; advancing startup animation frames do not count. It must be
-    from 0 through Melee's 60-frame maximum. Passing 0
+    0 or from 2 through Melee's 60-frame maximum. Passing 0
     requests the minimum possible charge: the initial A+stick frame is still
     committed, then the montage releases it on the following tick.
+
+    A one-frame charge cannot be requested because ``PlayerState`` does not expose
+    the engine counter or charge-window entry before the first charged frame has
+    already occurred. Rejecting 1 avoids silently producing a two-frame charge.
 
     Call :meth:`release_charge` at any time before automatic release to request
     an earlier release. The request is sticky and idempotent. It does not mutate
@@ -88,12 +92,12 @@ class SmashAttackMontage(StatefulInputMontage[_SmashAttackState]):
 
     Args:
         axis: Absolute screen direction for the smash input.
-        max_charge_frames: Maximum observed charge ticks to retain A+stick,
-            from 0 (minimum charge) through 60 (Melee's maximum).
+        max_charge_frames: Maximum engine charge ticks, either 0 (minimum charge)
+            or from 2 through 60 (Melee's maximum).
 
     Raises:
-        ValueError: If ``max_charge_frames`` is outside the inclusive range 0
-            through 60.
+        ValueError: If ``max_charge_frames`` is 1 or outside the inclusive range
+            0 through 60.
     """
 
     def __init__(
@@ -217,19 +221,6 @@ class SmashAttackMontage(StatefulInputMontage[_SmashAttackState]):
                 hold = input_state.hold
                 if hold is None:
                     return input_state, Abort("smash attack hold became unavailable")
-                if self._release_requested or input_state.charge_frames >= self._max_charge_frames:
-                    result = controls.release(hold)
-                    if not isinstance(result, AttackFrameData):
-                        return input_state, Abort("smash attack could not be released")
-                    return (
-                        replace(
-                            input_state,
-                            phase=_SmashAttackPhase.Released,
-                            frame_data=result,
-                        ),
-                        self,
-                    )
-
                 if isinstance(player_state_value.action, Action) and self._is_automatic_full_charge_release(
                     input_state,
                     player_state_value.action,
@@ -253,18 +244,33 @@ class SmashAttackMontage(StatefulInputMontage[_SmashAttackState]):
                         started_state,
                     )
 
+                if self._release_requested or self._max_charge_frames == 0:
+                    result = controls.release(hold)
+                    if not isinstance(result, AttackFrameData):
+                        return input_state, Abort("smash attack could not be released")
+                    return (
+                        replace(
+                            input_state,
+                            phase=_SmashAttackPhase.Released,
+                            frame_data=result,
+                        ),
+                        self,
+                    )
+
                 result = controls.attack(self._attack_type, hold=hold)
                 if isinstance(result, AttackFrameData):
                     charge_frames = input_state.charge_frames
-                    if self._is_observed_charge_tick(
+                    observed_charge_tick = self._is_observed_charge_tick(
                         input_state,
                         state.frame,
                         result.action,
                         player_state_value.action_frame,
                         player_state_value.character,
-                    ):
+                    )
+                    if observed_charge_tick:
                         charge_frames += 1
-                    if charge_frames >= self._max_charge_frames:
+                    projected_charge_frames = charge_frames + 1
+                    if observed_charge_tick and projected_charge_frames >= self._max_charge_frames:
                         release_result = controls.release(hold)
                         if not isinstance(release_result, AttackFrameData):
                             return input_state, Abort("smash attack could not be released")
@@ -273,7 +279,7 @@ class SmashAttackMontage(StatefulInputMontage[_SmashAttackState]):
                                 input_state,
                                 phase=_SmashAttackPhase.Released,
                                 frame_data=release_result,
-                                charge_frames=charge_frames,
+                                charge_frames=projected_charge_frames,
                                 last_action=result.action,
                                 last_action_frame=player_state_value.action_frame,
                                 last_game_frame=state.frame,

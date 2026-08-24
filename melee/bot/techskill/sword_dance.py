@@ -29,9 +29,10 @@ class _SwordDanceStep:
         return None
 
 
-# DESNOTE(jbarber, 2026-08-23): SmashWiki reports inclusive one-based
-# continuation frames; PlayerState.action_frame is zero-based. Marth and Roy
-# share motion-state IDs but not every timing window.
+# DESNOTE(jbarber, 2026-08-23): SmashWiki and PlayerState.action_frame are both
+# one-based. Request windows end one observed frame earlier because controller
+# input commits during the following Console.step. Marth and Roy share
+# motion-state IDs but not every timing window.
 # https://www.ssbwiki.com/Marth_(SSBM)/Side_special
 # https://www.ssbwiki.com/Roy_(SSBM)/Side_special
 _FIRST_STEP: Final = _SwordDanceStep(

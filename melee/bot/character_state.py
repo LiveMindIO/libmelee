@@ -729,6 +729,7 @@ _SHIELD_START_ACTIONS: Final = frozenset(
 # GuardHold, GuardOff, and GuardOn_1 have Escape paths; GuardDamage (344) does not.
 # Catch is absent from GuardOff, so its accepted raw-ID set is narrower.
 # See https://github.com/doldecomp/melee/blob/a983c0f9cd41d4a46001c493a1929891ac80f9ab/src/melee/ft/chara/ftYoshi/ftYs_Guard.c
+_YOSHI_SHIELD_IDS: Final = frozenset({341, 342, 343, 344, 345})
 _YOSHI_DODGEABLE_SHIELD_IDS: Final = frozenset({341, 342, 343, 345})
 _YOSHI_GRABBABLE_SHIELD_IDS: Final = frozenset({341, 342, 345})
 _SPECIAL_ATTACKS: Final = frozenset(
@@ -886,7 +887,7 @@ _CHARACTER_ALL_NORMAL_ACTIONS: Final[dict[Character, frozenset[Action]]] = {
 # DESNOTE(jbarber, 2026-08-21): Action names are aliases for character-relative
 # raw IDs. Use each doldecomp MotionState table's move-ID assignment rather than
 # adding raw ranges to the global set and changing other fighters' meanings. See
-# https://github.com/doldecomp/melee/tree/68f92c47d697c98e80911a14218f74982915acc9/src/melee/ft/chara
+# https://github.com/doldecomp/melee/tree/a983c0f9cd41d4a46001c493a1929891ac80f9ab/src/melee/ft/chara
 _SPECIAL_SLOT_FOR_ATTACK_TYPE: Final[dict[AttackType, str]] = {
     AttackType.NEUTRAL_B: "neutral-special",
     AttackType.SIDE_B: "side-special",
@@ -917,6 +918,27 @@ def _actions_for_attack_type(
     if special_slot is not None and character_specials is not None:
         return character_specials[special_slot]
     return _ACTIONS_FOR_TYPE[relative_attack_type]
+
+
+def _special_is_available(player: LibPlayerState, attack_type: AttackType) -> bool:
+    relative_attack_type = _relative_attack_type(attack_type)
+    # DESNOTE(jbarber, 2026-08-24): The common IASA dispatch can expose a special
+    # input even when a fighter's callback table has no implementation for that
+    # slot/context. DK has no aerial Hand Slap, while Nana's side- and up-special
+    # entries are partner states that she cannot initiate from player input.
+    # See https://github.com/doldecomp/melee/blob/a983c0f9cd41d4a46001c493a1929891ac80f9ab/src/melee/ft/ftdata.c#L324-L430
+    if player.character is Character.DK and relative_attack_type is AttackType.DOWN_B:
+        return player.on_ground
+    return not (
+        player.character is Character.NANA
+        and relative_attack_type in {AttackType.SIDE_B, AttackType.UP_B}
+    )
+
+
+def _is_attackable_air(player: LibPlayerState) -> bool:
+    return player.action in _ATTACKABLE_AIR or (
+        player.character is Character.PEACH and player.action.value == 341
+    )
 
 
 _ALL_ATTACK_ACTIONS: Final = frozenset(action for actions in _ACTIONS_FOR_TYPE.values() for action in actions)
@@ -1335,6 +1357,12 @@ def get_state(player: LibPlayerState, frame_data: FrameData) -> CharacterStatus:
         return CharacterStatus.Dodging
     if isinstance(player.action, Action) and player.action in _KNOCKDOWN_ACTIONS:
         return CharacterStatus.Downed
+    if (
+        player.character is Character.YOSHI
+        and isinstance(player.action, Action)
+        and player.action.value in _YOSHI_SHIELD_IDS
+    ):
+        return CharacterStatus.Shielding
     if isinstance(player.action, Action) and frame_data.is_shield(player.action):
         return CharacterStatus.Shielding
     if isinstance(player.action, Action) and player.action in _TAUNT_ACTIONS:
@@ -1514,6 +1542,8 @@ def can_attack(
         return False
     if not isinstance(player.action, Action):
         return False
+    if attack_type in _SPECIAL_ATTACKS and not _special_is_available(player, attack_type):
+        return False
 
     # DESNOTE(jbarber, 2026-08-21): KneeBend IASA checks only up-special (through
     # the misleadingly named ftCo_Attack100_CheckInput), grab, and up-smash.
@@ -1536,7 +1566,7 @@ def can_attack(
         case attack, action, True if attack in _GROUND_ATTACKS:
             return action in _GROUND_NORMAL_ACTIONS
         case attack, action, False if attack in _AIR_ATTACKS:
-            return action in _ATTACKABLE_AIR
+            return _is_attackable_air(player)
         case attack, _, _ if attack in _GROUND_ATTACKS | _AIR_ATTACKS:
             return False
         case (
@@ -1554,7 +1584,7 @@ def can_attack(
         case attack, action, True if attack in _SPECIAL_ATTACKS:
             return action in _GROUND_SPECIAL_ALL_ACTIONS
         case attack, action, False if attack in _SPECIAL_ATTACKS:
-            return action in _ATTACKABLE_AIR
+            return _is_attackable_air(player)
         case attack, _, _ if attack in _SPECIAL_ATTACKS:
             return False
         case _:
@@ -1618,16 +1648,24 @@ def can_airdodge(player: LibPlayerState, frame_data: FrameData) -> bool:
 def can_jump(player: LibPlayerState, frame_data: FrameData) -> bool:
     """Return whether a ground or remaining aerial jump could start.
 
-    Actionable shield phases permit jump-canceling for the roster except Yoshi,
-    whose unique shield cannot be jumped out of; shield stun does not. Outside
-    shield, the player must be in an actionable ground or air state and retain an
-    aerial jump when airborne.
+    Actionable shield phases permit jump-canceling for the roster. Yoshi's unique
+    shield permits it only from GuardOn_1 (the powershield state); shield stun does
+    not. Outside shield, the player must be in an actionable ground or air state
+    and retain an aerial jump when airborne.
     """
     # GuardSetOff (SHIELD_STUN) has an empty IASA; other common actionable shield
-    # phases check jump. Yoshi cannot jump from shield.
+    # phases check jump. Yoshi's GuardOn_1 delegates to the common GuardReflect
+    # IASA and is its only shield state that checks jump.
     # See https://github.com/doldecomp/melee/blob/a983c0f9cd41d4a46001c493a1929891ac80f9ab/src/melee/ft/chara/ftCommon/ftCo_Guard.c
     if player.hitlag_left > 0 or _in_real_hitstun(player, frame_data):
         return False
+    if (
+        player.on_ground
+        and player.character is Character.YOSHI
+        and isinstance(player.action, Action)
+        and player.action.value == 345
+    ):
+        return True
     if player.on_ground and _is_common_actionable_shield_phase(player):
         return True
     if is_shielding(player, frame_data):

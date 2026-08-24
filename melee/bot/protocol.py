@@ -49,6 +49,7 @@ class BotProtocol(Protocol[A]):
         player_state: CharacterState,
         opponent_state: CharacterState,
         custom: A,
+        /,
     ) -> None:
         """Run one frame of in-game AI logic.
 

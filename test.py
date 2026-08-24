@@ -76,7 +76,6 @@ from melee.bot.framedata_query import (
     get_framedata,
 )
 from melee.bot.techskill.common import (
-    GROUND_MOVEMENT_ACTIONS,
     WAVEDASH_MAX_ANGLE_DEGREES,
     WAVEDASH_MIN_ANGLE_DEGREES,
     clamp_wavedash_angle,
@@ -162,9 +161,17 @@ class BotProtocolTests(unittest.TestCase):
         strategy_parameters = inspect.signature(Strategy.game_tick).parameters
         implementation_parameters = inspect.signature(Strategy.tick).parameters
         bot_parameters = inspect.signature(BotProtocol.game_tick).parameters
+        base_bot_parameters = inspect.signature(BaseBot.game_tick).parameters
 
         self.assertEqual(list(strategy_parameters.values()), list(bot_parameters.values()))
         self.assertEqual(list(implementation_parameters.values()), list(bot_parameters.values()))
+        self.assertEqual(list(base_bot_parameters.values()), list(bot_parameters.values()))
+        self.assertTrue(
+            all(
+                parameter.kind is inspect.Parameter.POSITIONAL_ONLY
+                for parameter in bot_parameters.values()
+            )
+        )
 
     def test_strategy_metadata_and_exit_listener(self):
         strategy = RecordingStrategy(Exit("spacing lost"))
@@ -564,7 +571,7 @@ class SLPFile(unittest.TestCase):
 
         # DESNOTE(jbarber, 2026-08-21): This digest pins every source-derived
         # name/value pair while keeping the already-large enum test concise.
-        # See https://github.com/doldecomp/melee/tree/68f92c47d697c98e80911a14218f74982915acc9/src/melee/ft/chara
+        # See https://github.com/doldecomp/melee/tree/a983c0f9cd41d4a46001c493a1929891ac80f9ab/src/melee/ft/chara
         self.assertEqual(len(aliases), 937)
         self.assertEqual(
             hashlib.sha256(payload).hexdigest(),
@@ -1424,6 +1431,36 @@ class SimpleControlsInputTests(unittest.TestCase):
         self.assertEqual(controller.buttons, {melee.Button.BUTTON_A})
         self.assertEqual(controller.shoulders[melee.Button.BUTTON_L], 0.75)
 
+    def test_dodge_rejects_directions_the_current_iasa_cannot_select(self) -> None:
+        for action, facing, direction, expected in (
+            (melee.Action.DASHING, True, StickReferenceAxis.RIGHT, True),
+            (melee.Action.DASHING, True, StickReferenceAxis.LEFT, False),
+            (melee.Action.DASHING, True, StickReferenceAxis.DOWN, False),
+            (melee.Action.DASHING, False, StickReferenceAxis.LEFT, True),
+            (melee.Action.DASHING, False, StickReferenceAxis.RIGHT, False),
+            (melee.Action.SHIELD_RELEASE, True, StickReferenceAxis.DOWN, True),
+            (melee.Action.SHIELD_RELEASE, True, StickReferenceAxis.LEFT, False),
+            (melee.Action.SHIELD_RELEASE, True, StickReferenceAxis.RIGHT, False),
+        ):
+            with self.subTest(
+                action=action,
+                facing=facing,
+                direction=direction,
+            ):
+                player = melee.PlayerState(
+                    action=action,
+                    on_ground=True,
+                    facing=facing,
+                )
+                controls, controller = self.controls(player)
+                controller.main_stick = (0.25, 0.75)
+                controller.buttons.add(melee.Button.BUTTON_A)
+
+                self.assertEqual(controls.dodge(direction), expected)
+                if not expected:
+                    self.assertEqual(controller.main_stick, (0.25, 0.75))
+                    self.assertEqual(controller.buttons, {melee.Button.BUTTON_A})
+
     def test_air_dodge_applies_arbitrary_stick_direction(self) -> None:
         player = melee.PlayerState(action=melee.Action.FALLING, on_ground=False)
         controls, controller = self.controls(player)
@@ -1991,6 +2028,55 @@ class SimpleControlsInputTests(unittest.TestCase):
                 self.assertFalse(can_attack(helpless, self.frame_data, AttackType.NAIR))
                 self.assertFalse(can_airdodge(helpless, self.frame_data))
 
+    def test_character_specific_special_availability(self) -> None:
+        airborne_dk = melee.PlayerState(
+            character=melee.Character.DK,
+            action=melee.Action.FALLING,
+            on_ground=False,
+        )
+        self.assertFalse(can_attack(airborne_dk, self.frame_data, AttackType.DOWN_B))
+
+        for attack_type in (
+            AttackType.SIDE_B,
+            AttackType.LSPECIAL,
+            AttackType.RSPECIAL,
+            AttackType.UP_B,
+        ):
+            with self.subTest(attack_type=attack_type):
+                nana = melee.PlayerState(
+                    character=melee.Character.NANA,
+                    action=melee.Action.STANDING,
+                    on_ground=True,
+                )
+                self.assertFalse(can_attack(nana, self.frame_data, attack_type))
+
+    def test_peach_float_allows_aerial_attacks_and_specials(self) -> None:
+        peach = melee.PlayerState(
+            character=melee.Character.PEACH,
+            action=melee.Action(341),
+            on_ground=False,
+        )
+        for attack_type in (
+            AttackType.NAIR,
+            AttackType.FAIR,
+            AttackType.BAIR,
+            AttackType.UAIR,
+            AttackType.DAIR,
+            AttackType.NEUTRAL_B,
+            AttackType.SIDE_B,
+            AttackType.UP_B,
+            AttackType.DOWN_B,
+        ):
+            with self.subTest(attack_type=attack_type):
+                self.assertTrue(can_attack(peach, self.frame_data, attack_type))
+
+        marth = melee.PlayerState(
+            character=melee.Character.MARTH,
+            action=melee.Action(341),
+            on_ground=False,
+        )
+        self.assertFalse(can_attack(marth, self.frame_data, AttackType.FAIR))
+
     def test_tumbling_allows_aerial_offense_but_not_airdodge(self) -> None:
         player = melee.PlayerState(
             character=melee.Character.MARTH,
@@ -2314,6 +2400,26 @@ class SimpleControlsInputTests(unittest.TestCase):
             on_ground=False,
         )
         self.assertFalse(can_jump(airborne, self.frame_data))
+
+    def test_yoshi_guard_states_are_shielding_and_only_powershield_can_jump(self) -> None:
+        for action_id in range(341, 346):
+            with self.subTest(action_id=action_id):
+                player = melee.PlayerState(
+                    character=melee.Character.YOSHI,
+                    action=melee.Action(action_id),
+                    on_ground=True,
+                )
+                controls, _ = self.controls(player)
+
+                self.assertIs(
+                    controls.character_state.get_state(),
+                    CharacterStatus.Shielding,
+                )
+                self.assertTrue(controls.character_state.is_shielding())
+                self.assertEqual(
+                    controls.character_state.can_jump(),
+                    action_id == 345,
+                )
 
     def test_grab_during_common_shield_phases(self) -> None:
         for action, expected in (
@@ -3473,26 +3579,6 @@ class TechniqueMontageTests(unittest.TestCase):
         )
 
         self.assertEqual(montage.current_power(), 1.0)
-        self.assertIs(
-            self.tick(montage, melee.Action.FSMASH_MID, action_frame=1),
-            montage,
-        )
-        self.assertEqual(
-            self.controls.take_calls(),
-            [
-                ("attack", AttackType.RSMASH, hold),
-                ("release_all",),
-                (
-                    "tilt_stick",
-                    StickReferenceAxis.RIGHT,
-                    0.0,
-                    1.0,
-                    melee.Button.BUTTON_MAIN,
-                ),
-                ("press_button", melee.Button.BUTTON_A),
-            ],
-        )
-
         self.controls.release_result = observed
         self.assertIs(
             self.tick(montage, melee.Action.FSMASH_MID, action_frame=1),
@@ -3502,6 +3588,7 @@ class TechniqueMontageTests(unittest.TestCase):
             self.controls.take_calls(),
             [("attack", AttackType.RSMASH, hold), ("release", hold)],
         )
+        self.assertAlmostEqual(montage.current_power(), 1.0 + (2 / 60) * 0.3671)
 
         early = SmashAttackMontage(StickReferenceAxis.LEFT)
         self.assertIs(early.release_charge(), early)
@@ -3540,21 +3627,22 @@ class TechniqueMontageTests(unittest.TestCase):
             self.assertEqual(montage.current_power(), 1.0)
             self.controls.take_calls()
 
-        for charge_frame in range(1, 61):
+        for charge_frame in range(1, 60):
             self.assertIs(
                 self.tick(montage, melee.Action.UPSMASH, action_frame=7),
                 montage,
             )
+            expected_charge_frames = 60 if charge_frame == 59 else charge_frame
             self.assertAlmostEqual(
                 montage.current_power(),
-                1.0 + (charge_frame / 60) * 0.3671,
+                1.0 + (expected_charge_frames / 60) * 0.3671,
             )
             self.controls.take_calls()
 
         self.assertEqual(montage.get_montage_state(), MontageState.Active)
         self.assertAlmostEqual(montage.current_power(), 1.3671)
 
-    def test_smash_attack_holds_exactly_sixty_frames_before_release(self):
+    def test_smash_attack_queues_release_before_sixtieth_engine_charge_tick(self):
         montage = SmashAttackMontage(
             StickReferenceAxis.UP,
             max_charge_frames=60,
@@ -3576,7 +3664,7 @@ class TechniqueMontageTests(unittest.TestCase):
             montage,
         )
         self.controls.take_calls()
-        for _ in range(59):
+        for _ in range(58):
             self.assertIs(
                 self.tick(montage, melee.Action.UPSMASH, action_frame=7),
                 montage,
@@ -3713,7 +3801,7 @@ class TechniqueMontageTests(unittest.TestCase):
                 self.assertIs(self.tick(montage, action, character=character), True)
 
     def test_ness_explicit_smash_charge_state_counts_only_active_ticks(self):
-        montage = SmashAttackMontage(StickReferenceAxis.UP, max_charge_frames=1)
+        montage = SmashAttackMontage(StickReferenceAxis.UP, max_charge_frames=2)
         hold = self.smash_hold(
             AttackType.USMASH,
             melee.Action(342),
@@ -3800,7 +3888,7 @@ class TechniqueMontageTests(unittest.TestCase):
         self.assertEqual(montage.get_montage_state(), MontageState.Waiting)
 
     def test_smash_attack_aborts_if_attack_cannot_continue(self):
-        montage = SmashAttackMontage(StickReferenceAxis.RIGHT, max_charge_frames=1)
+        montage = SmashAttackMontage(StickReferenceAxis.RIGHT, max_charge_frames=2)
         self.controls.attack_result = None
 
         self.assertEqual(
@@ -3817,12 +3905,12 @@ class TechniqueMontageTests(unittest.TestCase):
         self.assertEqual(montage.get_montage_state(), MontageState.Aborted)
 
     def test_smash_attack_validates_charge_cap(self):
-        for value in (-1, 61):
+        for value in (-1, 1, 61):
             with (
                 self.subTest(value=value),
                 self.assertRaisesRegex(
                     ValueError,
-                    "max_charge_frames must be between 0 and 60",
+                    "max_charge_frames must be 0 or between 2 and 60",
                 ),
             ):
                 SmashAttackMontage(StickReferenceAxis.UP, max_charge_frames=value)
@@ -3917,7 +4005,7 @@ class TechniqueMontageTests(unittest.TestCase):
             ),
             montage,
         )
-        self.assertAlmostEqual(montage.current_power(), 1 / 45)
+        self.assertIsNone(montage.current_power())
         self.controls.take_calls()
         self.assertIs(
             self.tick(
@@ -3928,7 +4016,18 @@ class TechniqueMontageTests(unittest.TestCase):
             ),
             montage,
         )
-        self.assertAlmostEqual(montage.current_power(), 2 / 45)
+        self.assertIsNone(montage.current_power())
+        self.controls.take_calls()
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action.YLINK_SPECIAL_N_START,
+                character=melee.Character.YLINK,
+                action_frame=17,
+            ),
+            montage,
+        )
+        self.assertAlmostEqual(montage.current_power(), 1 / 45)
         self.controls.take_calls()
         self.assertIs(
             self.tick(
@@ -6170,16 +6269,36 @@ class TechniqueMontageTests(unittest.TestCase):
         self.assertEqual(montage.get_montage_state(), MontageState.Waiting)
         self.assertEqual(self.controls.take_calls(), [])
 
-    def test_multishine_starts_from_ground_movement_actions(self):
-        for action in GROUND_MOVEMENT_ACTIONS:
+    def test_multishine_starts_only_when_down_special_is_actionable(self):
+        for action, expected in (
+            (melee.Action.STANDING, True),
+            (melee.Action.WALK_SLOW, True),
+            (melee.Action.WALK_MIDDLE, True),
+            (melee.Action.WALK_FAST, True),
+            (melee.Action.TURNING, True),
+            (melee.Action.RUNNING, True),
+            (melee.Action.RUN_DIRECT, True),
+            (melee.Action.CROUCH_START, True),
+            (melee.Action.CROUCHING, True),
+            (melee.Action.CROUCH_END, True),
+            (melee.Action.EDGE_TEETERING_START, True),
+            (melee.Action.EDGE_TEETERING, True),
+            (melee.Action.DASHING, False),
+            (melee.Action.TURNING_RUN, False),
+            (melee.Action.RUN_BRAKE, False),
+        ):
             with self.subTest(action=action):
                 montage = MultishineMontage()
 
                 self.assertIs(self.tick(montage, action), montage)
-                self.assertEqual(montage.get_montage_state(), MontageState.Active)
-                self.assertIn(
-                    ("press_button", melee.Button.BUTTON_B),
-                    self.controls.take_calls(),
+                self.assertEqual(
+                    montage.get_montage_state(),
+                    MontageState.Active if expected else MontageState.Waiting,
+                )
+                calls = self.controls.take_calls()
+                self.assertEqual(
+                    ("press_button", melee.Button.BUTTON_B) in calls,
+                    expected,
                 )
 
     def test_multishine_waits_during_jump_squat(self):

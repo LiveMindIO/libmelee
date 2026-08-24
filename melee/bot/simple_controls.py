@@ -577,6 +577,13 @@ class SimpleControls:
         self._validate_dodge_button(dodge_button)
         if not self._character_state.can_dodge():
             return False
+        player = self._character_state.player()
+        if player is None:
+            return False
+        if player.action is Action.DASHING and direction is not self._character_state.forward_axis():
+            return False
+        if player.action is Action.SHIELD_RELEASE and direction is not StickReferenceAxis.DOWN:
+            return False
 
         self._controller.release_all()
         self.tilt_stick(direction, 0.0)

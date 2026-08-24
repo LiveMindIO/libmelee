@@ -187,9 +187,9 @@ token as `released` and records `release_frame`; do not reuse it.
 `CharacterState.can_jump()` (also available as `melee.bot.can_jump`) reports
 direct common ground jumps and remaining aerial jumps, including tumble,
 platform drop, and helpless `DEAD_FALL` / `SPECIAL_FALL_*`. It returns `True`
-throughout shield start, hold, reflect, and release for every character except
-Yoshi, whose shield cannot be jumped out of. Shield stun and hitlag are not
-actionable, and jump squat itself cannot begin another jump.
+throughout common shield start, hold, reflect, and release. Yoshi can jump only
+from its character-owned GuardOn_1 powershield state. Shield stun and hitlag are
+not actionable, and jump squat itself cannot begin another jump.
 
 `CharacterState.can_dodge()` reports direct ground Escape paths from standing,
 early dash, and eligible shield phases; shield stun and `KNEE_BEND` are excluded.
@@ -206,7 +206,9 @@ depression also presses digital L; positive requests act only when shielding can
 start or continue.
 `SimpleControls.dodge(GroundDodgeStickReferenceAxis)` sets absolute roll input
 for `LEFT`/`RIGHT` or spot-dodge input for `DOWN` on the next committed frame
-when `can_dodge()` succeeds.
+when `can_dodge()` succeeds. During early dash it accepts only the absolute
+forward direction because Melee forces a forward roll; during shield release it
+accepts only `DOWN` for spot dodge.
 `SimpleControls.air_dodge(axis, angle_degrees=0, magnitude=1)` sets the
 corresponding absolute main-stick vector when `can_airdodge()` succeeds. Both
 reset pending inputs before pressing digital L by
@@ -358,8 +360,9 @@ Libmelee includes concrete technique montages:
   the resulting one-frame turn state.
 - `SmashAttackMontage(axis, max_charge_frames=60)` maps cardinal axes to up,
   down, absolute-left, and absolute-right smashes. Zero requests minimum charge;
-  values through 60 bound observed charge-window ticks without counting startup
-  animation. Character-owned Ness, Peach, and Game & Watch smash states are
+  2 through 60 request exact engine charge ticks. One is rejected because current
+  game-state telemetry cannot expose charge-window entry before that tick occurs.
+  Startup animation does not count. Character-owned Ness, Peach, and Game & Watch smash states are
   recognized. `release_charge()` queues an earlier release on the next active tick without cancelling the montage.
   `current_power()` reports the accumulated `1.0` through `1.3671` damage
   multiplier, and `get_framedata()` exposes typed attack metadata after initiation.

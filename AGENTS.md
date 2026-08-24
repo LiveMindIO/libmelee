@@ -163,12 +163,13 @@ uv pip install --python .venv/bin/python .
   before its down-inward air dodge. It presses jump for exactly one input frame and
   leaves X/Y neutral throughout the rise; confirmed jumps remain confirmed through
   apex, but landing or leaving neutral aerial movement before clearance aborts the route.
-  `SmashAttackMontage(axis, max_charge_frames=60)` bounds observed charge-window
-  retention from zero (minimum charge) through Melee's 60-frame maximum without
-  counting startup animation. It recognizes Ness, Peach, and Game & Watch's
+  `SmashAttackMontage(axis, max_charge_frames=60)` bounds engine charge-window
+  retention at zero (minimum charge) or 2 through Melee's 60-frame maximum without
+  counting startup animation. One frame is rejected because available state cannot
+  expose charge-window entry before that frame occurs. It recognizes Ness, Peach, and Game & Watch's
   character-owned normal-smash states. `release_charge()`
   idempotently queues an earlier release for the next active tick; cancellation
-  abandons the attack instead. `current_power()` returns the locally observed
+  abandons the attack instead. `current_power()` returns the projected engine
   `1.0` through `1.3671` damage multiplier. The montage confirms startup before succeeding.
   `LinkBowMontage` supports Link and Young Link on the ground or in air.
   `release()` queues the shot; `can_release()` and normalized `current_power()`
@@ -258,7 +259,8 @@ uv pip install --python .venv/bin/python .
   name the expected action before a later `PlayerState` confirms startup.
 - `CharacterState.can_jump()` and the module-level `can_jump()` allow actionable
   ground jumps and remaining aerial jumps. Actionable shield phases are jumpable
-  for all characters except Yoshi; shield stun is not.
+  for the roster; Yoshi can jump only from its character-owned GuardOn_1
+  powershield state. Shield stun is not jumpable.
 - `CharacterState.can_shield()` uses direct Guard-transition actions rather than
   the broader ground bucket. It rejects `KNEE_BEND`, turn-run, run brake, and
   landing states; an airborne shoulder input is an air dodge, not a shield.
@@ -284,7 +286,9 @@ uv pip install --python .venv/bin/python .
   convention for arbitrary air-dodge vectors. Both default to digital L, accept
   digital R, clear pending inputs only after their corresponding state query
   succeeds, return whether input was applied, and never flush. The stick and
-  shoulder remain latched until the caller replaces or clears them later.
+  shoulder remain latched until the caller replaces or clears them later. During
+  early dash, `dodge()` accepts only the absolute forward direction because Melee
+  forces a forward roll; during shield release, it accepts only down for spot dodge.
 - `can_jump()` accepts direct common ground jump paths and a remaining aerial
   jump from normal air, tumble, platform drop, and helpless FallSpecial states.
   It rejects `KNEE_BEND`, landing, shield stun, and hitlag.

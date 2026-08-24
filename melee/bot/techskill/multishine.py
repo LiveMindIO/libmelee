@@ -6,12 +6,11 @@ from dataclasses import dataclass, replace
 from enum import Enum, auto
 from typing import Final
 
-from melee.bot.character_state import CharacterState
+from melee.bot.character_state import AttackType, CharacterState
 from melee.bot.input_montage import Abort, InputMontage
 from melee.bot.simple_controls import SimpleControls, StickReferenceAxis
 from melee.bot.stateful_input_montage import StatefulInputMontage
 from melee.bot.techskill.common import (
-    GROUND_MOVEMENT_ACTIONS,
     JUMP_SQUAT_FRAMES,
     SHINE_ACTIONS,
     is_interrupted,
@@ -131,9 +130,9 @@ class MultishineMontage(StatefulInputMontage[_MultishineState]):
         return (
             player_state_value is not None
             and player_state_value.character in _MULTISHINE_CHARACTERS
-            and player_state_value.action in GROUND_MOVEMENT_ACTIONS
             and player_state_value.on_ground
             and not player_state_value.off_stage
+            and player_state.can_attack(AttackType.DOWN_B)
         )
 
     def stateful_should_abort(

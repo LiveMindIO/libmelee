@@ -184,6 +184,7 @@ class BaseBot(BotProtocol[A], ABC, Generic[A]):
         player_state: CharacterState,
         opponent_state: CharacterState,
         custom: A,
+        /,
     ) -> None:
         """Run one frame of in-game AI logic."""
 
