@@ -1461,6 +1461,30 @@ class SimpleControlsInputTests(unittest.TestCase):
                     self.assertEqual(controller.main_stick, (0.25, 0.75))
                     self.assertEqual(controller.buttons, {melee.Button.BUTTON_A})
 
+    def test_yoshi_guard_off_allows_only_spot_dodge(self) -> None:
+        player = melee.PlayerState(
+            character=melee.Character.YOSHI,
+            action=melee.Action(343),
+            on_ground=True,
+        )
+        for direction, expected in (
+            (StickReferenceAxis.LEFT, False),
+            (StickReferenceAxis.RIGHT, False),
+            (StickReferenceAxis.DOWN, True),
+        ):
+            with self.subTest(direction=direction):
+                controls, controller = self.controls(player)
+                controller.main_stick = (0.25, 0.75)
+                controller.buttons.add(melee.Button.BUTTON_A)
+
+                self.assertEqual(controls.dodge(direction), expected)
+                if expected:
+                    self.assertEqual(controller.main_stick, (0.5, 0.0))
+                    self.assertEqual(controller.buttons, {melee.Button.BUTTON_L})
+                else:
+                    self.assertEqual(controller.main_stick, (0.25, 0.75))
+                    self.assertEqual(controller.buttons, {melee.Button.BUTTON_A})
+
     def test_air_dodge_applies_arbitrary_stick_direction(self) -> None:
         player = melee.PlayerState(action=melee.Action.FALLING, on_ground=False)
         controls, controller = self.controls(player)
@@ -1787,6 +1811,71 @@ class SimpleControlsInputTests(unittest.TestCase):
                     hold,
                 )
 
+    def test_ground_charge_hold_stops_when_ground_is_lost(self) -> None:
+        grounded = melee.PlayerState(
+            character=melee.Character.FOX,
+            action=melee.Action.STANDING,
+            on_ground=True,
+        )
+        controls, _ = self.controls(grounded)
+        hold = controls.attack(AttackType.USMASH)
+        self.assertIsInstance(hold, Hold)
+        assert isinstance(hold, Hold)
+
+        falling = melee.PlayerState(
+            character=melee.Character.FOX,
+            action=melee.Action.FALLING,
+            on_ground=False,
+        )
+        falling_controls, _ = self.controls(falling, frame=1)
+        self.assertFalse(falling_controls.check_hold(hold))
+        self.assertIsNone(falling_controls.attack(AttackType.USMASH, hold=hold))
+
+    def test_grab_and_z_air_holds_complete_in_active_states(self) -> None:
+        cases = (
+            (melee.Character.FOX, AttackType.GRAB, melee.Action.STANDING, melee.Action.GRAB),
+            (melee.Character.FOX, AttackType.GRAB, melee.Action.STANDING, melee.Action.GRAB_PULLING),
+            (melee.Character.SAMUS, AttackType.Z_AIR, melee.Action.FALLING, melee.Action(357)),
+            (melee.Character.SAMUS, AttackType.Z_AIR, melee.Action.FALLING, melee.Action(358)),
+            (melee.Character.LINK, AttackType.Z_AIR, melee.Action.FALLING, melee.Action(360)),
+            (melee.Character.YLINK, AttackType.Z_AIR, melee.Action.FALLING, melee.Action(361)),
+        )
+        for character, attack_type, start_action, active_action in cases:
+            with self.subTest(character=character, attack_type=attack_type, active_action=active_action):
+                start = melee.PlayerState(
+                    character=character,
+                    action=start_action,
+                    on_ground=attack_type is AttackType.GRAB,
+                )
+                controls, _ = self.controls(start)
+                hold = controls.attack(attack_type)
+                self.assertIsInstance(hold, Hold)
+                assert isinstance(hold, Hold)
+
+                active = melee.PlayerState(
+                    character=character,
+                    action=active_action,
+                    on_ground=attack_type is AttackType.GRAB,
+                )
+                active_controls, _ = self.controls(active, frame=1)
+                self.assertTrue(active_controls.check_hold(hold))
+                result = active_controls.attack(attack_type, hold=hold)
+                self.assertIsInstance(result, AttackFrameData)
+                assert isinstance(result, AttackFrameData)
+                self.assertIs(result.action, active_action)
+                self.assertIs(
+                    active_controls.character_state.get_state(),
+                    CharacterStatus.Attacking if attack_type is AttackType.Z_AIR else CharacterStatus.GrabbingEnemy,
+                )
+
+        ground_grab = melee.PlayerState(
+            character=melee.Character.SAMUS,
+            action=melee.Action.GRAB,
+            on_ground=True,
+        )
+        ground_controls, _ = self.controls(ground_grab)
+        self.assertIsNone(ground_controls._current_attack_action(ground_grab, AttackType.Z_AIR))
+
     def test_aerials_start_only_in_actionable_air(self) -> None:
         cases = (
             (melee.Action.STANDING, True, False),
@@ -2077,6 +2166,33 @@ class SimpleControlsInputTests(unittest.TestCase):
         )
         self.assertFalse(can_attack(marth, self.frame_data, AttackType.FAIR))
 
+    def test_jigglypuff_aerial_jump_states_are_actionable(self) -> None:
+        for action_id in range(341, 346):
+            with self.subTest(action_id=action_id):
+                player = melee.PlayerState(
+                    character=melee.Character.JIGGLYPUFF,
+                    action=melee.Action(action_id),
+                    on_ground=False,
+                    jumps_left=1,
+                )
+                controls, _ = self.controls(player)
+                self.assertIs(controls.character_state.get_state(), CharacterStatus.InAir)
+                self.assertTrue(controls.character_state.can_attack(AttackType.NAIR))
+                self.assertTrue(controls.character_state.can_attack(AttackType.UP_B))
+                self.assertTrue(controls.character_state.can_airdodge())
+                self.assertTrue(controls.character_state.can_jump())
+
+                player.jumps_left = 0
+                self.assertFalse(controls.character_state.can_jump())
+
+        fox = melee.PlayerState(
+            character=melee.Character.FOX,
+            action=melee.Action(342),
+            on_ground=False,
+        )
+        fox_controls, _ = self.controls(fox)
+        self.assertFalse(fox_controls.character_state.can_airdodge())
+
     def test_tumbling_allows_aerial_offense_but_not_airdodge(self) -> None:
         player = melee.PlayerState(
             character=melee.Character.MARTH,
@@ -2292,7 +2408,7 @@ class SimpleControlsInputTests(unittest.TestCase):
                             {CharacterStatus.Attacking, CharacterStatus.Dodging},
                         )
 
-    def test_character_owned_normal_smashes_are_recognized_and_classified(self) -> None:
+    def test_character_owned_normals_are_recognized_and_classified(self) -> None:
         cases = (
             (melee.Character.NESS, AttackType.FSMASH, 341),
             (melee.Character.NESS, AttackType.USMASH, 342),
@@ -2304,7 +2420,21 @@ class SimpleControlsInputTests(unittest.TestCase):
             (melee.Character.PEACH, AttackType.FSMASH, 349),
             (melee.Character.PEACH, AttackType.FSMASH, 350),
             (melee.Character.PEACH, AttackType.FSMASH, 351),
+            (melee.Character.PEACH, AttackType.NAIR, 344),
+            (melee.Character.PEACH, AttackType.FAIR, 345),
+            (melee.Character.PEACH, AttackType.BAIR, 346),
+            (melee.Character.PEACH, AttackType.UAIR, 347),
+            (melee.Character.PEACH, AttackType.DAIR, 348),
+            (melee.Character.GAMEANDWATCH, AttackType.JAB, 341),
+            (melee.Character.GAMEANDWATCH, AttackType.JAB, 344),
+            (melee.Character.GAMEANDWATCH, AttackType.DTILT, 345),
             (melee.Character.GAMEANDWATCH, AttackType.FSMASH, 346),
+            (melee.Character.GAMEANDWATCH, AttackType.NAIR, 347),
+            (melee.Character.GAMEANDWATCH, AttackType.BAIR, 348),
+            (melee.Character.GAMEANDWATCH, AttackType.UAIR, 349),
+            (melee.Character.GAMEANDWATCH, AttackType.NAIR, 350),
+            (melee.Character.GAMEANDWATCH, AttackType.BAIR, 351),
+            (melee.Character.GAMEANDWATCH, AttackType.UAIR, 352),
             (melee.Character.LINK, AttackType.FSMASH, 341),
             (melee.Character.YLINK, AttackType.FSMASH, 341),
         )
@@ -2320,6 +2450,49 @@ class SimpleControlsInputTests(unittest.TestCase):
         fox = melee.PlayerState(character=melee.Character.FOX, action=melee.Action(341))
         fox_controls, _ = self.controls(fox)
         self.assertIsNone(fox_controls._current_attack_action(fox, AttackType.FSMASH))
+
+        for action_id in (341, 342, 343):
+            peach = melee.PlayerState(
+                character=melee.Character.PEACH,
+                action=melee.Action(action_id),
+                on_ground=False,
+            )
+            peach_controls, _ = self.controls(peach)
+            self.assertIs(peach_controls.character_state.get_state(), CharacterStatus.InAir)
+
+    def test_character_owned_taunts_are_classified(self) -> None:
+        cases = (
+            (melee.Character.DOC, 341),
+            (melee.Character.DOC, 342),
+            (melee.Character.YLINK, 342),
+            (melee.Character.YLINK, 343),
+            (melee.Character.FOX, 370),
+            (melee.Character.FOX, 375),
+            (melee.Character.FALCO, 370),
+            (melee.Character.FALCO, 375),
+        )
+        for character, action_id in cases:
+            with self.subTest(character=character, action_id=action_id):
+                player = melee.PlayerState(
+                    character=character,
+                    action=melee.Action(action_id),
+                    on_ground=True,
+                    hitstun_frames_left=1,
+                )
+                controls, controller = self.controls(player)
+                controller.buttons.add(melee.Button.BUTTON_A)
+                self.assertIs(controls.character_state.get_state(), CharacterStatus.Taunting)
+                self.assertTrue(controls.character_state.is_taunting())
+                self.assertTrue(controls.taunt())
+                self.assertEqual(controller.buttons, set())
+
+        link = melee.PlayerState(
+            character=melee.Character.LINK,
+            action=melee.Action(342),
+            on_ground=True,
+        )
+        link_controls, _ = self.controls(link)
+        self.assertFalse(link_controls.character_state.is_taunting())
 
     def test_deprecated_absolute_special_aliases_remain_compatible(self) -> None:
         self.assertIs(AttackType.LEFT_B, AttackType.LSPECIAL)
@@ -3627,20 +3800,56 @@ class TechniqueMontageTests(unittest.TestCase):
             self.assertEqual(montage.current_power(), 1.0)
             self.controls.take_calls()
 
-        for charge_frame in range(1, 60):
+        for charge_frame in range(1, 59):
             self.assertIs(
                 self.tick(montage, melee.Action.UPSMASH, action_frame=7),
                 montage,
             )
-            expected_charge_frames = 60 if charge_frame == 59 else charge_frame
             self.assertAlmostEqual(
                 montage.current_power(),
-                1.0 + (expected_charge_frames / 60) * 0.3671,
+                1.0 + (charge_frame / 60) * 0.3671,
             )
             self.controls.take_calls()
 
+        self.assertIs(
+            self.tick(montage, melee.Action.UPSMASH, action_frame=7),
+            montage,
+        )
+        self.assertEqual(
+            self.controls.take_calls(),
+            [("attack", AttackType.USMASH, hold), ("release", hold)],
+        )
+
         self.assertEqual(montage.get_montage_state(), MontageState.Active)
         self.assertAlmostEqual(montage.current_power(), 1.3671)
+
+    def test_manual_smash_release_freezes_projected_engine_power(self):
+        montage = SmashAttackMontage(StickReferenceAxis.UP, max_charge_frames=60)
+        hold = self.smash_hold(AttackType.USMASH, melee.Action.UPSMASH)
+        observed = AttackFrameData(
+            character=melee.Character.FOX,
+            action=melee.Action.UPSMASH,
+            frame_data=self.frame_data,
+        )
+        self.controls.attack_result = hold
+        self.assertIs(self.tick(montage, melee.Action.STANDING), montage)
+        self.controls.take_calls()
+        self.controls.attack_result = observed
+
+        self.assertIs(self.tick(montage, melee.Action.UPSMASH, action_frame=7), montage)
+        self.controls.take_calls()
+        self.assertIs(self.tick(montage, melee.Action.UPSMASH, action_frame=7), montage)
+        self.controls.take_calls()
+        self.assertAlmostEqual(montage.current_power(), 1.0 + (1 / 60) * 0.3671)
+
+        montage.release_charge()
+        self.controls.release_result = observed
+        self.assertIs(self.tick(montage, melee.Action.UPSMASH, action_frame=7), montage)
+        self.assertEqual(self.controls.take_calls(), [("release", hold)])
+        self.assertAlmostEqual(montage.current_power(), 1.0 + (3 / 60) * 0.3671)
+
+        self.assertIs(self.tick(montage, melee.Action.UPSMASH, action_frame=8), True)
+        self.assertAlmostEqual(montage.current_power(), 1.0 + (3 / 60) * 0.3671)
 
     def test_smash_attack_queues_release_before_sixtieth_engine_charge_tick(self):
         montage = SmashAttackMontage(

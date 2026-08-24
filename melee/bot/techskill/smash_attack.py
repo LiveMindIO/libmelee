@@ -67,9 +67,9 @@ class SmashAttackMontage(StatefulInputMontage[_SmashAttackState]):
 
     ``axis`` maps up, down, left, and right to ``USMASH``, ``DSMASH``,
     ``LSMASH``, and ``RSMASH`` respectively. ``max_charge_frames`` is the
-    maximum number of observed in-game charge ticks for which this montage keeps
-    A+stick held; advancing startup animation frames do not count. It must be
-    0 or from 2 through Melee's 60-frame maximum. Passing 0
+    maximum in-game charge counter for which this montage keeps A+stick held;
+    advancing startup animation frames do not count. It must be either 0 or from
+    2 through Melee's 60-frame maximum. Passing 0
     requests the minimum possible charge: the initial A+stick frame is still
     committed, then the montage releases it on the following tick.
 
@@ -92,12 +92,13 @@ class SmashAttackMontage(StatefulInputMontage[_SmashAttackState]):
 
     Args:
         axis: Absolute screen direction for the smash input.
-        max_charge_frames: Maximum engine charge ticks, either 0 (minimum charge)
-            or from 2 through 60 (Melee's maximum).
+        max_charge_frames: Maximum engine charge counter to retain A+stick,
+            either 0 (minimum charge) or 2 through 60 (Melee's maximum). One
+            charge tick cannot be requested reactively because the engine applies
+            its final increment before consuming released A.
 
     Raises:
-        ValueError: If ``max_charge_frames`` is 1 or outside the inclusive range
-            0 through 60.
+        ValueError: If ``max_charge_frames`` is not 0 or between 2 and 60.
     """
 
     def __init__(
@@ -139,8 +140,9 @@ class SmashAttackMontage(StatefulInputMontage[_SmashAttackState]):
 
         The multiplier begins at ``1.0`` before charging and increases linearly
         with observed montage charge ticks to Melee's ``1.3671`` maximum after
-        60 ticks. Releasing or finishing freezes the returned value at the power
-        accumulated before release.
+        60 ticks. Releasing or finishing freezes the returned value at the engine
+        counter used by the attack, including the final increment before release
+        input is consumed.
         """
         charge_ratio = min(self._input_state.charge_frames, _GAME_MAX_CHARGE_FRAMES) / _GAME_MAX_CHARGE_FRAMES
         return 1.0 + charge_ratio * (_GAME_MAX_POWER_MULTIPLIER - 1.0)
@@ -245,6 +247,27 @@ class SmashAttackMontage(StatefulInputMontage[_SmashAttackState]):
                     )
 
                 if self._release_requested or self._max_charge_frames == 0:
+                    charge_frames = input_state.charge_frames
+                    if (
+                        self._release_requested
+                        and self._max_charge_frames != 0
+                        and isinstance(player_state_value.action, Action)
+                        and self._is_observed_charge_tick(
+                            input_state,
+                            state.frame,
+                            player_state_value.action,
+                            player_state_value.action_frame,
+                            player_state_value.character,
+                        )
+                    ):
+                        # DESNOTE(jbarber, 2026-08-24): Melee increments the smash
+                        # counter before IASA consumes released A. Include both the
+                        # newly observed counter and that final engine increment.
+                        # See https://github.com/doldecomp/melee/blob/a983c0f9cd41d4a46001c493a1929891ac80f9ab/src/melee/ft/ft_0DF0.c#L90-L164
+                        charge_frames = min(
+                            charge_frames + 2,
+                            _GAME_MAX_CHARGE_FRAMES,
+                        )
                     result = controls.release(hold)
                     if not isinstance(result, AttackFrameData):
                         return input_state, Abort("smash attack could not be released")
@@ -253,6 +276,7 @@ class SmashAttackMontage(StatefulInputMontage[_SmashAttackState]):
                             input_state,
                             phase=_SmashAttackPhase.Released,
                             frame_data=result,
+                            charge_frames=charge_frames,
                         ),
                         self,
                     )
@@ -269,7 +293,10 @@ class SmashAttackMontage(StatefulInputMontage[_SmashAttackState]):
                     )
                     if observed_charge_tick:
                         charge_frames += 1
-                    projected_charge_frames = charge_frames + 1
+                    projected_charge_frames = min(
+                        charge_frames + 1,
+                        _GAME_MAX_CHARGE_FRAMES,
+                    )
                     if observed_charge_tick and projected_charge_frames >= self._max_charge_frames:
                         release_result = controls.release(hold)
                         if not isinstance(release_result, AttackFrameData):

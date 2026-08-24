@@ -45,7 +45,6 @@ from enum import Enum, auto
 from typing import TYPE_CHECKING, Final
 
 from melee.bot.character_state import (
-    _ACTIONABLE_AIR,
     _ACTIONS_FOR_TYPE,
     _AERIAL_ATTACKS,
     _CHARACTER_ALL_NORMAL_ACTIONS,
@@ -521,10 +520,7 @@ class SimpleControls:
         """
         if not math.isfinite(strength) or not 0.0 <= strength <= 1.0:
             raise ValueError("strength must be finite and between 0 and 1 inclusive")
-        if strength > 0.0 and not (
-            self._character_state.can_shield()
-            or self._character_state.is_shielding()
-        ):
+        if strength > 0.0 and not (self._character_state.can_shield() or self._character_state.is_shielding()):
             return False
 
         self._controller.release_button(Button.BUTTON_L)
@@ -571,8 +567,7 @@ class SimpleControls:
             StickReferenceAxis.DOWN,
         }:
             raise ValueError(
-                "direction must be StickReferenceAxis.LEFT, StickReferenceAxis.RIGHT, "
-                "or StickReferenceAxis.DOWN"
+                "direction must be StickReferenceAxis.LEFT, StickReferenceAxis.RIGHT, or StickReferenceAxis.DOWN"
             )
         self._validate_dodge_button(dodge_button)
         if not self._character_state.can_dodge():
@@ -583,6 +578,13 @@ class SimpleControls:
         if player.action is Action.DASHING and direction is not self._character_state.forward_axis():
             return False
         if player.action is Action.SHIELD_RELEASE and direction is not StickReferenceAxis.DOWN:
+            return False
+        if (
+            player.character is Character.YOSHI
+            and isinstance(player.action, Action)
+            and player.action.value == 343
+            and direction is not StickReferenceAxis.DOWN
+        ):
             return False
 
         self._controller.release_all()
@@ -1205,14 +1207,16 @@ class SimpleControls:
     def _hold_interrupted(self, player: LibPlayerState, hold: Hold) -> bool:
         """Return whether external state invalidated ``hold`` (hitstun, grab, etc.).
 
-        Ground charge holds also fail if the player leaves the ground without
-        transitioning into an actionable air state (e.g. falling off a platform
-        during smash charge).
+        Ground charge holds also fail whenever the player leaves the ground.
         """
         if hold.attack_type is AttackType.Z_AIR:
+            if self._current_attack_action(player, AttackType.Z_AIR) is not None:
+                return False
             if not self._character_state.can_attack(AttackType.Z_AIR):
                 return True
         elif hold.attack_type is AttackType.GRAB:
+            if self._current_attack_action(player, AttackType.GRAB) is not None:
+                return False
             if not self._character_state.can_attack(AttackType.GRAB):
                 return True
         elif not _can_attack_by_combat_state(player, self._frame_data):
@@ -1229,8 +1233,7 @@ class SimpleControls:
         }:
             return True
         if hold.charging and hold.attack_type in _GROUND_ATTACKS and not player.on_ground:
-            if not isinstance(player.action, Action) or player.action not in _ACTIONABLE_AIR:
-                return True
+            return True
         if hold.attack_type is AttackType.DASH_ATTACK:
             if isinstance(player.action, Action) and player.action == Action.DASH_ATTACK:
                 return False
@@ -1273,7 +1276,7 @@ class SimpleControls:
             return None
         if player.action not in _actions_for_attack_type(player.character, attack_type):
             return None
-        if attack_type in _GRAB_THROW_ATTACKS:
+        if attack_type in _GRAB_THROW_ATTACKS | {AttackType.GRAB, AttackType.Z_AIR}:
             return player.action
         if player.action in _CHARACTER_ALL_NORMAL_ACTIONS.get(player.character, ()):
             return player.action

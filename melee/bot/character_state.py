@@ -69,6 +69,8 @@ _ACTIONABLE_AIR: Final = frozenset(
         Action.PLATFORM_DROP,
     }
 )
+_JIGGLYPUFF_AERIAL_JUMP_IDS: Final = frozenset(range(341, 346))
+_PEACH_FLOAT_MOVEMENT_IDS: Final = frozenset({341, 342, 343})
 # DESNOTE(jbarber, 2026-08-22): DamageFall (TUMBLING) omits EscapeAir but checks
 # aerial specials, tether Z-air, aerial attacks, and aerial jump after hitstun.
 # Keep it attackable without adding it to the normal-air dodge set above.
@@ -234,6 +236,12 @@ _TAUNT_ACTIONS: Final = frozenset(
         Action.TAUNT_RIGHT,
     }
 )
+_CHARACTER_TAUNT_ACTIONS: Final[dict[Character, frozenset[Action]]] = {
+    Character.DOC: frozenset({Action(341), Action(342)}),
+    Character.YLINK: frozenset({Action(342), Action(343)}),
+    Character.FOX: frozenset(Action(action_id) for action_id in range(370, 376)),
+    Character.FALCO: frozenset(Action(action_id) for action_id in range(370, 376)),
+}
 _SHIELD_BREAK_ACTIONS: Final = frozenset(
     {
         Action.SHIELD_BREAK_FLY,
@@ -727,7 +735,7 @@ _SHIELD_START_ACTIONS: Final = frozenset(
 # DESNOTE(jbarber, 2026-08-22): Yoshi's character-specific guard actions occupy
 # raw IDs whose canonical Action aliases describe unrelated moves. GuardOn,
 # GuardHold, GuardOff, and GuardOn_1 have Escape paths; GuardDamage (344) does not.
-# Catch is absent from GuardOff, so its accepted raw-ID set is narrower.
+# GuardOff exposes only spot dodge, and Catch is absent from it.
 # See https://github.com/doldecomp/melee/blob/a983c0f9cd41d4a46001c493a1929891ac80f9ab/src/melee/ft/chara/ftYoshi/ftYs_Guard.c
 _YOSHI_SHIELD_IDS: Final = frozenset({341, 342, 343, 344, 345})
 _YOSHI_DODGEABLE_SHIELD_IDS: Final = frozenset({341, 342, 343, 345})
@@ -843,12 +851,7 @@ _ACTIONS_FOR_TYPE: Final = {
         "GRAB_PULLING",
         "GRAB_RUNNING_PULLING",
     ),
-    AttackType.Z_AIR: _action_set(
-        "GRAB",
-        "GRAB_RUNNING",
-        "GRAB_PULLING",
-        "GRAB_RUNNING_PULLING",
-    ),
+    AttackType.Z_AIR: frozenset(),
     AttackType.FTHROW: _action_set("THROW_FORWARD"),
     AttackType.BTHROW: _action_set("THROW_BACK"),
     AttackType.UTHROW: _action_set("THROW_UP"),
@@ -867,10 +870,20 @@ _CHARACTER_NORMAL_ACTIONS: Final[dict[Character, dict[AttackType, frozenset[Acti
         AttackType.DSMASH: frozenset({Action(345), Action(346), Action(347)}),
     },
     Character.PEACH: {
+        AttackType.NAIR: _ACTIONS_FOR_TYPE[AttackType.NAIR] | {Action(344)},
+        AttackType.FAIR: _ACTIONS_FOR_TYPE[AttackType.FAIR] | {Action(345)},
+        AttackType.BAIR: _ACTIONS_FOR_TYPE[AttackType.BAIR] | {Action(346)},
+        AttackType.UAIR: _ACTIONS_FOR_TYPE[AttackType.UAIR] | {Action(347)},
+        AttackType.DAIR: _ACTIONS_FOR_TYPE[AttackType.DAIR] | {Action(348)},
         AttackType.FSMASH: frozenset({Action(349), Action(350), Action(351)}),
     },
     Character.GAMEANDWATCH: {
+        AttackType.JAB: frozenset(Action(action_id) for action_id in range(341, 345)),
+        AttackType.DTILT: frozenset({Action(345)}),
         AttackType.FSMASH: frozenset({Action(346)}),
+        AttackType.NAIR: frozenset({Action(347), Action(350)}),
+        AttackType.BAIR: frozenset({Action(348), Action(351)}),
+        AttackType.UAIR: frozenset({Action(349), Action(352)}),
     },
     Character.LINK: {
         AttackType.FSMASH: _ACTIONS_FOR_TYPE[AttackType.FSMASH] | {Action(341)},
@@ -882,6 +895,11 @@ _CHARACTER_NORMAL_ACTIONS: Final[dict[Character, dict[AttackType, frozenset[Acti
 _CHARACTER_ALL_NORMAL_ACTIONS: Final[dict[Character, frozenset[Action]]] = {
     character: frozenset(action for actions in attacks.values() for action in actions)
     for character, attacks in _CHARACTER_NORMAL_ACTIONS.items()
+}
+_CHARACTER_Z_AIR_ACTIONS: Final[dict[Character, frozenset[Action]]] = {
+    Character.SAMUS: frozenset({Action(357), Action(358)}),
+    Character.LINK: frozenset({Action(360), Action(361)}),
+    Character.YLINK: frozenset({Action(360), Action(361)}),
 }
 
 # DESNOTE(jbarber, 2026-08-21): Action names are aliases for character-relative
@@ -910,6 +928,8 @@ def _actions_for_attack_type(
 ) -> frozenset[Action]:
     """Return active actions for a move, including character-specific aliases."""
     relative_attack_type = _relative_attack_type(attack_type)
+    if relative_attack_type is AttackType.Z_AIR:
+        return _CHARACTER_Z_AIR_ACTIONS.get(character, frozenset())
     character_normals = _CHARACTER_NORMAL_ACTIONS.get(character)
     if character_normals is not None and relative_attack_type in character_normals:
         return character_normals[relative_attack_type]
@@ -935,9 +955,18 @@ def _special_is_available(player: LibPlayerState, attack_type: AttackType) -> bo
     )
 
 
+def _is_actionable_air(player: LibPlayerState) -> bool:
+    return player.action in _ACTIONABLE_AIR or (
+        player.character is Character.JIGGLYPUFF and player.action.value in _JIGGLYPUFF_AERIAL_JUMP_IDS
+    )
+
+
 def _is_attackable_air(player: LibPlayerState) -> bool:
-    return player.action in _ATTACKABLE_AIR or (
-        player.character is Character.PEACH and player.action.value == 341
+    # Peach's character-owned Float IASA dispatches aerial attacks and specials.
+    return (
+        _is_actionable_air(player)
+        or player.action is Action.TUMBLING
+        or (player.character is Character.PEACH and player.action.value == 341)
     )
 
 
@@ -954,8 +983,13 @@ def _is_attack_action(
         action in _ALL_ATTACK_ACTIONS
         or action in _CHARACTER_ALL_NORMAL_ACTIONS.get(character, ())
         or action in _CHARACTER_ALL_SPECIAL_ACTIONS.get(character, ())
+        or action in _CHARACTER_Z_AIR_ACTIONS.get(character, ())
         or frame_data.is_attack(character, action)
     )
+
+
+def _is_taunt_action(character: Character, action: Action) -> bool:
+    return action in _TAUNT_ACTIONS or action in _CHARACTER_TAUNT_ACTIONS.get(character, ())
 
 
 class CharacterState:
@@ -1308,7 +1342,7 @@ def is_taunting(player: LibPlayerState, frame_data: FrameData | None = None) -> 
     """Return whether ``player`` is performing a taunt animation."""
     if frame_data is not None:
         return get_state(player, frame_data) is CharacterStatus.Taunting
-    return isinstance(player.action, Action) and player.action in _TAUNT_ACTIONS
+    return isinstance(player.action, Action) and _is_taunt_action(player.character, player.action)
 
 
 def can_taunt(player: LibPlayerState, frame_data: FrameData) -> bool:
@@ -1365,7 +1399,7 @@ def get_state(player: LibPlayerState, frame_data: FrameData) -> CharacterStatus:
         return CharacterStatus.Shielding
     if isinstance(player.action, Action) and frame_data.is_shield(player.action):
         return CharacterStatus.Shielding
-    if isinstance(player.action, Action) and player.action in _TAUNT_ACTIONS:
+    if isinstance(player.action, Action) and _is_taunt_action(player.character, player.action):
         return CharacterStatus.Taunting
     if isinstance(player.action, Action) and frame_data.is_roll(
         player.character,
@@ -1379,6 +1413,11 @@ def get_state(player: LibPlayerState, frame_data: FrameData) -> CharacterStatus:
         return CharacterStatus.Dodging
     if isinstance(player.action, Action) and player.action in _GRABBING_ENEMY_ACTIONS:
         return CharacterStatus.GrabbingEnemy
+    if isinstance(player.action, Action) and (
+        (player.character is Character.JIGGLYPUFF and player.action.value in _JIGGLYPUFF_AERIAL_JUMP_IDS)
+        or (player.character is Character.PEACH and player.action.value in _PEACH_FLOAT_MOVEMENT_IDS)
+    ):
+        return CharacterStatus.InAir
     if isinstance(player.action, Action) and _is_attack_action(
         player.character,
         player.action,
@@ -1642,7 +1681,7 @@ def can_airdodge(player: LibPlayerState, frame_data: FrameData) -> bool:
         return False
     if player.hitlag_left > 0 or _in_real_hitstun(player, frame_data):
         return False
-    return player.action in _ACTIONABLE_AIR
+    return _is_actionable_air(player)
 
 
 def can_jump(player: LibPlayerState, frame_data: FrameData) -> bool:
@@ -1674,7 +1713,10 @@ def can_jump(player: LibPlayerState, frame_data: FrameData) -> bool:
         return False
     if player.on_ground:
         return player.action in _GROUND_JUMP_ACTIONS
-    return player.jumps_left > 0 and player.action in _AIR_JUMP_ACTIONS
+    return player.jumps_left > 0 and (
+        player.action in _AIR_JUMP_ACTIONS
+        or (player.character is Character.JIGGLYPUFF and player.action.value in _JIGGLYPUFF_AERIAL_JUMP_IDS)
+    )
 
 
 @deprecated("Use can_attack(..., AttackType.GRAB) instead.")
@@ -1742,7 +1784,9 @@ def _stale_hitstun_is_actionable(player: LibPlayerState, frame_data: FrameData) 
         return True
     if action in _FALSE_HITSTUN_NEUTRAL_ACTIONS:
         return True
-    if action in _ACTIONABLE_AIR:
+    if _is_actionable_air(player):
+        return True
+    if _is_taunt_action(player.character, action):
         return True
     if _is_attack_action(player.character, action, frame_data):
         return True

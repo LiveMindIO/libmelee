@@ -186,7 +186,8 @@ token as `released` and records `release_frame`; do not reuse it.
 
 `CharacterState.can_jump()` (also available as `melee.bot.can_jump`) reports
 direct common ground jumps and remaining aerial jumps, including tumble,
-platform drop, and helpless `DEAD_FALL` / `SPECIAL_FALL_*`. It returns `True`
+platform drop, Jigglypuff's five character-owned aerial jumps, and helpless
+`DEAD_FALL` / `SPECIAL_FALL_*`. It returns `True`
 throughout common shield start, hold, reflect, and release. Yoshi can jump only
 from its character-owned GuardOn_1 powershield state. Shield stun and hitlag are
 not actionable, and jump squat itself cannot begin another jump.
@@ -196,8 +197,9 @@ early dash, and eligible shield phases; shield stun and `KNEE_BEND` are excluded
 Early-dash and shield-release results are action-level eligibility because their
 remaining engine windows are not exposed by `PlayerState`.
 `CharacterState.can_airdodge()` accepts normal `JUMPING_*` / `FALLING*` actions
-plus `PLATFORM_DROP`, and rejects active attacks, tumble, `AIRDODGE`, and helpless post-Up-B
-`DEAD_FALL` / `SPECIAL_FALL_*` states.
+plus `PLATFORM_DROP` and Jigglypuff's character-owned aerial jumps, and rejects
+active attacks, tumble, `AIRDODGE`, and helpless post-Up-B `DEAD_FALL` /
+`SPECIAL_FALL_*` states.
 `SimpleControls.shield(strength)` applies analog shield pressure without replacing
 stick or non-shoulder button input. `0` always releases; positive values below
 Melee's first usable trigger step (`43/140`, after its inclusive `0.3` deadzone)
@@ -208,7 +210,8 @@ start or continue.
 for `LEFT`/`RIGHT` or spot-dodge input for `DOWN` on the next committed frame
 when `can_dodge()` succeeds. During early dash it accepts only the absolute
 forward direction because Melee forces a forward roll; during shield release it
-accepts only `DOWN` for spot dodge.
+accepts only `DOWN` for spot dodge, and Yoshi's GuardOff state likewise permits
+only the `DOWN` spot-dodge path.
 `SimpleControls.air_dodge(axis, angle_degrees=0, magnitude=1)` sets the
 corresponding absolute main-stick vector when `can_airdodge()` succeeds. Both
 reset pending inputs before pressing digital L by
@@ -360,12 +363,14 @@ Libmelee includes concrete technique montages:
   the resulting one-frame turn state.
 - `SmashAttackMontage(axis, max_charge_frames=60)` maps cardinal axes to up,
   down, absolute-left, and absolute-right smashes. Zero requests minimum charge;
-  2 through 60 request exact engine charge ticks. One is rejected because current
-  game-state telemetry cannot expose charge-window entry before that tick occurs.
-  Startup animation does not count. Character-owned Ness, Peach, and Game & Watch smash states are
-  recognized. `release_charge()` queues an earlier release on the next active tick without cancelling the montage.
-  `current_power()` reports the accumulated `1.0` through `1.3671` damage
-  multiplier, and `get_framedata()` exposes typed attack metadata after initiation.
+  values 2 through 60 bound the engine charge counter without counting startup
+  animation. One tick cannot be requested because Melee increments before
+  consuming released A. Character-owned Ness, Peach, and Game & Watch smash
+  states are recognized. `release_charge()` queues an earlier release on the next
+  active tick without cancelling the montage. `current_power()` reports the
+  projected `1.0` through `1.3671` damage multiplier that the released smash uses.
+  Losing ground while charging aborts and neutralizes rather than issuing an
+  aerial. `get_framedata()` exposes typed attack metadata after initiation.
 - `LinkBowMontage()` starts Link or Young Link's grounded or aerial neutral-B.
   `release()` queues the shot for the first safe active tick, `can_release()`
   reports when that transition is available, and `current_power()` reports the

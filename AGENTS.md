@@ -163,14 +163,16 @@ uv pip install --python .venv/bin/python .
   before its down-inward air dodge. It presses jump for exactly one input frame and
   leaves X/Y neutral throughout the rise; confirmed jumps remain confirmed through
   apex, but landing or leaving neutral aerial movement before clearance aborts the route.
-  `SmashAttackMontage(axis, max_charge_frames=60)` bounds engine charge-window
-  retention at zero (minimum charge) or 2 through Melee's 60-frame maximum without
-  counting startup animation. One frame is rejected because available state cannot
-  expose charge-window entry before that frame occurs. It recognizes Ness, Peach, and Game & Watch's
-  character-owned normal-smash states. `release_charge()`
+  `SmashAttackMontage(axis, max_charge_frames=60)` bounds the engine charge
+  counter at zero (minimum charge) or 2 through Melee's 60-frame maximum without
+  counting startup animation; one tick cannot be requested because Melee
+  increments before consuming released A. It recognizes Ness, Peach, and Game &
+  Watch's character-owned normal-smash states. `release_charge()`
   idempotently queues an earlier release for the next active tick; cancellation
-  abandons the attack instead. `current_power()` returns the projected engine
-  `1.0` through `1.3671` damage multiplier. The montage confirms startup before succeeding.
+  abandons the attack instead. `current_power()` returns the locally observed
+  and final-release-projected `1.0` through `1.3671` damage multiplier. Ground
+  loss aborts and neutralizes rather than reinterpreting the hold as an aerial.
+  The montage confirms startup before succeeding.
   `LinkBowMontage` supports Link and Young Link on the ground or in air.
   `release()` queues the shot; `can_release()` and normalized `current_power()`
   become available on the first safe release frame and return unavailable after
@@ -273,10 +275,11 @@ uv pip install --python .venv/bin/python .
   eligible shield phases. Shield stun and `KNEE_BEND` are false; dash and shield
   release remain action-level answers because their hidden engine windows are not
   represented by `PlayerState`. Yoshi's raw 341-345 guard states are handled
-  character-aware.
-- `can_airdodge()` is true in the normal `_ACTIONABLE_AIR` jump/fall actions and
-  `PLATFORM_DROP`. It rejects tumble, active air dodge, attacks, and helpless post-Up-B
-  `DEAD_FALL` / `SPECIAL_FALL_*` states. A final-frame `KNEE_BEND` input used by
+  character-aware; GuardOff accepts only `DOWN` for its spot-dodge path.
+- `can_airdodge()` is true in the normal `_ACTIONABLE_AIR` jump/fall actions,
+  `PLATFORM_DROP`, and Jigglypuff's character-owned aerial jumps. It rejects
+  tumble, active air dodge, attacks, and helpless post-Up-B `DEAD_FALL` /
+  `SPECIAL_FALL_*` states. A final-frame `KNEE_BEND` input used by
   Wavedash schedules next-frame air dodge but is not itself eligible.
 - `HorizontalStickReferenceAxis` is the strict `LEFT | RIGHT` subset returned by
   `CharacterState.forward_axis()` / `backward_axis()`. `GroundDodgeStickReferenceAxis`
@@ -289,6 +292,10 @@ uv pip install --python .venv/bin/python .
   shoulder remain latched until the caller replaces or clears them later. During
   early dash, `dodge()` accepts only the absolute forward direction because Melee
   forces a forward roll; during shield release, it accepts only down for spot dodge.
+- Character-relative recognition covers Peach float aerials, Game & Watch
+  normals, Samus/Link/Young Link tether-grab states, and Dr. Mario/Young
+  Link/Fox/Falco character-owned taunts. Active grab and Z-air holds are
+  recognized before start-only eligibility is reapplied.
 - `can_jump()` accepts direct common ground jump paths and a remaining aerial
   jump from normal air, tumble, platform drop, and helpless FallSpecial states.
   It rejects `KNEE_BEND`, landing, shield stun, and hitlag.
