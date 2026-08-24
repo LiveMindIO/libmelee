@@ -25,7 +25,16 @@ from typing_extensions import deprecated
 from melee.bot.framedata_query import _SPECIAL_SLOT_ACTION_IDS
 from melee.enums import Action, Character
 from melee.framedata import FrameData
-from melee.gamestate import GameState, UnknownAnimation
+from melee.gamestate import (
+    GameState,
+    StageLedge,
+    StageLedgeSide,
+    StagePoint,
+    StageSegment,
+    StageSurface,
+    StageSurfaceKind,
+    UnknownAnimation,
+)
 from melee.gamestate import PlayerState as LibPlayerState
 
 # Ground locomotion states where Slippi may falsely report hitstun_frames_left=1.
@@ -903,6 +912,53 @@ def _is_attack_action(
     )
 
 
+_PLATFORM_KINDS: Final = frozenset(
+    {StageSurfaceKind.SOLID_FLOOR, StageSurfaceKind.SEMISOLID}
+)
+_WALL_KINDS: Final = frozenset(
+    {StageSurfaceKind.LEFT_WALL, StageSurfaceKind.RIGHT_WALL}
+)
+_PLATFORM_DROP_ACTIONS: Final = frozenset(
+    {
+        Action.STANDING,
+        Action.WALK_SLOW,
+        Action.WALK_MIDDLE,
+        Action.WALK_FAST,
+        Action.RUN_BRAKE,
+        Action.CROUCH_START,
+        Action.CROUCHING,
+    }
+)
+
+
+def _point_distance_squared(first: StagePoint, second: StagePoint) -> float:
+    return (first.x - second.x) ** 2 + (first.y - second.y) ** 2
+
+
+def _segment_distance_squared(point: StagePoint, segment: StageSegment) -> float:
+    delta_x = segment.end.x - segment.start.x
+    delta_y = segment.end.y - segment.start.y
+    length_squared = delta_x**2 + delta_y**2
+    if length_squared == 0:
+        return _point_distance_squared(point, segment.start)
+    projection = (
+        (point.x - segment.start.x) * delta_x
+        + (point.y - segment.start.y) * delta_y
+    ) / length_squared
+    projection = min(1.0, max(0.0, projection))
+    closest = StagePoint(
+        x=segment.start.x + projection * delta_x,
+        y=segment.start.y + projection * delta_y,
+    )
+    return _point_distance_squared(point, closest)
+
+
+def _surface_distance_squared(point: StagePoint, surface: StageSurface) -> float:
+    return min(
+        _segment_distance_squared(point, segment) for segment in surface.segments
+    )
+
+
 class CharacterState:
     """Read-only high-level state for one controller port.
 
@@ -1039,6 +1095,144 @@ class CharacterState:
         ``PlayerState`` lookup.
         """
         return self._game_state.players.get(self._port)
+
+    @property
+    def nearest_grabbable_ledge(self) -> StageLedge | None:
+        """Grabbable ledge nearest to the character's current position."""
+        geometry = self._game_state.stage_geometry
+        if geometry is None or not geometry.ledges or self.player() is None:
+            return None
+        position = self._stage_position()
+        return min(
+            geometry.ledges,
+            key=lambda ledge: _point_distance_squared(position, ledge.position),
+        )
+
+    @property
+    def nearest_platform(self) -> StageSurface | None:
+        """Nearest solid or drop-through continuous platform."""
+        return self._nearest_surface(_PLATFORM_KINDS)
+
+    @property
+    def nearest_solid_platform(self) -> StageSurface | None:
+        """Nearest continuous solid floor surface."""
+        return self._nearest_surface(frozenset({StageSurfaceKind.SOLID_FLOOR}))
+
+    @property
+    def nearest_semisolid_platform(self) -> StageSurface | None:
+        """Nearest continuous drop-through platform surface."""
+        return self._nearest_surface(frozenset({StageSurfaceKind.SEMISOLID}))
+
+    @property
+    def nearest_left_wall(self) -> StageSurface | None:
+        """Nearest continuous left-wall surface."""
+        return self._nearest_surface(frozenset({StageSurfaceKind.LEFT_WALL}))
+
+    @property
+    def nearest_right_wall(self) -> StageSurface | None:
+        """Nearest continuous right-wall surface."""
+        return self._nearest_surface(frozenset({StageSurfaceKind.RIGHT_WALL}))
+
+    @property
+    def nearest_wall(self) -> StageSurface | None:
+        """Nearest continuous wall surface on either side."""
+        return self._nearest_surface(_WALL_KINDS)
+
+    @property
+    def current_stage_segment(self) -> StageSegment | None:
+        """Floor segment under the grounded character, otherwise ``None``."""
+        player = self.player()
+        geometry = self._game_state.stage_geometry
+        if player is None or not player.on_ground or geometry is None:
+            return None
+        position = self._stage_position()
+        floor_segments = (
+            segment for segment in geometry.segments if segment.kind in _PLATFORM_KINDS
+        )
+        segment = min(
+            floor_segments,
+            key=lambda candidate: _segment_distance_squared(position, candidate),
+            default=None,
+        )
+        if segment is None:
+            return None
+        return segment
+
+    @property
+    def current_stage_surface(self) -> StageSurface | None:
+        """Continuous floor surface currently supporting the grounded character."""
+        segment = self.current_stage_segment
+        geometry = self._game_state.stage_geometry
+        if segment is None or geometry is None:
+            return None
+        return next(
+            (surface for surface in geometry.surfaces if segment in surface.segments),
+            None,
+        )
+
+    @property
+    def left_ledge_distance(self) -> float | None:
+        """Horizontal distance to the left grabbable ledge of the current surface."""
+        return self._current_surface_ledge_distance(StageLedgeSide.LEFT)
+
+    @property
+    def right_ledge_distance(self) -> float | None:
+        """Horizontal distance to the right grabbable ledge of the current surface."""
+        return self._current_surface_ledge_distance(StageLedgeSide.RIGHT)
+
+    @property
+    def left_segment_edge_distance(self) -> float | None:
+        """Horizontal distance to the current segment's left endpoint."""
+        segment = self.current_stage_segment
+        if segment is None:
+            return None
+        return abs(self.position_x - min(segment.start.x, segment.end.x))
+
+    @property
+    def right_segment_edge_distance(self) -> float | None:
+        """Horizontal distance to the current segment's right endpoint."""
+        segment = self.current_stage_segment
+        if segment is None:
+            return None
+        return abs(max(segment.start.x, segment.end.x) - self.position_x)
+
+    def _stage_position(self) -> StagePoint:
+        return StagePoint(x=self.position_x, y=self.position_y)
+
+    def _nearest_surface(
+        self,
+        kinds: frozenset[StageSurfaceKind],
+    ) -> StageSurface | None:
+        geometry = self._game_state.stage_geometry
+        if geometry is None or self.player() is None:
+            return None
+        position = self._stage_position()
+        surfaces = (surface for surface in geometry.surfaces if surface.kind in kinds)
+        return min(
+            surfaces,
+            key=lambda surface: _surface_distance_squared(position, surface),
+            default=None,
+        )
+
+    def _current_surface_ledge_distance(
+        self,
+        side: StageLedgeSide,
+    ) -> float | None:
+        surface = self.current_stage_surface
+        geometry = self._game_state.stage_geometry
+        if surface is None or geometry is None:
+            return None
+        line_ids = {segment.line_id for segment in surface.segments}
+        ledges = tuple(
+            ledge
+            for ledge in geometry.ledges
+            if ledge.line_id in line_ids and ledge.side is side
+        )
+        if not ledges:
+            return None
+        select = min if side is StageLedgeSide.LEFT else max
+        ledge = select(ledges, key=lambda candidate: candidate.position.x)
+        return abs(self.position_x - ledge.position.x)
 
     def forward_axis(self) -> HorizontalStickReferenceAxis:
         """Return the absolute horizontal axis the bound player faces.
@@ -1204,6 +1398,19 @@ class CharacterState:
         if target is None:
             return False
         return can_jump(target, self._frame_data)
+
+    def can_platform_drop(self) -> bool:
+        """Return whether down input can drop through the supporting semisolid."""
+        target = self.player()
+        segment = self.current_stage_segment
+        if (
+            target is None
+            or segment is None
+            or segment.kind is not StageSurfaceKind.SEMISOLID
+            or not isinstance(target.action, Action)
+        ):
+            return False
+        return target.action in _PLATFORM_DROP_ACTIONS
 
     @deprecated("Use can_attack(AttackType.GRAB) instead.")
     def can_grab(self) -> bool:

@@ -322,6 +322,11 @@ Libmelee includes concrete technique montages:
   follows the proven SmashBot standard-stage heuristic; override it for other
   geometry or character-specific routes. Once the double jump is confirmed, later
   falling or apex frames do not invalidate that completed phase.
+- `SimpleControls.platform_drop()` requests one main-stick-down input only when
+  `CharacterState.can_platform_drop()` confirms an actionable grounded
+  semisolid. It intentionally does not fast fall. `PlatformDropFastFallMontage`
+  observes `PLATFORM_DROP`, commits neutral to reset Melee's down-tap timer,
+  presses down again, and succeeds at the character's `FastFallSpeed`.
 - `SDIMontage` identifies damage victims instead of reacting to attacker or grab
   hitlag. During damage hitlag it alternates full-stick diagonals around a requested cardinal for
   one regular SDI pulse per frame. Horizontal shield SDI alternates the target

@@ -492,6 +492,18 @@ class SimpleControls:
         """
         self.tilt_stick(self._character_state.backward_axis(), 0.0)
 
+    def platform_drop(self) -> bool:
+        """Request a non-fast-fall drop through the supporting semisolid.
+
+        Returns ``False`` unless :meth:`CharacterState.can_platform_drop` is
+        true. The main-stick-down request persists until the caller changes it;
+        Melee suppresses immediate fast fall when it enters ``PLATFORM_DROP``.
+        """
+        if not self._character_state.can_platform_drop():
+            return False
+        self.tilt_stick(StickReferenceAxis.DOWN, 0.0)
+        return True
+
     def dodge(
         self,
         direction: GroundDodgeStickReferenceAxis,
