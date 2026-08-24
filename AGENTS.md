@@ -212,6 +212,10 @@ uv pip install --python .venv/bin/python .
   commit during their script/decomp-backed windows at frames 19-49 and 20-49;
   shared action 341 confirms success.
   First-slash hitlag extends the safety budget one-for-one so late timing remains valid.
+  `SimpleControls.platform_drop()` is the one-input non-fast-fall path and is
+  gated by `CharacterState.can_platform_drop()` plus current semisolid geometry.
+  `PlatformDropFastFallMontage` observes the drop, commits neutral to reset the
+  down-tap timer, presses down again, and confirms character-specific fast-fall speed.
   `SDIMontage` excludes attacker and grab hitlag, alternates diagonal main-stick
   pulses during damage hitlag, ignores vertical shield windows, uses target-neutral
   pulses for horizontal shield SDI, queues cardinal C-stick ASDI as damage hitlag

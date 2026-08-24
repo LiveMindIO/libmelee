@@ -19,6 +19,74 @@ class Position:
 Speed = Position
 Cursor = Position
 
+
+class StageSurfaceKind(Enum):
+    """Interactable stage collision surface categories."""
+
+    SOLID_FLOOR = "solid_floor"
+    SEMISOLID = "semisolid"
+    LEFT_WALL = "left_wall"
+    RIGHT_WALL = "right_wall"
+
+
+class StageLedgeSide(Enum):
+    """The side of a connected floor chain exposed by a grabbable ledge."""
+
+    LEFT = "left"
+    RIGHT = "right"
+
+
+@dataclass(frozen=True, slots=True)
+class StagePoint:
+    """World-space point in Melee stage coordinates."""
+
+    x: float
+    y: float
+
+
+@dataclass(frozen=True, slots=True)
+class StageSegment:
+    """One currently enabled interactable collision line."""
+
+    line_id: int
+    start: StagePoint
+    end: StagePoint
+    kind: StageSurfaceKind
+
+
+@dataclass(frozen=True, slots=True)
+class StageSurface:
+    """One continuous interactable surface composed of collision segments."""
+
+    kind: StageSurfaceKind
+    segments: tuple[StageSegment, ...]
+
+    def __post_init__(self) -> None:
+        if not self.segments:
+            raise ValueError("stage surface must contain at least one segment")
+        if any(segment.kind is not self.kind for segment in self.segments):
+            raise ValueError("stage surface segments must have the same kind")
+
+
+@dataclass(frozen=True, slots=True)
+class StageLedge:
+    """One currently enabled endpoint eligible for ledge grabs."""
+
+    line_id: int
+    position: StagePoint
+    side: StageLedgeSide
+
+
+@dataclass(frozen=True, slots=True)
+class StageGeometry:
+    """Immutable snapshot of interactable stage collision geometry."""
+
+    stage: enums.Stage
+    requested_at_frame: int
+    segments: tuple[StageSegment, ...] = ()
+    surfaces: tuple[StageSurface, ...] = ()
+    ledges: tuple[StageLedge, ...] = ()
+
 @dataclass(slots=True)
 class ECB:
     """ECBs (Environmental collision box) info. It's a diamond with four points that define it."""
@@ -115,6 +183,7 @@ class GameState:
     whispy: Optional[WhispyBlowDirection] = None
     fod_platforms: Optional[FoDPlatforms] = None
     stadium_transformation: Optional[StadiumTransformation] = None
+    stage_geometry: Optional[StageGeometry] = None
 
     menu_state: enums.Menu = enums.Menu.IN_GAME
     """enums.MenuState: The current menu scene, such as IN_GAME, or STAGE_SELECT"""

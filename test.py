@@ -44,6 +44,7 @@ from melee.bot import (
     MontageState,
     MultishineMontage,
     PerfectPivotMontage,
+    PlatformDropFastFallMontage,
     PreTickResult,
     QuickAttackDirection,
     QuickAttackMontage,
@@ -98,6 +99,285 @@ class RecordingStrategy(Strategy[object]):
 
     def tick(self, *args, **kwargs):
         return self.result
+
+
+class StageGeometryTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.frame_data = melee.FrameData()
+
+    def test_game_state_defaults_to_no_geometry(self):
+        self.assertIsNone(melee.GameState().stage_geometry)
+
+    def test_geometry_snapshot_is_immutable(self):
+        point = melee.StagePoint(x=-10.0, y=0.0)
+        segment = melee.StageSegment(
+            line_id=7,
+            start=point,
+            end=melee.StagePoint(x=10.0, y=0.0),
+            kind=melee.StageSurfaceKind.SOLID_FLOOR,
+        )
+        surface = melee.StageSurface(
+            kind=melee.StageSurfaceKind.SOLID_FLOOR,
+            segments=(segment,),
+        )
+        geometry = melee.StageGeometry(
+            stage=melee.Stage.FINAL_DESTINATION,
+            requested_at_frame=120,
+            segments=(segment,),
+            surfaces=(surface,),
+        )
+
+        with self.assertRaises(AttributeError):
+            geometry.requested_at_frame = 121
+
+    def test_surface_requires_same_kind_nonempty_segments(self):
+        solid = self._segment(1, (-10.0, 0.0), (0.0, 0.0), melee.StageSurfaceKind.SOLID_FLOOR)
+        semisolid = self._segment(2, (0.0, 5.0), (10.0, 5.0), melee.StageSurfaceKind.SEMISOLID)
+
+        with self.assertRaisesRegex(ValueError, "at least one"):
+            melee.StageSurface(kind=melee.StageSurfaceKind.SOLID_FLOOR, segments=())
+        with self.assertRaisesRegex(ValueError, "same kind"):
+            melee.StageSurface(
+                kind=melee.StageSurfaceKind.SOLID_FLOOR,
+                segments=(solid, semisolid),
+            )
+
+    def test_character_state_exposes_nearest_stage_geometry(self):
+        geometry, expected = self._geometry()
+        game_state = melee.GameState(
+            players={
+                1: melee.PlayerState(
+                    position=melee.Position(x=4.0, y=0.0),
+                    on_ground=True,
+                )
+            },
+            stage_geometry=geometry,
+        )
+        character = CharacterState(game_state, 1, frame_data=self.frame_data)
+
+        self.assertIs(character.nearest_grabbable_ledge, expected["right_ledge"])
+        self.assertIs(character.nearest_platform, expected["solid_surface"])
+        self.assertIs(character.nearest_solid_platform, expected["solid_surface"])
+        self.assertIs(character.nearest_semisolid_platform, expected["semisolid_surface"])
+        self.assertIs(character.nearest_left_wall, expected["left_wall_surface"])
+        self.assertIs(character.nearest_right_wall, expected["right_wall_surface"])
+        self.assertIs(character.nearest_wall, expected["right_wall_surface"])
+        self.assertIs(character.current_stage_segment, expected["right_floor_segment"])
+        self.assertIs(character.current_stage_surface, expected["solid_surface"])
+        self.assertEqual(character.left_ledge_distance, 14.0)
+        self.assertEqual(character.right_ledge_distance, 6.0)
+        self.assertEqual(character.left_segment_edge_distance, 4.0)
+        self.assertEqual(character.right_segment_edge_distance, 6.0)
+
+    def test_current_stage_geometry_is_none_while_airborne(self):
+        geometry, expected = self._geometry()
+        game_state = melee.GameState(
+            players={
+                1: melee.PlayerState(
+                    position=melee.Position(x=4.0, y=2.0),
+                    on_ground=False,
+                )
+            },
+            stage_geometry=geometry,
+        )
+        character = CharacterState(game_state, 1, frame_data=self.frame_data)
+
+        self.assertIsNone(character.current_stage_segment)
+        self.assertIsNone(character.current_stage_surface)
+        self.assertIsNone(character.left_ledge_distance)
+        self.assertIsNone(character.right_ledge_distance)
+        self.assertIsNone(character.left_segment_edge_distance)
+        self.assertIsNone(character.right_segment_edge_distance)
+        self.assertIs(character.nearest_platform, expected["solid_surface"])
+
+    def test_current_stage_geometry_uses_nearest_segment_when_grounded(self):
+        geometry, expected = self._geometry()
+        game_state = melee.GameState(
+            players={
+                1: melee.PlayerState(
+                    position=melee.Position(x=100.0, y=100.0),
+                    on_ground=True,
+                )
+            },
+            stage_geometry=geometry,
+        )
+        character = CharacterState(game_state, 1, frame_data=self.frame_data)
+
+        self.assertIs(character.current_stage_segment, expected["right_floor_segment"])
+        self.assertIs(character.current_stage_surface, expected["solid_surface"])
+
+    def test_grounded_surface_without_grabbable_ledges_has_no_ledge_distance(self):
+        geometry, expected = self._geometry()
+        game_state = melee.GameState(
+            players={
+                1: melee.PlayerState(
+                    position=melee.Position(x=0.0, y=6.0),
+                    on_ground=True,
+                )
+            },
+            stage_geometry=geometry,
+        )
+        character = CharacterState(game_state, 1, frame_data=self.frame_data)
+
+        self.assertIs(character.current_stage_surface, expected["semisolid_surface"])
+        self.assertIsNone(character.left_ledge_distance)
+        self.assertIsNone(character.right_ledge_distance)
+        self.assertEqual(character.left_segment_edge_distance, 3.0)
+        self.assertEqual(character.right_segment_edge_distance, 3.0)
+
+    def test_can_platform_drop_requires_actionable_grounded_semisolid(self):
+        geometry, _ = self._geometry()
+        for action, on_ground, y, expected in (
+            (melee.Action.STANDING, True, 6.0, True),
+            (melee.Action.RUN_BRAKE, True, 6.0, True),
+            (melee.Action.SHIELD, True, 6.0, False),
+            (melee.Action.KNEE_BEND, True, 6.0, False),
+            (melee.Action.LANDING, True, 6.0, False),
+            (melee.Action.NEUTRAL_ATTACK_1, True, 6.0, False),
+            (melee.Action.STANDING, False, 6.0, False),
+            (melee.Action.STANDING, True, 0.0, False),
+        ):
+            with self.subTest(action=action, on_ground=on_ground, y=y):
+                game_state = melee.GameState(
+                    players={
+                        1: melee.PlayerState(
+                            position=melee.Position(x=0.0, y=y),
+                            action=action,
+                            on_ground=on_ground,
+                        )
+                    },
+                    stage_geometry=geometry,
+                )
+                character = CharacterState(game_state, 1, frame_data=self.frame_data)
+                self.assertIs(character.can_platform_drop(), expected)
+
+    def test_simple_controls_platform_drop_is_one_main_stick_input(self):
+        geometry, _ = self._geometry()
+        game_state = melee.GameState(
+            players={
+                1: melee.PlayerState(
+                    position=melee.Position(x=0.0, y=6.0),
+                    action=melee.Action.STANDING,
+                    on_ground=True,
+                )
+            },
+            stage_geometry=geometry,
+        )
+        controller = RecordingSimpleController()
+        controls = SimpleControls(
+            game_state,
+            1,
+            controller,
+            frame_data=self.frame_data,
+        )
+
+        self.assertTrue(controls.platform_drop())
+        self.assertEqual(controller.main_stick, (0.5, 0.0))
+        self.assertEqual(controller.c_stick, (0.5, 0.5))
+
+    def test_stage_queries_require_geometry_and_bound_player(self):
+        geometry, _ = self._geometry()
+        without_geometry = CharacterState(
+            melee.GameState(players={1: melee.PlayerState()}),
+            1,
+            frame_data=self.frame_data,
+        )
+        without_player = CharacterState(
+            melee.GameState(stage_geometry=geometry),
+            1,
+            frame_data=self.frame_data,
+        )
+
+        for character in (without_geometry, without_player):
+            self.assertIsNone(character.nearest_grabbable_ledge)
+            self.assertIsNone(character.nearest_platform)
+            self.assertIsNone(character.nearest_solid_platform)
+            self.assertIsNone(character.nearest_semisolid_platform)
+            self.assertIsNone(character.nearest_left_wall)
+            self.assertIsNone(character.nearest_right_wall)
+            self.assertIsNone(character.nearest_wall)
+            self.assertIsNone(character.current_stage_segment)
+            self.assertIsNone(character.current_stage_surface)
+            self.assertIsNone(character.left_ledge_distance)
+            self.assertIsNone(character.right_ledge_distance)
+            self.assertIsNone(character.left_segment_edge_distance)
+            self.assertIsNone(character.right_segment_edge_distance)
+
+    @staticmethod
+    def _segment(line_id, start, end, kind):
+        return melee.StageSegment(
+            line_id=line_id,
+            start=melee.StagePoint(*start),
+            end=melee.StagePoint(*end),
+            kind=kind,
+        )
+
+    @classmethod
+    def _geometry(cls):
+        solid_left = cls._segment(
+            1, (-10.0, 0.0), (0.0, 0.0), melee.StageSurfaceKind.SOLID_FLOOR
+        )
+        solid_right = cls._segment(
+            2, (0.0, 0.0), (10.0, 0.0), melee.StageSurfaceKind.SOLID_FLOOR
+        )
+        semisolid = cls._segment(
+            3, (-3.0, 6.0), (3.0, 6.0), melee.StageSurfaceKind.SEMISOLID
+        )
+        left_wall = cls._segment(
+            4, (-10.0, -10.0), (-10.0, 0.0), melee.StageSurfaceKind.LEFT_WALL
+        )
+        right_wall = cls._segment(
+            5, (10.0, 0.0), (10.0, -10.0), melee.StageSurfaceKind.RIGHT_WALL
+        )
+        solid_surface = melee.StageSurface(
+            kind=melee.StageSurfaceKind.SOLID_FLOOR,
+            segments=(solid_left, solid_right),
+        )
+        semisolid_surface = melee.StageSurface(
+            kind=melee.StageSurfaceKind.SEMISOLID,
+            segments=(semisolid,),
+        )
+        left_wall_surface = melee.StageSurface(
+            kind=melee.StageSurfaceKind.LEFT_WALL,
+            segments=(left_wall,),
+        )
+        right_wall_surface = melee.StageSurface(
+            kind=melee.StageSurfaceKind.RIGHT_WALL,
+            segments=(right_wall,),
+        )
+        left_ledge = melee.StageLedge(
+            line_id=1,
+            position=melee.StagePoint(x=-10.0, y=0.0),
+            side=melee.StageLedgeSide.LEFT,
+        )
+        right_ledge = melee.StageLedge(
+            line_id=2,
+            position=melee.StagePoint(x=10.0, y=0.0),
+            side=melee.StageLedgeSide.RIGHT,
+        )
+        segments = (solid_left, solid_right, semisolid, left_wall, right_wall)
+        surfaces = (
+            solid_surface,
+            semisolid_surface,
+            left_wall_surface,
+            right_wall_surface,
+        )
+        geometry = melee.StageGeometry(
+            stage=melee.Stage.FINAL_DESTINATION,
+            requested_at_frame=100,
+            segments=segments,
+            surfaces=surfaces,
+            ledges=(left_ledge, right_ledge),
+        )
+        return geometry, {
+            "right_floor_segment": solid_right,
+            "solid_surface": solid_surface,
+            "semisolid_surface": semisolid_surface,
+            "left_wall_surface": left_wall_surface,
+            "right_wall_surface": right_wall_surface,
+            "right_ledge": right_ledge,
+        }
 
 
 class ListenerTests(unittest.TestCase):
@@ -3550,6 +3830,10 @@ class RecordingTechniqueControls:
     def tilt_analog(self, button, x, y):
         self.calls.append(("tilt_analog", button, x, y))
 
+    def platform_drop(self):
+        self.calls.append(("platform_drop",))
+        return True
+
     def take_calls(self):
         calls = self.calls
         self.calls = []
@@ -3583,6 +3867,7 @@ class TechniqueMontageTests(unittest.TestCase):
             (SheikNeedleStormMontage(), "Needle Storm"),
             (ShieldBreakerMontage(), "Shield Breaker"),
             (PerfectPivotMontage(AttackType.JAB), "Perfect Pivot"),
+            (PlatformDropFastFallMontage(), "Platform Drop Fast Fall"),
             (
                 QuickAttackMontage(QuickAttackDirection(StickReferenceAxis.UP)),
                 "Quick Attack / Agility",
@@ -3612,6 +3897,127 @@ class TechniqueMontageTests(unittest.TestCase):
         for axis, name in names.items():
             with self.subTest(axis=axis):
                 self.assertEqual(SmashAttackMontage(axis).get_name(), name)
+
+    def test_platform_drop_fast_fall_resets_down_before_second_press(self):
+        montage = PlatformDropFastFallMontage()
+        geometry, _ = StageGeometryTests._geometry()
+
+        for action in (melee.Action.STANDING, melee.Action.CROUCHING):
+            self.assertIs(
+                self.tick(
+                    montage,
+                    action,
+                    stage_geometry=geometry,
+                    position_y=6.0,
+                ),
+                montage,
+            )
+            self.assertEqual(
+                self.controls.take_calls(),
+                [("release_all",), ("platform_drop",)],
+            )
+
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action.PLATFORM_DROP,
+                stage_geometry=geometry,
+                on_ground=False,
+                position_y=5.5,
+                speed_y_self=-0.1,
+            ),
+            montage,
+        )
+        self.assertEqual(self.controls.take_calls(), [("release_all",)])
+
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action.PLATFORM_DROP,
+                stage_geometry=geometry,
+                on_ground=False,
+                position_y=5.0,
+                speed_y_self=-0.2,
+            ),
+            montage,
+        )
+        self.assertEqual(
+            self.controls.take_calls(),
+            [
+                ("release_all",),
+                (
+                    "tilt_stick",
+                    StickReferenceAxis.DOWN,
+                    0.0,
+                    1.0,
+                    melee.Button.BUTTON_MAIN,
+                ),
+            ],
+        )
+
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action.FALLING,
+                stage_geometry=geometry,
+                on_ground=False,
+                position_y=4.0,
+                speed_y_self=-0.5,
+            ),
+            montage,
+        )
+        self.assertEqual(
+            self.controls.take_calls(),
+            [
+                ("release_all",),
+                (
+                    "tilt_stick",
+                    StickReferenceAxis.DOWN,
+                    0.0,
+                    1.0,
+                    melee.Button.BUTTON_MAIN,
+                ),
+            ],
+        )
+
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action.FALLING,
+                stage_geometry=geometry,
+                on_ground=False,
+                position_y=3.0,
+                speed_y_self=-3.4,
+            ),
+            True,
+        )
+        self.assertEqual(self.controls.take_calls(), [("release_all",)])
+
+    def test_platform_drop_fast_fall_rejects_falling_without_platform_drop(self):
+        montage = PlatformDropFastFallMontage()
+        geometry, _ = StageGeometryTests._geometry()
+
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action.STANDING,
+                stage_geometry=geometry,
+                position_y=6.0,
+            ),
+            montage,
+        )
+        self.controls.take_calls()
+
+        result = self.tick(
+            montage,
+            melee.Action.FALLING,
+            stage_geometry=geometry,
+            on_ground=False,
+            position_y=5.0,
+        )
+
+        self.assertIsInstance(result, Abort)
+        self.assertIn("without dropping through", result.reason)
 
     def requested_stick_coordinates(
         self,
@@ -3646,8 +4052,9 @@ class TechniqueMontageTests(unittest.TestCase):
         stock=4,
         facing=True,
         neutral_b_charge=None,
+        stage_geometry=None,
     ):
-        game_state = melee.GameState(frame=self.frame)
+        game_state = melee.GameState(frame=self.frame, stage_geometry=stage_geometry)
         player = melee.PlayerState(
             character=character,
             action=action,

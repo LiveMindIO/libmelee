@@ -14,6 +14,7 @@ from melee.bot.techskill.link_bow import LinkBowMontage
 from melee.bot.techskill.link_forward_smash import LinkForwardSmashMontage
 from melee.bot.techskill.multishine import MultishineMontage
 from melee.bot.techskill.perfect_pivot import PerfectPivotMontage
+from melee.bot.techskill.platform_drop import PlatformDropFastFallMontage
 from melee.bot.techskill.quick_attack import QuickAttackDirection, QuickAttackMontage
 from melee.bot.techskill.sdi import SDIMontage
 from melee.bot.techskill.smash_attack import SmashAttackMontage
@@ -41,6 +42,7 @@ __all__ = [
     "MewtwoShadowBallMontage",
     "MultishineMontage",
     "PerfectPivotMontage",
+    "PlatformDropFastFallMontage",
     "QuickAttackDirection",
     "QuickAttackMontage",
     "SDIMontage",
