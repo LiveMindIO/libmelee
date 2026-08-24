@@ -949,6 +949,78 @@ class RecordingSimpleController:
         self.buttons.add(button)
 
 
+class RecordingMenuController(RecordingSimpleController):
+    def __init__(self) -> None:
+        super().__init__()
+        self.port = 1
+        self.prev = melee.ControllerState()
+
+    def release_button(self, button) -> None:
+        self.buttons.discard(button)
+
+
+class MenuHelperCharacterSelectTests(unittest.TestCase):
+    def choose_at(self, character, cursor_x):
+        controller = RecordingMenuController()
+        player = melee.PlayerState(
+            character=melee.Character.UNKNOWN_CHARACTER,
+            cursor=melee.Cursor(x=cursor_x, y=4.5),
+        )
+        gamestate = melee.GameState(
+            menu_state=melee.Menu.CHARACTER_SELECT,
+            players={1: player},
+        )
+
+        melee.MenuHelper().choose_character(character, gamestate, controller)
+
+        return controller
+
+    def test_edge_character_outer_fringe_moves_inward(self) -> None:
+        for character, cursor_x, expected_stick in (
+            (melee.Character.PICHU, -23.0, (1, 0.5)),
+            (melee.Character.ROY, 21.0, (0, 0.5)),
+        ):
+            with self.subTest(character=character):
+                controller = self.choose_at(character, cursor_x)
+
+                self.assertEqual(controller.main_stick, expected_stick)
+                self.assertNotIn(melee.Button.BUTTON_A, controller.buttons)
+
+    def test_edge_character_inner_bound_selects_character(self) -> None:
+        for character, cursor_x in (
+            (melee.Character.PICHU, -22.7),
+            (melee.Character.ROY, 20.7),
+        ):
+            with self.subTest(character=character):
+                controller = self.choose_at(character, cursor_x)
+
+                self.assertEqual(controller.main_stick, (0.5, 0.5))
+                self.assertIn(melee.Button.BUTTON_A, controller.buttons)
+
+    def test_edge_character_bounds_do_not_affect_random_slot(self) -> None:
+        for character in (melee.Character.PICHU, melee.Character.ROY):
+            with self.subTest(character=character):
+                controller = RecordingMenuController()
+                player = melee.PlayerState(
+                    character=melee.Character.UNKNOWN_CHARACTER,
+                    cursor=melee.Cursor(x=-30.0, y=4.5),
+                )
+                gamestate = melee.GameState(
+                    menu_state=melee.Menu.CHARACTER_SELECT,
+                    players={1: player},
+                )
+
+                melee.MenuHelper().choose_character(
+                    character,
+                    gamestate,
+                    controller,
+                    swag=True,
+                )
+
+                self.assertEqual(controller.main_stick, (0.5, 0.5))
+                self.assertIn(melee.Button.BUTTON_A, controller.buttons)
+
+
 class SimpleControlsInputTests(unittest.TestCase):
     def setUp(self) -> None:
         self.frame_data = melee.FrameData()

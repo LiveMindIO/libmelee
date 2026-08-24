@@ -175,3 +175,10 @@ uv pip install --python .venv/bin/python .
   named cardinal toward the second. Their angle is inclusive from 0 through 90
   degrees, their magnitude is inclusive from 0 through 1, and they support either
   the main stick or C-stick.
+
+## CSS Menu Helper
+
+- `MenuHelper.choose_character()` uses the usual 1.5-unit horizontal tolerance
+  toward the roster interior, but Pichu's left edge and Roy's right edge use a
+  tighter 0.8-unit tolerance. Those outer slots have narrower safe cursor margins;
+  widening either edge can make the helper press A outside the portrait.
