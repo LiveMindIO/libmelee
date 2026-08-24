@@ -275,7 +275,9 @@ uv pip install --python .venv/bin/python .
 - `SimpleControls.shield(strength)` uses analog L while clearing digital L/R and
   analog R so the requested pressure is authoritative. Zero always releases;
   positive values clamp to exported `MIN_SHIELD` (`43/140`) through `1.0`, and act
-  only when Guard can start or is already active (including stun). Full depression
+  only when Guard can start or is already active (including stun). It preserves
+  Melee-observed strength whether controller analog correction is enabled or
+  disabled. Full depression
   additionally presses digital L to represent the trigger click.
 - `can_dodge()` models direct ground Escape paths from standing, early dash, and
   eligible shield phases. Shield stun and `KNEE_BEND` are false; dash and shield

@@ -88,7 +88,7 @@ from melee.bot.character_state import (
     neutral_b_is_chargeable,
     z_air_is_supported,
 )
-from melee.controller import Controller
+from melee.controller import Controller, fix_analog_trigger
 from melee.enums import Action, Button, Character
 from melee.framedata import FrameData
 from melee.gamestate import GameState
@@ -555,9 +555,12 @@ class SimpleControls:
         self._controller.press_shoulder(Button.BUTTON_L, 0.0)
         self._controller.press_shoulder(Button.BUTTON_R, 0.0)
         if strength > 0.0:
+            requested_strength = max(strength, MIN_SHIELD)
+            if not self._controller.analog_input_correction_enabled:
+                requested_strength = fix_analog_trigger(requested_strength)
             self._controller.press_shoulder(
                 Button.BUTTON_L,
-                max(strength, MIN_SHIELD),
+                requested_strength,
             )
             if strength == 1.0:
                 self._controller.press_button(Button.BUTTON_L)

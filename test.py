@@ -1162,7 +1162,8 @@ class AngularStickTests(unittest.TestCase):
 
 
 class RecordingSimpleController:
-    def __init__(self) -> None:
+    def __init__(self, *, analog_input_correction_enabled: bool = True) -> None:
+        self.analog_input_correction_enabled = analog_input_correction_enabled
         self.main_stick = (0.5, 0.5)
         self.c_stick = (0.5, 0.5)
         self.buttons = set()
@@ -1313,6 +1314,21 @@ class SimpleControlsInputTests(unittest.TestCase):
 
     def test_min_shield_is_exported_from_bot_api(self) -> None:
         self.assertEqual(MIN_SHIELD, 43.0 / 140.0)
+
+    def test_shield_pretransforms_strength_when_analog_correction_is_disabled(self) -> None:
+        for strength in (0.0001, 0.5, 1.0):
+            with self.subTest(strength=strength):
+                player = melee.PlayerState(action=melee.Action.STANDING, on_ground=True)
+                controller = RecordingSimpleController(
+                    analog_input_correction_enabled=False
+                )
+                controls, _ = self.controls(player, controller)
+
+                self.assertTrue(controls.shield(strength))
+                self.assertAlmostEqual(
+                    controller.shoulders[melee.Button.BUTTON_L],
+                    melee.fix_analog_trigger(max(strength, MIN_SHIELD)),
+                )
 
     def test_shield_zero_releases_in_any_character_state(self) -> None:
         player = melee.PlayerState(action=melee.Action.FALLING, on_ground=False)

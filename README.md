@@ -205,7 +205,8 @@ active attacks, tumble, `AIRDODGE`, and helpless post-Up-B `DEAD_FALL` /
 `SimpleControls.shield(strength)` applies analog shield pressure without replacing
 stick or non-shoulder button input. `0` always releases; positive values below
 Melee's first usable trigger step (`43/140`, after its inclusive `0.3` deadzone)
-clamp to exported `MIN_SHIELD`, while values through `1` are preserved. Full
+clamp to exported `MIN_SHIELD`, while values through `1` are preserved with analog
+input correction enabled or disabled. Full
 depression also presses digital L; positive requests act only when shielding can
 start or continue.
 `SimpleControls.dodge(GroundDodgeStickReferenceAxis)` sets absolute roll input
