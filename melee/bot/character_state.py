@@ -854,6 +854,35 @@ _ACTIONS_FOR_TYPE: Final = {
     AttackType.DTHROW: _action_set("THROW_DOWN"),
 }
 
+# DESNOTE(jbarber, 2026-08-23): Ness, Peach, and Game & Watch replace common
+# normal-smash motion states with character-owned IDs. Link and Young Link add a
+# character-owned second forward-smash slash. Keep these mappings character
+# relative because the same raw IDs identify unrelated moves for other fighters.
+# See https://github.com/doldecomp/melee/tree/a983c0f9cd41d4a46001c493a1929891ac80f9ab/src/melee/ft/chara
+_CHARACTER_NORMAL_ACTIONS: Final[dict[Character, dict[AttackType, frozenset[Action]]]] = {
+    Character.NESS: {
+        AttackType.FSMASH: frozenset({Action(341)}),
+        AttackType.USMASH: frozenset({Action(342), Action(343), Action(344)}),
+        AttackType.DSMASH: frozenset({Action(345), Action(346), Action(347)}),
+    },
+    Character.PEACH: {
+        AttackType.FSMASH: frozenset({Action(349), Action(350), Action(351)}),
+    },
+    Character.GAMEANDWATCH: {
+        AttackType.FSMASH: frozenset({Action(346)}),
+    },
+    Character.LINK: {
+        AttackType.FSMASH: _ACTIONS_FOR_TYPE[AttackType.FSMASH] | {Action(341)},
+    },
+    Character.YLINK: {
+        AttackType.FSMASH: _ACTIONS_FOR_TYPE[AttackType.FSMASH] | {Action(341)},
+    },
+}
+_CHARACTER_ALL_NORMAL_ACTIONS: Final[dict[Character, frozenset[Action]]] = {
+    character: frozenset(action for actions in attacks.values() for action in actions)
+    for character, attacks in _CHARACTER_NORMAL_ACTIONS.items()
+}
+
 # DESNOTE(jbarber, 2026-08-21): Action names are aliases for character-relative
 # raw IDs. Use each doldecomp MotionState table's move-ID assignment rather than
 # adding raw ranges to the global set and changing other fighters' meanings. See
@@ -880,6 +909,9 @@ def _actions_for_attack_type(
 ) -> frozenset[Action]:
     """Return active actions for a move, including character-specific aliases."""
     relative_attack_type = _relative_attack_type(attack_type)
+    character_normals = _CHARACTER_NORMAL_ACTIONS.get(character)
+    if character_normals is not None and relative_attack_type in character_normals:
+        return character_normals[relative_attack_type]
     special_slot = _SPECIAL_SLOT_FOR_ATTACK_TYPE.get(relative_attack_type)
     character_specials = _CHARACTER_SPECIAL_ACTIONS.get(character)
     if special_slot is not None and character_specials is not None:
@@ -898,6 +930,7 @@ def _is_attack_action(
     """Return whether a character-relative action is an attack or special."""
     return (
         action in _ALL_ATTACK_ACTIONS
+        or action in _CHARACTER_ALL_NORMAL_ACTIONS.get(character, ())
         or action in _CHARACTER_ALL_SPECIAL_ACTIONS.get(character, ())
         or frame_data.is_attack(character, action)
     )

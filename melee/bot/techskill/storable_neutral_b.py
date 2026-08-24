@@ -142,8 +142,11 @@ class _StorableNeutralBMontage(StatefulInputMontage[_ChargeState]):
         self._store_input = ChargeStoreInput.SHIELD
 
     def fire(self) -> Self:
-        """Queue firing on the next character-specific valid charge state."""
-        if self.get_montage_state() in {MontageState.Waiting, MontageState.Active}:
+        """Queue firing, unless a prior transition input is already committed."""
+        if (
+            self.get_montage_state() in {MontageState.Waiting, MontageState.Active}
+            and self._input_state.phase is not _ChargePhase.Transitioning
+        ):
             self._intent = _ChargeIntent.Fire
         return self
 
@@ -162,10 +165,14 @@ class _StorableNeutralBMontage(StatefulInputMontage[_ChargeState]):
         Shield uses L, grab uses Z, and roll uses a facing-relative horizontal
         main-stick input. Mewtwo rejects grab because Z synthesizes A and fires
         Shadow Ball before its shoulder-cancel check. Sheik rejects roll because
-        Needle Storm has no direct roll transition.
+        Needle Storm has no direct roll transition. Once a fire or store input is
+        committed, later requests do not replace that in-flight transition.
         """
         self._validate_store_input(transition)
-        if self.get_montage_state() in {MontageState.Waiting, MontageState.Active}:
+        if (
+            self.get_montage_state() in {MontageState.Waiting, MontageState.Active}
+            and self._input_state.phase is not _ChargePhase.Transitioning
+        ):
             self._intent = _ChargeIntent.Store
             self._store_input = transition
         return self
@@ -236,7 +243,7 @@ class _StorableNeutralBMontage(StatefulInputMontage[_ChargeState]):
         state: GameState,
         input_state: _ChargeState,
     ) -> Abort | None:
-        del controls, opponent_state, state, input_state
+        del controls, opponent_state, state
         player_state_value = player(player_state)
         if player_state_value is None:
             return Abort("player state became unavailable")
@@ -244,6 +251,13 @@ class _StorableNeutralBMontage(StatefulInputMontage[_ChargeState]):
             return Abort("player character changed")
         if player_state_value.neutral_b_charge is None:
             return Abort("neutral-B charge telemetry became unavailable")
+        if (
+            input_state.phase in {_ChargePhase.Starting, _ChargePhase.Charging}
+            and not self._config.supports_air_charge
+            and not player_state_value.on_ground
+            and self._intent is not _ChargeIntent.Fire
+        ):
+            return Abort("player left the ground while neutral-B charge was active")
         if is_interrupted(player_state, player_state_value, include_hitlag=False):
             return Abort("player was interrupted")
         return None
@@ -276,14 +290,26 @@ class _StorableNeutralBMontage(StatefulInputMontage[_ChargeState]):
 
         action = player_state_value.action
         if action in self._config.fire_actions:
-            return input_state, True
+            if self._intent is _ChargeIntent.Fire:
+                return input_state, True
+            return input_state, Abort("neutral-B fired instead of storing charge")
         if action in self._config.store_actions:
-            return input_state, True
+            if self._intent is _ChargeIntent.Store:
+                return input_state, True
+            if (
+                self._intent is None
+                and self._config.auto_store_at_full
+                and player_state_value.neutral_b_charge >= self._config.max_charge
+            ):
+                return input_state, True
+            return input_state, Abort("neutral-B charge was stored instead of firing")
         if (
             self._config.auto_store_at_full
             and player_state_value.neutral_b_charge >= self._config.max_charge
             and action not in self._config.start_actions | self._config.loop_actions
         ):
+            if self._intent is _ChargeIntent.Fire:
+                return input_state, Abort("neutral-B charge was stored instead of firing")
             return input_state, True
 
         transition_ready = action in self._config.loop_actions | self._config.full_actions
@@ -337,10 +363,14 @@ class _StorableNeutralBMontage(StatefulInputMontage[_ChargeState]):
     ) -> tuple[_ChargeState, InputMontage | bool | Abort]:
         controls.release_all()
         action = player_state_value.action
-        if self._intent is _ChargeIntent.Fire and action in self._config.fire_actions:
-            return input_state, True
-        if self._intent is _ChargeIntent.Store and (action in self._config.store_actions or action in _ROLL_ACTIONS):
-            return input_state, True
+        if action in self._config.fire_actions:
+            if self._intent is _ChargeIntent.Fire:
+                return input_state, True
+            return input_state, Abort("neutral-B fired instead of storing charge")
+        if action in self._config.store_actions or action in _ROLL_ACTIONS:
+            if self._intent is _ChargeIntent.Store:
+                return input_state, True
+            return input_state, Abort("neutral-B charge was stored instead of firing")
         if (
             self._intent is _ChargeIntent.Store
             and self._config.auto_store_at_full

@@ -65,9 +65,10 @@ class LinkBowMontage(StatefulInputMontage[_LinkBowState]):
     :meth:`current_power` returns ``None`` until release can safely commit. Once
     ready, it reports normalized projectile charge from ``0.0`` through ``1.0``.
     Link's power saturates after 60 charge ticks and Young Link's after 45; each
-    character's fully charged loop reports ``1.0`` and may remain held. The value
-    freezes when the shot is released. :meth:`can_release` is exactly the
-    non-``None`` power test.
+    character's fully charged loop reports ``1.0`` and may remain held. Before
+    release, the value includes the counter increment applied by the IASA tick
+    that consumes the queued release input. It becomes unavailable once the shot
+    is released. :meth:`can_release` is exactly the non-``None`` power test.
 
     Callers must retain and tick the returned montage, and return from frame
     policy after each tick so fallback inputs do not overwrite held or released
@@ -94,7 +95,7 @@ class LinkBowMontage(StatefulInputMontage[_LinkBowState]):
         return self
 
     def current_power(self) -> float | None:
-        """Return normalized bow charge, or ``None`` before release is safe."""
+        """Return projected release power, or ``None`` before release is safe."""
         input_state = self._input_state
         if (
             input_state.phase is not _LinkBowPhase.Charging
@@ -104,7 +105,7 @@ class LinkBowMontage(StatefulInputMontage[_LinkBowState]):
             return None
         return min(
             1.0,
-            input_state.charge_frames / _MAX_CHARGE_FRAMES[input_state.character],
+            (input_state.charge_frames + 1) / _MAX_CHARGE_FRAMES[input_state.character],
         )
 
     def can_release(self) -> bool:

@@ -60,13 +60,15 @@ _POST_MOVE_ACTIONS: Final = _LEDGE_ACTIONS | {
     Action.LANDING_SPECIAL,
 }
 # DESNOTE(jbarber, 2026-08-23): Pikachu and Pichu have two zips. Their shared
-# end animation samples zip 2 when its command variable fires on frame 9, so a
-# bot must queue the direction while observing frame 8 or earlier. The game then
-# requires more than 38 degrees of separation for Pikachu and 5 for Pichu.
+# end animation samples zip 2 before the next frame's input refresh. Frame 7 is
+# therefore the last reliable observation from which a bot can queue direction;
+# frame 8 remains usable only while hitlag defers the animation callback. The
+# game then requires more than 38 degrees of separation for Pikachu and 5 for Pichu.
 # See https://github.com/doldecomp/melee/blob/a983c0f9cd41d4a46001c493a1929891ac80f9ab/src/melee/ft/chara/ftPikachu/ftPk_SpecialHi.c#L619-L700
 # and https://www.ssbwiki.com/Pikachu_(SSBM)/Up_special
 # and https://www.ssbwiki.com/Pichu_(SSBM)#Differences_from_Pikachu
-_LAST_SECOND_SEGMENT_INPUT_FRAME: Final = 8
+_LAST_SECOND_SEGMENT_INPUT_FRAME: Final = 7
+_HITLAG_SECOND_SEGMENT_INPUT_FRAME: Final = 8
 
 
 def _apply_direction(
@@ -89,7 +91,7 @@ class QuickAttackMontage(StatefulInputMontage[_QuickAttackPhase]):
     The montage initiates Up-B with cardinal up+B, then the constructor's
     ``initial_direction`` controls the first movement segment throughout startup.
     :meth:`add_segment` can queue the optional second direction before activation
-    or reactively during startup, the first zip, and the first eight frames of
+    or reactively during startup, the first zip, and the first seven frames of
     the inter-segment end state. The first request is sticky; further or late
     requests do nothing. :meth:`can_add_segment` reports whether that slot and
     observable request window remain available.
@@ -161,6 +163,18 @@ class QuickAttackMontage(StatefulInputMontage[_QuickAttackPhase]):
             return Abort("player state became unavailable")
         if player_state_value.character is not self._character:
             return Abort("player character changed")
+        # DESNOTE(jbarber, 2026-08-23): should_abort runs before pre-tick
+        # listeners. Reopen here so a listener can react to frame-8 hitlag that
+        # deferred the sample after an ordinary frame 7 closed the normal window.
+        if input_state is _QuickAttackPhase.AwaitingSecondSegment and player_state_value.action in _END_ACTIONS:
+            if (
+                player_state_value.action_frame == _HITLAG_SECOND_SEGMENT_INPUT_FRAME
+                and player_state_value.hitlag_left > 0
+                and self._second_direction is None
+            ):
+                self._segments_open = True
+            elif player_state_value.action_frame > _LAST_SECOND_SEGMENT_INPUT_FRAME:
+                self._segments_open = False
         if (
             input_state
             in {
@@ -270,13 +284,16 @@ class QuickAttackMontage(StatefulInputMontage[_QuickAttackPhase]):
         ):
             controls.release_all()
             return _QuickAttackPhase.AwaitingSecondSegment, True
-        if action_frame <= _LAST_SECOND_SEGMENT_INPUT_FRAME and self._second_direction is not None:
+        input_window_open = action_frame <= _LAST_SECOND_SEGMENT_INPUT_FRAME or (
+            action_frame == _HITLAG_SECOND_SEGMENT_INPUT_FRAME and hitlag_left > 0
+        )
+        if input_window_open and self._second_direction is not None:
             _apply_direction(controls, self._second_direction)
         else:
             controls.release_all()
         if action_frame >= _LAST_SECOND_SEGMENT_INPUT_FRAME and hitlag_left == 0:
             self._segments_open = False
-        if action_frame > _LAST_SECOND_SEGMENT_INPUT_FRAME and self._second_direction is None:
+        if action_frame > _HITLAG_SECOND_SEGMENT_INPUT_FRAME and self._second_direction is None:
             return _QuickAttackPhase.AwaitingSecondSegment, True
         return _QuickAttackPhase.AwaitingSecondSegment, self
 

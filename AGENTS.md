@@ -133,8 +133,8 @@ uv pip install --python .venv/bin/python .
   startup so horizontal and downward routes cannot select another special.
   Melee permits exactly two movement segments. `add_segment(direction)` queues
   the optional second segment before activation or reactively through observed
-  end-state frame 8; `can_add_segment()` reports whether the slot and window are
-  still open. The first request is sticky. Pikachu requires more than 38 degrees
+  end-state frame 7; frame 8 remains usable only during hitlag. `can_add_segment()`
+  reports whether the slot and window are still open. The first request is sticky. Pikachu requires more than 38 degrees
   between segments and Pichu more than 5; a requested segment rejected by the
   game aborts the montage unless the move safely reaches the ledge first. Terrain
   can hide a travel packet; an initial end state confirms segment one, while a
@@ -155,14 +155,18 @@ uv pip install --python .venv/bin/python .
   before its down-inward air dodge. It presses jump for exactly one input frame and
   leaves X/Y neutral throughout the rise; confirmed jumps remain confirmed through
   apex, but landing or leaving neutral aerial movement before clearance aborts the route.
-  `SmashAttackMontage(axis, max_charge_frames=60)` bounds A+stick retention from
-  zero (minimum charge) through Melee's 60-frame maximum. `release_charge()`
+  `SmashAttackMontage(axis, max_charge_frames=60)` bounds observed charge-window
+  retention from zero (minimum charge) through Melee's 60-frame maximum without
+  counting startup animation. It recognizes Ness, Peach, and Game & Watch's
+  character-owned normal-smash states. `release_charge()`
   idempotently queues an earlier release for the next active tick; cancellation
   abandons the attack instead. `current_power()` returns the locally observed
   `1.0` through `1.3671` damage multiplier. The montage confirms startup before succeeding.
   `LinkBowMontage` supports Link and Young Link on the ground or in air.
   `release()` queues the shot; `can_release()` and normalized `current_power()`
-  become available on the first safe release frame and return unavailable after release.
+  become available on the first safe release frame and return unavailable after
+  release. Power includes the final counter increment applied when the queued
+  release reaches the bow IASA callback.
   `JigglypuffRolloutMontage` uses the same caller-release queries and keeps full
   Rollout held through a one-minute safety window. `LuigiGreenMissileMontage`
   and `SkullBashMontage` accept an absolute horizontal direction. Their default
@@ -175,7 +179,8 @@ uv pip install --python .venv/bin/python .
   `DonkeyKongGiantPunchMontage`, `SamusChargeShotMontage`,
   `SheikNeedleStormMontage`, and `MewtwoShadowBallMontage` read exact persisted
   charge from `PlayerState.neutral_b_charge`. `fire()` and
-  `store(ChargeStoreInput)` queue character-specific transitions; callers gate
+  `store(ChargeStoreInput)` queue character-specific transitions; requests may
+  change until a controller edge commits, then the in-flight intent is fixed. Callers gate
   them with `can_fire()` and `can_store()`. Mewtwo cannot grab-store, Sheik cannot
   roll-store, rolls require ground, and Samus can only begin or continue charging
   on the ground. Legacy payloads leave telemetry `None`, so these montages cannot

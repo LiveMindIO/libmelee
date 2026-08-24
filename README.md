@@ -320,7 +320,8 @@ Libmelee includes concrete technique montages:
   Pichu's Agility with one or two continuous full-circle directions. The move
   itself starts with cardinal up+B before holding the initial zip vector. Queue the
   optional second zip with fluent `add_segment(direction)` before activation or
-  reactively during startup, the first zip, or through inter-segment frame 8.
+  reactively during startup, the first zip, or through inter-segment frame 7.
+  Frame 8 remains available only while hitlag defers the animation callback.
   `can_add_segment()` reports whether the remaining slot and input window are
   open. The first request is sticky. Pikachu's directions must differ by more
   than 38 degrees and Pichu's by more than 5; a rejected requested zip aborts
@@ -349,14 +350,16 @@ Libmelee includes concrete technique montages:
   the resulting one-frame turn state.
 - `SmashAttackMontage(axis, max_charge_frames=60)` maps cardinal axes to up,
   down, absolute-left, and absolute-right smashes. Zero requests minimum charge;
-  values through 60 bound retained A+stick ticks. `release_charge()` queues an
-  earlier release on the next active tick without cancelling the montage.
+  values through 60 bound observed charge-window ticks without counting startup
+  animation. Character-owned Ness, Peach, and Game & Watch smash states are
+  recognized. `release_charge()` queues an earlier release on the next active tick without cancelling the montage.
   `current_power()` reports the accumulated `1.0` through `1.3671` damage
   multiplier, and `get_framedata()` exposes typed attack metadata after initiation.
 - `LinkBowMontage()` starts Link or Young Link's grounded or aerial neutral-B.
   `release()` queues the shot for the first safe active tick, `can_release()`
-  reports when that transition is available, and `current_power()` reports
-  locally tracked normalized charge from `0.0` through `1.0` while charging.
+  reports when that transition is available, and `current_power()` reports the
+  normalized power that a release queued on the current tick will fire, including
+  the game's final IASA counter increment.
   Full power does not force release; the montage can hold through its one-minute
   safety window.
 - `JigglypuffRolloutMontage()` gives grounded and aerial Rollout the same sticky

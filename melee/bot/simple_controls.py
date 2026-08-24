@@ -48,6 +48,7 @@ from melee.bot.character_state import (
     _ACTIONABLE_AIR,
     _ACTIONS_FOR_TYPE,
     _AERIAL_ATTACKS,
+    _CHARACTER_ALL_NORMAL_ACTIONS,
     _GRAB_THROW_ATTACKS,
     _GRAB_THROW_INPUT_ACTIONS,
     _GRABBER_ACTIONS,
@@ -1266,6 +1267,8 @@ class SimpleControls:
         if player.action not in _actions_for_attack_type(player.character, attack_type):
             return None
         if attack_type in _GRAB_THROW_ATTACKS:
+            return player.action
+        if player.action in _CHARACTER_ALL_NORMAL_ACTIONS.get(player.character, ()):
             return player.action
         if not self._frame_data.is_attack(player.character, player.action):
             if attack_type in {AttackType.GRAB, AttackType.Z_AIR} and self._frame_data.is_grab(

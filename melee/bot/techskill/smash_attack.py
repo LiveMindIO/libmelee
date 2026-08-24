@@ -6,7 +6,7 @@ from dataclasses import dataclass, replace
 from enum import Enum, auto
 from typing import Final, Self
 
-from melee.bot.character_state import AttackType, CharacterState
+from melee.bot.character_state import AttackType, CharacterState, _actions_for_attack_type
 from melee.bot.input_montage import Abort, InputMontage, MontageState
 from melee.bot.simple_controls import (
     AttackFrameData,
@@ -16,7 +16,7 @@ from melee.bot.simple_controls import (
 )
 from melee.bot.stateful_input_montage import StatefulInputMontage
 from melee.bot.techskill.common import is_interrupted, player
-from melee.enums import Button
+from melee.enums import Action, Button, Character
 from melee.gamestate import GameState
 
 _ATTACK_BY_AXIS: Final[dict[StickReferenceAxis, AttackType]] = {
@@ -27,7 +27,16 @@ _ATTACK_BY_AXIS: Final[dict[StickReferenceAxis, AttackType]] = {
 }
 _GAME_MAX_CHARGE_FRAMES: Final = 60
 _GAME_MAX_POWER_MULTIPLIER: Final = 1.3671
+_STARTUP_FRAME_ALLOWANCE: Final = 30
 _LIFECYCLE_FRAME_OVERHEAD: Final = 4
+_NESS_EXPLICIT_CHARGE_ACTIONS: Final[dict[AttackType, Action]] = {
+    AttackType.USMASH: Action(343),
+    AttackType.DSMASH: Action(346),
+}
+_NESS_EXPLICIT_RELEASE_ACTIONS: Final[dict[AttackType, Action]] = {
+    AttackType.USMASH: Action(344),
+    AttackType.DSMASH: Action(347),
+}
 
 
 class _SmashAttackPhase(Enum):
@@ -43,6 +52,9 @@ class _SmashAttackState:
     frame_data: AttackFrameData | None = None
     charge_frames: int = 0
     release_wait_frames: int = 0
+    last_action: Action | None = None
+    last_action_frame: int | None = None
+    last_game_frame: int | None = None
 
 
 def _validate_max_charge_frames(max_charge_frames: int) -> None:
@@ -55,8 +67,9 @@ class SmashAttackMontage(StatefulInputMontage[_SmashAttackState]):
 
     ``axis`` maps up, down, left, and right to ``USMASH``, ``DSMASH``,
     ``LSMASH``, and ``RSMASH`` respectively. ``max_charge_frames`` is the
-    maximum number of post-initiation game ticks for which this montage keeps
-    A+stick held. It must be from 0 through Melee's 60-frame maximum. Passing 0
+    maximum number of observed in-game charge ticks for which this montage keeps
+    A+stick held; advancing startup animation frames do not count. It must be
+    from 0 through Melee's 60-frame maximum. Passing 0
     requests the minimum possible charge: the initial A+stick frame is still
     committed, then the montage releases it on the following tick.
 
@@ -75,7 +88,7 @@ class SmashAttackMontage(StatefulInputMontage[_SmashAttackState]):
 
     Args:
         axis: Absolute screen direction for the smash input.
-        max_charge_frames: Maximum post-initiation ticks to retain A+stick,
+        max_charge_frames: Maximum observed charge ticks to retain A+stick,
             from 0 (minimum charge) through 60 (Melee's maximum).
 
     Raises:
@@ -90,7 +103,7 @@ class SmashAttackMontage(StatefulInputMontage[_SmashAttackState]):
     ) -> None:
         _validate_max_charge_frames(max_charge_frames)
         super().__init__(
-            max_charge_frames + _LIFECYCLE_FRAME_OVERHEAD,
+            max_charge_frames + _STARTUP_FRAME_ALLOWANCE + _LIFECYCLE_FRAME_OVERHEAD,
             _SmashAttackState(),
         )
         self._axis = axis
@@ -158,10 +171,20 @@ class SmashAttackMontage(StatefulInputMontage[_SmashAttackState]):
             return Abort("player character changed")
         if player_state_value.off_stage:
             return Abort("player moved offstage")
+        automatic_full_charge_release = (
+            input_state.phase is _SmashAttackPhase.Charging
+            and isinstance(player_state_value.action, Action)
+            and self._is_automatic_full_charge_release(
+                input_state,
+                player_state_value.action,
+                player_state_value.action_frame,
+                player_state_value.character,
+            )
+        )
         if is_interrupted(
             player_state,
             player_state_value,
-            include_hitlag=input_state.phase is _SmashAttackPhase.Charging,
+            include_hitlag=(input_state.phase is _SmashAttackPhase.Charging and not automatic_full_charge_release),
         ):
             return Abort("player was interrupted")
         return None
@@ -174,7 +197,7 @@ class SmashAttackMontage(StatefulInputMontage[_SmashAttackState]):
         state: GameState,
         input_state: _SmashAttackState,
     ) -> tuple[_SmashAttackState, InputMontage | bool | Abort]:
-        del opponent_state, state
+        del opponent_state
         player_state_value = player(player_state)
         if player_state_value is None:
             return input_state, Abort("player state became unavailable")
@@ -207,8 +230,56 @@ class SmashAttackMontage(StatefulInputMontage[_SmashAttackState]):
                         self,
                     )
 
+                if isinstance(player_state_value.action, Action) and self._is_automatic_full_charge_release(
+                    input_state,
+                    player_state_value.action,
+                    player_state_value.action_frame,
+                    player_state_value.character,
+                ):
+                    controls.release_all()
+                    started_state = replace(
+                        input_state,
+                        phase=_SmashAttackPhase.Started,
+                        frame_data=AttackFrameData(
+                            character=player_state_value.character,
+                            action=player_state_value.action,
+                            frame_data=hold.frame_data,
+                        ),
+                        charge_frames=_GAME_MAX_CHARGE_FRAMES,
+                    )
+                    return self._after_smash_started(
+                        controls,
+                        player_state,
+                        started_state,
+                    )
+
                 result = controls.attack(self._attack_type, hold=hold)
                 if isinstance(result, AttackFrameData):
+                    charge_frames = input_state.charge_frames
+                    if self._is_observed_charge_tick(
+                        input_state,
+                        state.frame,
+                        result.action,
+                        player_state_value.action_frame,
+                        player_state_value.character,
+                    ):
+                        charge_frames += 1
+                    if charge_frames >= self._max_charge_frames:
+                        release_result = controls.release(hold)
+                        if not isinstance(release_result, AttackFrameData):
+                            return input_state, Abort("smash attack could not be released")
+                        return (
+                            replace(
+                                input_state,
+                                phase=_SmashAttackPhase.Released,
+                                frame_data=release_result,
+                                charge_frames=charge_frames,
+                                last_action=result.action,
+                                last_action_frame=player_state_value.action_frame,
+                                last_game_frame=state.frame,
+                            ),
+                            self,
+                        )
                     controls.release_all()
                     controls.tilt_stick(self._axis, 0.0)
                     controls.press_button(Button.BUTTON_A)
@@ -216,7 +287,10 @@ class SmashAttackMontage(StatefulInputMontage[_SmashAttackState]):
                         replace(
                             input_state,
                             frame_data=result,
-                            charge_frames=input_state.charge_frames + 1,
+                            charge_frames=charge_frames,
+                            last_action=result.action,
+                            last_action_frame=player_state_value.action_frame,
+                            last_game_frame=state.frame,
                         ),
                         self,
                     )
@@ -230,8 +304,11 @@ class SmashAttackMontage(StatefulInputMontage[_SmashAttackState]):
                     )
                 return input_state, Abort("smash attack could not continue charging")
             case _SmashAttackPhase.Released:
-                frame_data = input_state.frame_data
-                if frame_data is not None and player_state_value.action is frame_data.action:
+                if isinstance(
+                    player_state_value.action, Action
+                ) and player_state_value.action in _actions_for_attack_type(
+                    player_state_value.character, self._attack_type
+                ):
                     started_state = replace(
                         input_state,
                         phase=_SmashAttackPhase.Started,
@@ -256,6 +333,43 @@ class SmashAttackMontage(StatefulInputMontage[_SmashAttackState]):
                     player_state,
                     input_state,
                 )
+
+    def _is_observed_charge_tick(
+        self,
+        input_state: _SmashAttackState,
+        game_frame: int,
+        action: Action,
+        action_frame: int,
+        character: Character,
+    ) -> bool:
+        # DESNOTE(jbarber, 2026-08-23): Common smashes stop animation advancement
+        # while SmashAttr is Charging, so repeated action frames distinguish the
+        # charge window from startup. Ness instead enters dedicated up/down-smash
+        # charge states. See https://github.com/doldecomp/melee/blob/a983c0f9cd41d4a46001c493a1929891ac80f9ab/src/melee/ft/ft_0DF0.c#L50-L164
+        if input_state.last_game_frame is None or game_frame <= input_state.last_game_frame:
+            return False
+        if input_state.last_action is not action:
+            return False
+        if character is Character.NESS and _NESS_EXPLICIT_CHARGE_ACTIONS.get(self._attack_type) is action:
+            return True
+        return input_state.last_action_frame == action_frame
+
+    def _is_automatic_full_charge_release(
+        self,
+        input_state: _SmashAttackState,
+        action: Action,
+        action_frame: int,
+        character: Character,
+    ) -> bool:
+        if input_state.charge_frames == 0:
+            return False
+        if character is Character.NESS:
+            return _NESS_EXPLICIT_RELEASE_ACTIONS.get(self._attack_type) is action
+        return (
+            input_state.last_action is action
+            and input_state.last_action_frame is not None
+            and action_frame > input_state.last_action_frame
+        )
 
     def _after_smash_started(
         self,
