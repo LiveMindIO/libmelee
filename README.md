@@ -178,7 +178,9 @@ reported conservatively. The no-argument `can_attack()`, `can_air_attack()`, and
 Charging smashes and supported neutral-B moves return a `Hold`. Do not call
 `SimpleControls.release(hold)` in the frame that created it: pending controller
 input is committed on the next `Console.step()`, so same-frame release neutralizes
-the attack before Dolphin sees it. On a later frame, `release()` acknowledges the
+the attack before Dolphin sees it. Smash holds remain active through startup and
+count their 60-frame limit only while the engine charge window is observed. On a
+later frame, `release()` acknowledges the
 release command but may return `AttackFrameData` seeded with the hold's expected
 action before `PlayerState.action` reports the move. Confirm startup from a later
 game-state snapshot when observed startup matters. An accepted release marks the
@@ -186,21 +188,33 @@ token as `released` and records `release_frame`; do not reuse it.
 
 `CharacterState.can_jump()` (also available as `melee.bot.can_jump`) reports
 direct common ground jumps and remaining aerial jumps, including tumble,
-platform drop, and helpless `DEAD_FALL` / `SPECIAL_FALL_*`. It returns `True`
-throughout shield start, hold, reflect, and release for every character except
-Yoshi, whose shield cannot be jumped out of. Shield stun and hitlag are not
-actionable, and jump squat itself cannot begin another jump.
+platform drop, Jigglypuff's five character-owned aerial jumps, and helpless
+`DEAD_FALL` / `SPECIAL_FALL_*`. It returns `True`
+throughout common shield start, hold, reflect, and release. Yoshi can jump only
+from its character-owned GuardOn_1 powershield state. Shield stun and hitlag are
+not actionable, and jump squat itself cannot begin another jump.
 
 `CharacterState.can_dodge()` reports direct ground Escape paths from standing,
 early dash, and eligible shield phases; shield stun and `KNEE_BEND` are excluded.
 Early-dash and shield-release results are action-level eligibility because their
 remaining engine windows are not exposed by `PlayerState`.
 `CharacterState.can_airdodge()` accepts normal `JUMPING_*` / `FALLING*` actions
-plus `PLATFORM_DROP`, and rejects active attacks, tumble, `AIRDODGE`, and helpless post-Up-B
-`DEAD_FALL` / `SPECIAL_FALL_*` states.
+plus `PLATFORM_DROP` and Jigglypuff's character-owned aerial jumps, and rejects
+active attacks, tumble, `AIRDODGE`, and helpless post-Up-B `DEAD_FALL` /
+`SPECIAL_FALL_*` states.
+`SimpleControls.shield(strength)` applies analog shield pressure without replacing
+stick or non-shoulder button input. `0` always releases; positive values below
+Melee's first usable trigger step (`43/140`, after its inclusive `0.3` deadzone)
+clamp to exported `MIN_SHIELD`, while values through `1` are preserved with analog
+input correction enabled or disabled. Full
+depression also presses digital L; positive requests act only when shielding can
+start or continue.
 `SimpleControls.dodge(GroundDodgeStickReferenceAxis)` sets absolute roll input
 for `LEFT`/`RIGHT` or spot-dodge input for `DOWN` on the next committed frame
-when `can_dodge()` succeeds.
+when `can_dodge()` succeeds. During early dash it accepts only the absolute
+forward direction because Melee forces a forward roll; during shield release it
+accepts only `DOWN` for spot dodge, and Yoshi's GuardOff state likewise permits
+only the `DOWN` spot-dodge path.
 `SimpleControls.air_dodge(axis, angle_degrees=0, magnitude=1)` sets the
 corresponding absolute main-stick vector when `can_airdodge()` succeeds. Both
 reset pending inputs before pressing digital L by
@@ -300,15 +314,36 @@ Libmelee includes concrete technique montages:
   must reset the stick once the player reaches the desired location. Direction is
   an absolute `StickReferenceAxis.LEFT` or `StickReferenceAxis.RIGHT`.
 - `MultishineMontage(shine_count=2)` performs the requested number of consecutive
-  Fox shines using the same action sequence as the historical
+  Fox or Falco shines using the same core action sequence as the historical
   `techskill.multishine` helper. `shine_count` must be at least two; when no
   explicit `frame_limit` is supplied, its baseline safety budget allows the
-  normal eight-frame cycle plus four transition frames per shine. Each observed
-  rise in shine attacker hitlag adds its four stored hitlag frames to either the
-  default or an explicit budget. During a projectile reflection it holds B
+  normal cycle plus transition slack per shine. It uses Fox's three-frame or
+  Falco's five-frame jump squat. Each observed rise in shine attacker hitlag adds
+  only the newly observed frames to either the default or an explicit budget.
+  During a projectile reflection it holds B
   through non-final Reflector hit animations so they return to the
   jump-cancelable loop; release and final states are held neutral until the
-  sequence can retry or complete.
+  sequence can retry or complete. Fresh Reflector hit and release frames extend
+  the safety budget one-for-one, bounded by one complete hit-plus-release wait
+  per requested shine.
+- `QuickAttackMontage(initial_direction)` performs Pikachu's Quick Attack or
+  Pichu's Agility with one or two continuous full-circle directions. The move
+  itself starts with cardinal up+B before holding the initial zip vector. Queue the
+  optional second zip with fluent `add_segment(direction)` before activation or
+  reactively during startup, the first zip, or through inter-segment frame 7.
+  Frame 8 remains available only while hitlag defers the animation callback.
+  `can_add_segment()` reports whether the remaining slot and input window are
+  open. The first request is sticky. Pikachu's directions must differ by more
+  than 38 degrees and Pichu's by more than 5; a rejected requested zip aborts
+  unless the move reaches the ledge first.
+- `SwordDanceMontage(initial_direction)` performs Marth's Dancing Blade or Roy's
+  Double-Edge Dance from an absolute left/right starter. Queue up to three
+  follow-ups with `add_segment(axis)`, which returns whether the direction was
+  accepted. Every follow-up accepts all four cardinal axes; down selects the
+  side branch on hit two, while hits three and four have distinct down branches.
+  Left and right both select side after startup. Segments may be preconfigured
+  or added reactively before each character- and branch-specific input window
+  closes, and every continuation uses one fresh B edge.
 - `WavedashMontage` supports every standard character's jump-squat duration and
   requests the down-diagonal air dodge on the final `KNEE_BEND` frame. Callers
   must choose the angle explicitly; 17.1 degrees is the shallow boundary.
@@ -336,6 +371,50 @@ Libmelee includes concrete technique montages:
   shield hitlag exits with the horizontal main-stick input its callback reads.
 - `PerfectPivotMontage` smash turns out of a grounded initial dash and attacks on
   the resulting one-frame turn state.
+- `SmashAttackMontage(axis, max_charge_frames=60)` maps cardinal axes to up,
+  down, absolute-left, and absolute-right smashes. Zero requests minimum charge;
+  values 2 through 60 bound the engine charge counter without counting startup
+  animation. One tick cannot be requested because Melee increments before
+  consuming released A. Character-owned Ness, Peach, and Game & Watch smash
+  states are recognized. `release_charge()` queues an earlier release on the next
+  active tick without cancelling the montage. `current_power()` reports the
+  projected `1.0` through `1.3671` damage multiplier that the released smash uses.
+  Losing ground while charging aborts and neutralizes rather than issuing an
+  aerial. `get_framedata()` exposes typed attack metadata after initiation.
+- `LinkBowMontage()` starts Link or Young Link's grounded or aerial neutral-B.
+  `release()` queues the shot for the first safe active tick, `can_release()`
+  reports when that transition is available, and `current_power()` reports the
+  normalized power that a release queued on the current tick will fire, including
+  the game's final IASA counter increment.
+  Full power does not force release; the montage can hold through its one-minute
+  safety window.
+- `JigglypuffRolloutMontage()` gives grounded and aerial Rollout the same sticky
+  `release()`, `can_release()`, and normalized `current_power()` interface. Full
+  Rollout remains held until release, with the same one-minute safety window.
+- `LuigiGreenMissileMontage(direction, use_smash_bonus=True)` and
+  `SkullBashMontage(direction, use_smash_bonus=True)` own an absolute left/right
+  side-B charge. The default commits one neutral preparation frame so the next
+  horizontal+B input receives its native 20-count smash bonus. Passing `False`
+  pre-holds the direction through the tap window before B for a zero-count start.
+  Luigi, Pikachu, and Pichu auto-launch at full power.
+- `ShieldBreakerMontage()` and `FlareBladeMontage()` provide the same caller-
+  released interface for Marth and Roy on the ground or in air. Melee itself
+  auto-releases their distinct full-charge attacks.
+- `DonkeyKongGiantPunchMontage`, `SamusChargeShotMontage`,
+  `SheikNeedleStormMontage`, and `MewtwoShadowBallMontage` use exact
+  `PlayerState.neutral_b_charge` telemetry. Their `fire()` and
+  `store(ChargeStoreInput)` requests are sticky; use `can_fire()`,
+  `can_store(...)`, and normalized `current_power()` to gate decisions. Shield
+  and grab storage are available except Mewtwo rejects grab; grounded rolls are
+  available except for Sheik. Samus can fire, but cannot continue charging, in air.
+  Charge states that Melee permits retaining use the one-minute safety window.
+- `LinkForwardSmashMontage(direction, max_charge_frames=0)` specializes that
+  lifecycle for Link and Young Link. Chained `.followup()` requests the fastest
+  second slash. For caller-delayed timing, a pre-tick listener checks
+  `can_followup(player_state)` before calling `.followup()`. Link's observable
+  request window is frames 18-48; Young Link's is 19-48. Inputs commit during
+  their script/decomp-backed game windows at 19-49 and 20-49 respectively;
+  shared character-relative action 341 confirms the second slash.
 - `SmashTurnJumpMontage` uses the same pivot but jumps, retaining dash momentum
   while reversing facing for movement such as back-air setups. It finishes after
   confirming jump squat with its jump button still held. The caller or an

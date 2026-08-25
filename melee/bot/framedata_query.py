@@ -85,7 +85,7 @@ _SPECIAL_SLOT_BY_NORMALIZED: Final[dict[str, str]] = {
 # move IDs, and some special-looking Samus states are tagged Default. These IDs
 # follow each doldecomp MotionState table's FtMoveId field at commit 68f92c47;
 # resolution still filters actions absent from libmelee's enum or framedata.csv.
-# See https://github.com/doldecomp/melee/tree/68f92c47d697c98e80911a14218f74982915acc9/src/melee/ft/chara
+# See https://github.com/doldecomp/melee/tree/a983c0f9cd41d4a46001c493a1929891ac80f9ab/src/melee/ft/chara
 _SPECIAL_SLOT_ACTION_IDS: Final[dict[Character, dict[str, tuple[int, ...]]]] = {
     Character.MARIO: {
         "neutral-special": (343, 344),

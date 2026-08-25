@@ -57,9 +57,12 @@ class WavedashMontage(StatefulInputMontage[_WavedashPhase]):
         jump_button: Button = Button.BUTTON_Y,
         dodge_button: Button = Button.BUTTON_L,
     ) -> None:
-        super().__init__(frame_limit, _WavedashPhase.JumpRequested, cancel_montage)
-        if not isinstance(direction, WavedashDirection):
-            raise ValueError("direction must be a WavedashDirection")
+        super().__init__(
+            frame_limit,
+            _WavedashPhase.JumpRequested,
+            cancel_montage,
+            name="Wavedash",
+        )
         safe_angle_degrees = clamp_wavedash_angle(angle_degrees)
         validate_button(jump_button, frozenset({Button.BUTTON_X, Button.BUTTON_Y}), "jump_button")
         validate_button(dodge_button, frozenset({Button.BUTTON_L, Button.BUTTON_R}), "dodge_button")

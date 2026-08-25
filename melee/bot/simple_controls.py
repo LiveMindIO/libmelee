@@ -45,9 +45,9 @@ from enum import Enum, auto
 from typing import TYPE_CHECKING, Final
 
 from melee.bot.character_state import (
-    _ACTIONABLE_AIR,
     _ACTIONS_FOR_TYPE,
     _AERIAL_ATTACKS,
+    _CHARACTER_ALL_NORMAL_ACTIONS,
     _GRAB_THROW_ATTACKS,
     _GRAB_THROW_INPUT_ACTIONS,
     _GRABBER_ACTIONS,
@@ -88,7 +88,7 @@ from melee.bot.character_state import (
     neutral_b_is_chargeable,
     z_air_is_supported,
 )
-from melee.controller import Controller
+from melee.controller import Controller, fix_analog_trigger
 from melee.enums import Action, Button, Character
 from melee.framedata import FrameData
 from melee.gamestate import GameState
@@ -99,11 +99,20 @@ if TYPE_CHECKING:
 
 _INPUT_COMMIT_FRAMES: Final = 12
 _SMASH_MAX_CHARGE_FRAMES: Final = 60
+_SMASH_STARTUP_FRAME_ALLOWANCE: Final = 30
 _NEUTRAL_B_MAX_CHARGE_FRAMES: Final = 120
 _AERIAL_COMMIT_FRAMES: Final = 8
 _TILT_ATTACK_MAGNITUDE: Final = 0.35
 _TILT_TURN_MAGNITUDE: Final = 0.5
 _DODGE_BUTTONS: Final = frozenset({Button.BUTTON_L, Button.BUTTON_R})
+# DESNOTE(jbarber, 2026-08-22): Melee normalizes analog shoulders over 140
+# raw steps, then zeros values <= 0.3. The first usable shield input is
+# therefore 43/140; the separate 0.25 shield-press threshold is unreachable
+# below that deadzone. See:
+# https://github.com/doldecomp/melee/blob/a983c0f9cd41d4a46001c493a1929891ac80f9ab/src/melee/gm/gmmain.c#L59-L72
+# https://github.com/doldecomp/melee/blob/a983c0f9cd41d4a46001c493a1929891ac80f9ab/src/melee/ft/types.dox#L35-L45
+# https://github.com/doldecomp/melee/blob/a983c0f9cd41d4a46001c493a1929891ac80f9ab/src/melee/ft/fighter.c#L1831-L1885
+MIN_SHIELD: Final = 43.0 / 140.0
 _DIGITAL_BUTTONS: Final = frozenset(Button) - {
     Button.BUTTON_MAIN,
     Button.BUTTON_C,
@@ -123,6 +132,23 @@ _MEWTWO_SHADOW_BALL_CHARGE_ACTIONS: Final = frozenset(
         Action.MEWTWO_SPECIAL_AIR_N_LOOP,
     }
 )
+_SMASH_ATTACK_TYPES: Final = frozenset(
+    {
+        AttackType.FSMASH,
+        AttackType.LSMASH,
+        AttackType.RSMASH,
+        AttackType.USMASH,
+        AttackType.DSMASH,
+    }
+)
+_NESS_SMASH_CHARGE_ACTIONS: Final[dict[AttackType, Action]] = {
+    AttackType.USMASH: Action(343),
+    AttackType.DSMASH: Action(346),
+}
+_NESS_SMASH_RELEASE_ACTIONS: Final[dict[AttackType, Action]] = {
+    AttackType.USMASH: Action(344),
+    AttackType.DSMASH: Action(347),
+}
 
 
 _CARDINAL_STICK_COORDINATES: Final[dict[float, tuple[float, float]]] = {
@@ -301,6 +327,10 @@ class Hold:
             short commit windows (tilts, jabs, grabs, most specials).
         released: ``True`` after :meth:`SimpleControls.release` completes.
         release_frame: ``GameState.frame`` when released, if applicable.
+
+    Smash charge observation fields are framework-owned implementation state.
+    They are excluded from equality and hashing so callers can retain a token
+    while :class:`SimpleControls` advances its charge lifecycle.
     """
 
     attack_type: AttackType
@@ -315,6 +345,11 @@ class Hold:
     charging: bool
     released: bool = field(default=False, compare=False, hash=False)
     release_frame: int | None = field(default=None, compare=False, hash=False)
+    _smash_charge_frames: int = field(default=0, compare=False, hash=False, repr=False)
+    _smash_last_action: Action | None = field(default=None, compare=False, hash=False, repr=False)
+    _smash_last_action_frame: int | None = field(default=None, compare=False, hash=False, repr=False)
+    _smash_last_game_frame: int | None = field(default=None, compare=False, hash=False, repr=False)
+    _smash_charge_complete: bool = field(default=False, compare=False, hash=False, repr=False)
 
 
 def _warn_state_deprecated(name: str, replacement: str | None = None) -> None:
@@ -492,6 +527,45 @@ class SimpleControls:
         """
         self.tilt_stick(self._character_state.backward_axis(), 0.0)
 
+    def shield(self, strength: float) -> bool:
+        """Hold or release shield at a requested analog trigger strength.
+
+        ``0.0`` always releases both shoulder inputs. Positive strengths below
+        Melee's first usable analog-trigger step are raised to that minimum;
+        larger values are preserved through ``1.0``. Below full depression,
+        digital L/R are released because either would force full strength. At
+        ``1.0``, digital L is pressed as the trigger click. Main-stick, C-stick,
+        and non-shoulder button inputs are preserved.
+
+        Returns:
+            ``True`` when shoulder inputs were applied. Positive requests return
+            ``False`` without changing pending inputs if the fighter cannot start
+            or continue shielding.
+
+        Raises:
+            ValueError: If ``strength`` is non-finite or outside ``[0, 1]``.
+        """
+        if not math.isfinite(strength) or not 0.0 <= strength <= 1.0:
+            raise ValueError("strength must be finite and between 0 and 1 inclusive")
+        if strength > 0.0 and not (self._character_state.can_shield() or self._character_state.is_shielding()):
+            return False
+
+        self._controller.release_button(Button.BUTTON_L)
+        self._controller.release_button(Button.BUTTON_R)
+        self._controller.press_shoulder(Button.BUTTON_L, 0.0)
+        self._controller.press_shoulder(Button.BUTTON_R, 0.0)
+        if strength > 0.0:
+            requested_strength = max(strength, MIN_SHIELD)
+            if not self._controller.analog_input_correction_enabled:
+                requested_strength = fix_analog_trigger(requested_strength)
+            self._controller.press_shoulder(
+                Button.BUTTON_L,
+                requested_strength,
+            )
+            if strength == 1.0:
+                self._controller.press_button(Button.BUTTON_L)
+        return True
+
     def platform_drop(self) -> bool:
         """Request a non-fast-fall drop through the supporting semisolid.
 
@@ -535,11 +609,24 @@ class SimpleControls:
             StickReferenceAxis.DOWN,
         }:
             raise ValueError(
-                "direction must be StickReferenceAxis.LEFT, StickReferenceAxis.RIGHT, "
-                "or StickReferenceAxis.DOWN"
+                "direction must be StickReferenceAxis.LEFT, StickReferenceAxis.RIGHT, or StickReferenceAxis.DOWN"
             )
         self._validate_dodge_button(dodge_button)
         if not self._character_state.can_dodge():
+            return False
+        player = self._character_state.player()
+        if player is None:
+            return False
+        if player.action is Action.DASHING and direction is not self._character_state.forward_axis():
+            return False
+        if player.action is Action.SHIELD_RELEASE and direction is not StickReferenceAxis.DOWN:
+            return False
+        if (
+            player.character is Character.YOSHI
+            and isinstance(player.action, Action)
+            and player.action.value == 343
+            and direction is not StickReferenceAxis.DOWN
+        ):
             return False
 
         self._controller.release_all()
@@ -791,6 +878,14 @@ class SimpleControls:
             return False
 
         if hold.charging:
+            if hold.attack_type in _SMASH_ATTACK_TYPES:
+                self._observe_smash_charge(player, hold)
+                sequence_frames = self._game_state.frame - hold.started_frame
+                if sequence_frames > _SMASH_STARTUP_FRAME_ALLOWANCE and hold._smash_last_action is None:
+                    return False
+                if sequence_frames > hold.max_hold_frames + _SMASH_STARTUP_FRAME_ALLOWANCE:
+                    return False
+                return not (hold._smash_charge_complete or hold._smash_charge_frames >= hold.max_hold_frames)
             held_frames = self._game_state.frame - hold.started_frame
             if held_frames > hold.max_hold_frames:
                 return False
@@ -1047,6 +1142,8 @@ class SimpleControls:
         if hold.charging:
             self._apply_charge_inputs(hold)
             charging_action = self._current_attack_action(player, hold.attack_type)
+            if hold.attack_type in _SMASH_ATTACK_TYPES and charging_action is not None:
+                return hold
             if charging_action is not None and not self._is_charge_action(
                 player.character,
                 charging_action,
@@ -1162,14 +1259,16 @@ class SimpleControls:
     def _hold_interrupted(self, player: LibPlayerState, hold: Hold) -> bool:
         """Return whether external state invalidated ``hold`` (hitstun, grab, etc.).
 
-        Ground charge holds also fail if the player leaves the ground without
-        transitioning into an actionable air state (e.g. falling off a platform
-        during smash charge).
+        Ground charge holds also fail whenever the player leaves the ground.
         """
         if hold.attack_type is AttackType.Z_AIR:
+            if self._current_attack_action(player, AttackType.Z_AIR) is not None:
+                return False
             if not self._character_state.can_attack(AttackType.Z_AIR):
                 return True
         elif hold.attack_type is AttackType.GRAB:
+            if self._current_attack_action(player, AttackType.GRAB) is not None:
+                return False
             if not self._character_state.can_attack(AttackType.GRAB):
                 return True
         elif not _can_attack_by_combat_state(player, self._frame_data):
@@ -1186,8 +1285,7 @@ class SimpleControls:
         }:
             return True
         if hold.charging and hold.attack_type in _GROUND_ATTACKS and not player.on_ground:
-            if not isinstance(player.action, Action) or player.action not in _ACTIONABLE_AIR:
-                return True
+            return True
         if hold.attack_type is AttackType.DASH_ATTACK:
             if isinstance(player.action, Action) and player.action == Action.DASH_ATTACK:
                 return False
@@ -1230,7 +1328,9 @@ class SimpleControls:
             return None
         if player.action not in _actions_for_attack_type(player.character, attack_type):
             return None
-        if attack_type in _GRAB_THROW_ATTACKS:
+        if attack_type in _GRAB_THROW_ATTACKS | {AttackType.GRAB, AttackType.Z_AIR}:
+            return player.action
+        if player.action in _CHARACTER_ALL_NORMAL_ACTIONS.get(player.character, ()):
             return player.action
         if not self._frame_data.is_attack(player.character, player.action):
             if attack_type in {AttackType.GRAB, AttackType.Z_AIR} and self._frame_data.is_grab(
@@ -1308,6 +1408,48 @@ class SimpleControls:
             return action in _MEWTWO_SHADOW_BALL_CHARGE_ACTIONS
         return action in _SMASH_CHARGE_ACTIONS
 
+    def _observe_smash_charge(self, player: LibPlayerState, hold: Hold) -> None:
+        """Advance one hold's smash charge state from a fresh game packet."""
+        game_frame = self._game_state.frame
+        if hold._smash_last_game_frame is not None and game_frame <= hold._smash_last_game_frame:
+            return
+
+        action = self._current_attack_action(player, hold.attack_type)
+        previous_action = hold._smash_last_action
+        previous_action_frame = hold._smash_last_action_frame
+        charge_frames = hold._smash_charge_frames
+        charge_complete = hold._smash_charge_complete
+
+        if player.character is Character.NESS and action is _NESS_SMASH_RELEASE_ACTIONS.get(hold.attack_type):
+            charge_complete = True
+        elif action is None:
+            if previous_action is not None:
+                charge_complete = True
+        elif previous_action is action:
+            if (
+                player.character is Character.NESS and action is _NESS_SMASH_CHARGE_ACTIONS.get(hold.attack_type)
+            ) or previous_action_frame == player.action_frame:
+                charge_frames += 1
+            elif (
+                charge_frames > 0 and previous_action_frame is not None and player.action_frame > previous_action_frame
+            ):
+                charge_complete = True
+
+        # DESNOTE(jbarber, 2026-08-24): Common smashes freeze their animation
+        # frame only while SmashAttr is Charging; Ness instead enters dedicated
+        # up/down-smash charge and release states. Count those observations
+        # rather than sequence time so startup never consumes the 60-tick cap.
+        # See https://github.com/doldecomp/melee/blob/a983c0f9cd41d4a46001c493a1929891ac80f9ab/src/melee/ft/ft_0DF0.c#L50-L164
+        object.__setattr__(hold, "_smash_charge_frames", charge_frames)
+        object.__setattr__(hold, "_smash_last_action", action)
+        object.__setattr__(
+            hold,
+            "_smash_last_action_frame",
+            player.action_frame if action is not None else None,
+        )
+        object.__setattr__(hold, "_smash_last_game_frame", game_frame)
+        object.__setattr__(hold, "_smash_charge_complete", charge_complete)
+
     def _charge_completed(self, player: LibPlayerState, hold: Hold) -> bool:
         """Return whether a charging hold finished and the attack animation started."""
         if not isinstance(player.action, Action):
@@ -1329,6 +1471,7 @@ __all__ = [
     "Hold",
     "HorizontalStickReferenceAxis",
     "LedgeRecoveryOption",
+    "MIN_SHIELD",
     "SimpleControls",
     "StickReferenceAxis",
     # Re-exported from melee.bot.character_state for backward compatibility with

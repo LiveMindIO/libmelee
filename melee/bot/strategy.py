@@ -97,6 +97,7 @@ class Strategy(ABC, Generic[A]):
         player_state: CharacterState,
         opponent_state: CharacterState,
         custom: A,
+        /,
     ) -> Continue | Exit:
         """Run one frame and notify exit listeners when this strategy exits."""
         result = self.tick(
@@ -127,6 +128,7 @@ class Strategy(ABC, Generic[A]):
         player_state: CharacterState,
         opponent_state: CharacterState,
         custom: A,
+        /,
     ) -> Continue | Exit:
         """Implement one frame of strategy logic."""
 

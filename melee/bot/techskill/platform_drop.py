@@ -34,7 +34,12 @@ class PlatformDropFastFallMontage(StatefulInputMontage[_PlatformDropPhase]):
         frame_limit: int = 24,
         cancel_montage: InputMontage | None = None,
     ) -> None:
-        super().__init__(frame_limit, _PlatformDropPhase.Grounded, cancel_montage)
+        super().__init__(
+            frame_limit,
+            _PlatformDropPhase.Grounded,
+            cancel_montage,
+            name="Platform Drop Fast Fall",
+        )
         self._character: Character | None = None
 
     def can_start(

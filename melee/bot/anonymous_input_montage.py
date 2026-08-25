@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import warnings
 from collections.abc import Callable
-from typing import TYPE_CHECKING, TypeVar
+from typing import TYPE_CHECKING, TypeVar, overload
+
+from typing_extensions import deprecated
 
 from melee.bot.input_montage import Abort, InputMontage
 from melee.bot.stateful_input_montage import StatefulInputMontage
@@ -20,10 +23,62 @@ StateT = TypeVar("StateT")
 class AnonymousInputMontage(StatefulInputMontage[StateT]):
     """A stateful montage defined entirely by supplied callables.
 
-    The required ``cancel`` callable receives the latest typed state during
-    active cancellation and may return a fallback montage for the caller's next
-    game tick. It is not called for waiting or terminal montages.
+    ``name`` identifies the composition in lifecycle logging. Omitting it is
+    deprecated. The required ``cancel`` callable receives the latest typed state
+    during active cancellation and may return a fallback montage for the caller's
+    next game tick. It is not called for waiting or terminal montages.
     """
+
+    @overload
+    def __init__(
+        self,
+        *,
+        frame_limit: int,
+        initial_state: StateT,
+        name: str,
+        can_start: Callable[
+            [SimpleControls, CharacterState, CharacterState, GameState],
+            bool,
+        ],
+        on_tick: Callable[
+            [SimpleControls, CharacterState, CharacterState, GameState, StateT],
+            tuple[StateT, InputMontage | bool | Abort],
+        ],
+        should_abort: Callable[
+            [SimpleControls, CharacterState, CharacterState, GameState, StateT],
+            Abort | bool | None,
+        ],
+        cancel: Callable[
+            [SimpleControls, CharacterState, CharacterState, GameState, StateT],
+            InputMontage | None,
+        ],
+    ) -> None: ...
+
+    @overload
+    @deprecated("Pass an explicit name to AnonymousInputMontage().")
+    def __init__(
+        self,
+        *,
+        frame_limit: int,
+        initial_state: StateT,
+        name: None = None,
+        can_start: Callable[
+            [SimpleControls, CharacterState, CharacterState, GameState],
+            bool,
+        ],
+        on_tick: Callable[
+            [SimpleControls, CharacterState, CharacterState, GameState, StateT],
+            tuple[StateT, InputMontage | bool | Abort],
+        ],
+        should_abort: Callable[
+            [SimpleControls, CharacterState, CharacterState, GameState, StateT],
+            Abort | bool | None,
+        ],
+        cancel: Callable[
+            [SimpleControls, CharacterState, CharacterState, GameState, StateT],
+            InputMontage | None,
+        ],
+    ) -> None: ...
 
     def __init__(
         self,
@@ -48,7 +103,17 @@ class AnonymousInputMontage(StatefulInputMontage[StateT]):
             InputMontage | None,
         ],
     ) -> None:
-        super().__init__(frame_limit, initial_state, name=name)
+        if name is None:
+            warnings.warn(
+                "Constructing AnonymousInputMontage without a name is deprecated; pass name=... instead.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+        super().__init__(
+            frame_limit,
+            initial_state,
+            name="Anonymous Montage" if name is None else name,
+        )
         self._can_start = can_start
         self._on_tick = on_tick
         self._should_abort = should_abort

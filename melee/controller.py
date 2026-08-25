@@ -117,6 +117,11 @@ class Controller:
         # Configure our controller with the console
         self._console.setup_dolphin_controller(port, type)
 
+    @property
+    def analog_input_correction_enabled(self) -> bool:
+        """Whether analog requests are remapped to observed Melee values."""
+        return self._fix_analog_inputs
+
     def __del__(self):
         """Clean up any resources held by the controller object"""
         self.disconnect()

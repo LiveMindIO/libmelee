@@ -130,8 +130,6 @@ class InputMontage(ABC):
         segment succeeds. The first waiting branch whose :meth:`can_start`
         returns ``True`` becomes the active continuation.
         """
-        if not isinstance(montage, InputMontage):
-            raise TypeError("branch must be an InputMontage")
         if montage is self:
             raise ValueError("a montage cannot branch to itself")
         self._branches.append(montage)
@@ -205,8 +203,7 @@ class InputMontage(ABC):
             return self._abort(controls, should_abort)
         if isinstance(should_abort, bool):
             _warn_legacy_result(
-                "Returning bool from InputMontage.should_abort() is deprecated; "
-                "return Abort(reason) or None instead."
+                "Returning bool from InputMontage.should_abort() is deprecated; return Abort(reason) or None instead."
             )
         if should_abort:
             return self._abort(controls, Abort("should_abort returned True"))
@@ -221,8 +218,7 @@ class InputMontage(ABC):
             else:
                 if listener_result is PreTickResult.ABORTED:
                     _warn_legacy_result(
-                        "PreTickResult.ABORTED is deprecated; return "
-                        "PreTickResult.Aborted(reason) instead."
+                        "PreTickResult.ABORTED is deprecated; return PreTickResult.Aborted(reason) instead."
                     )
                 pre_tick_result = pre_tick_result.combine(listener_result)
 
@@ -243,8 +239,7 @@ class InputMontage(ABC):
                 return self._continue_to_branch_or_finish(controls, player_state, opponent_state, state)
             case False:
                 _warn_legacy_result(
-                    "Returning False from InputMontage.on_tick() is deprecated; "
-                    "return Abort(reason) instead."
+                    "Returning False from InputMontage.on_tick() is deprecated; return Abort(reason) instead."
                 )
                 return self._abort(controls, Abort("on_tick returned False"))
             case InputMontage() as next_montage if next_montage is not self:

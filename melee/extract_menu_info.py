@@ -7,7 +7,8 @@ Mirrors gecko/ExtractMenuInfo/SendMenuFrame.asm. Base EXI transfer length is
 - 0x45–0x48: CSSDoor.is_hold_cpu_slider (+0x12) at mnCharSel_803F0DFC.doors[i]
 - 0x4C–0x52: live match pause bytes (when this fork's payload is active)
 - 0x53: payload discriminator (0 = normal, 1 = pause-open, 2 = pause-close)
-- 0x54+: optional crowd-control watch payload for normal payloads.
+- 0x54+: counted crowd-control tail for normal payloads. NB1 tails contain
+  optional debug watches followed by four per-port neutral-B charge counters.
 
 See doldecomp/melee src/melee/mn/types.h (PlayerInitData, CSSDoor).
 Watch values are exposed on ``gamestate.custom["gecko_watch_values"]``.
@@ -34,6 +35,18 @@ PAYLOAD_KIND_CUSTOM_KEY = "gecko_payload_kind"
 WATCH_PAYLOAD_COUNT_OFFSET = 0x54
 WATCH_PAYLOAD_VALUES_OFFSET = 0x58
 WATCH_PAYLOAD_VALUE_SIZE = 4
+NEUTRAL_B_CHARGE_SIGNATURE = b"NB1"
+NEUTRAL_B_CHARGE_SIGNATURE_OFFSET = 0x55
+NEUTRAL_B_CHARGE_VALUE_COUNT = 4
+NEUTRAL_B_CHARGE_CUSTOM_KEY = "gecko_neutral_b_charges"
+NEUTRAL_B_CHARGE_CHARACTERS = frozenset(
+    {
+        enums.Character.DK,
+        enums.Character.SHEIK,
+        enums.Character.SAMUS,
+        enums.Character.MEWTWO,
+    }
+)
 
 # Scene halfwords (offset 0x1, big-endian u16).
 SCENE_PRESS_START = 0x0000
@@ -315,4 +328,35 @@ def _apply_watch_payload_fields(event_bytes: bytes, gamestate: GameState) -> Non
         _read_u32(event_bytes, WATCH_PAYLOAD_VALUES_OFFSET + (index * WATCH_PAYLOAD_VALUE_SIZE))
         for index in range(count)
     )
-    gamestate.custom["gecko_watch_values"] = values
+    has_charge_extension = (
+        count >= NEUTRAL_B_CHARGE_VALUE_COUNT
+        and event_bytes[
+            NEUTRAL_B_CHARGE_SIGNATURE_OFFSET:
+            NEUTRAL_B_CHARGE_SIGNATURE_OFFSET + len(NEUTRAL_B_CHARGE_SIGNATURE)
+        ]
+        == NEUTRAL_B_CHARGE_SIGNATURE
+    )
+    if not has_charge_extension:
+        gamestate.custom["gecko_watch_values"] = values
+        return
+
+    debug_count = count - NEUTRAL_B_CHARGE_VALUE_COUNT
+    gamestate.custom["gecko_watch_values"] = values[:debug_count]
+    charges = values[debug_count:]
+    gamestate.custom[NEUTRAL_B_CHARGE_CUSTOM_KEY] = charges
+    for port, player_state in gamestate.players.items():
+        if 1 <= port <= len(charges) and player_state.character in NEUTRAL_B_CHARGE_CHARACTERS:
+            player_state.neutral_b_charge = charges[port - 1]
+
+
+def apply_neutral_b_charge(player_state: PlayerState, port: int, gamestate: GameState) -> None:
+    """Apply a signature-validated per-port charge value to a supported fighter."""
+    charges = gamestate.custom.get(NEUTRAL_B_CHARGE_CUSTOM_KEY)
+    if (
+        isinstance(charges, tuple)
+        and 1 <= port <= len(charges)
+        and player_state.character in NEUTRAL_B_CHARGE_CHARACTERS
+    ):
+        charge = charges[port - 1]
+        if isinstance(charge, int):
+            player_state.neutral_b_charge = charge

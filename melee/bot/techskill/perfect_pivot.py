@@ -45,9 +45,12 @@ class PerfectPivotMontage(StatefulInputMontage[_PerfectPivotPhase]):
         frame_limit: int = 4,
         cancel_montage: InputMontage | None = None,
     ) -> None:
-        super().__init__(frame_limit, _PerfectPivotPhase.Initial, cancel_montage)
-        if not isinstance(attack_type, AttackType):
-            raise ValueError("attack_type must be an AttackType")
+        super().__init__(
+            frame_limit,
+            _PerfectPivotPhase.Initial,
+            cancel_montage,
+            name="Perfect Pivot",
+        )
         self._attack_type = attack_type
         self._character: Character | None = None
 

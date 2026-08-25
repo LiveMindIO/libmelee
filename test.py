@@ -7,8 +7,11 @@ import unittest
 from typing import get_args, get_type_hints
 from uuid import UUID
 
+from typing_extensions import get_overloads
+
 import melee
 from melee.bot import (
+    MIN_SHIELD,
     Abort,
     AnonymousInputMontage,
     AttackFrameData,
@@ -19,29 +22,45 @@ from melee.bot import (
     CharacterSelection,
     CharacterState,
     CharacterStatus,
+    ChargeStoreInput,
     Continue,
     CrowdControl,
+    DonkeyKongGiantPunchMontage,
     Exit,
+    FlareBladeMontage,
     GroundDodgeStickReferenceAxis,
     Hold,
     HorizontalStickReferenceAxis,
     InitiateDashMontage,
     InputMontage,
+    JigglypuffRolloutMontage,
     LedgedashMontage,
+    LinkBowMontage,
+    LinkForwardSmashMontage,
     Listener,
     Listeners,
+    LuigiGreenMissileMontage,
+    MewtwoShadowBallMontage,
     MontageState,
     MultishineMontage,
     PerfectPivotMontage,
     PlatformDropFastFallMontage,
     PreTickResult,
+    QuickAttackDirection,
+    QuickAttackMontage,
+    SamusChargeShotMontage,
     SDIMontage,
+    SheikNeedleStormMontage,
+    ShieldBreakerMontage,
     SimpleControls,
     SimpleListener,
+    SkullBashMontage,
+    SmashAttackMontage,
     SmashTurnJumpMontage,
     StatefulInputMontage,
     StickReferenceAxis,
     Strategy,
+    SwordDanceMontage,
     WavedashDirection,
     WavedashMontage,
     can_air_attack,
@@ -58,13 +77,11 @@ from melee.bot.framedata_query import (
     get_framedata,
 )
 from melee.bot.techskill.common import (
-    GROUND_MOVEMENT_ACTIONS,
     WAVEDASH_MAX_ANGLE_DEGREES,
     WAVEDASH_MIN_ANGLE_DEGREES,
     clamp_wavedash_angle,
 )
 from melee.controller import fix_analog_stick
-from typing_extensions import get_overloads
 
 
 class RecordingBot(BaseBot[object]):
@@ -424,9 +441,17 @@ class BotProtocolTests(unittest.TestCase):
         strategy_parameters = inspect.signature(Strategy.game_tick).parameters
         implementation_parameters = inspect.signature(Strategy.tick).parameters
         bot_parameters = inspect.signature(BotProtocol.game_tick).parameters
+        base_bot_parameters = inspect.signature(BaseBot.game_tick).parameters
 
         self.assertEqual(list(strategy_parameters.values()), list(bot_parameters.values()))
         self.assertEqual(list(implementation_parameters.values()), list(bot_parameters.values()))
+        self.assertEqual(list(base_bot_parameters.values()), list(bot_parameters.values()))
+        self.assertTrue(
+            all(
+                parameter.kind is inspect.Parameter.POSITIONAL_ONLY
+                for parameter in bot_parameters.values()
+            )
+        )
 
     def test_strategy_metadata_and_exit_listener(self):
         strategy = RecordingStrategy(Exit("spacing lost"))
@@ -826,7 +851,7 @@ class SLPFile(unittest.TestCase):
 
         # DESNOTE(jbarber, 2026-08-21): This digest pins every source-derived
         # name/value pair while keeping the already-large enum test concise.
-        # See https://github.com/doldecomp/melee/tree/68f92c47d697c98e80911a14218f74982915acc9/src/melee/ft/chara
+        # See https://github.com/doldecomp/melee/tree/a983c0f9cd41d4a46001c493a1929891ac80f9ab/src/melee/ft/chara
         self.assertEqual(len(aliases), 937)
         self.assertEqual(
             hashlib.sha256(payload).hexdigest(),
@@ -918,6 +943,51 @@ class SLPFile(unittest.TestCase):
 
 
 class MenuEventCostumeTests(unittest.TestCase):
+    def test_nb1_payload_splits_debug_watches_and_per_port_charge(self) -> None:
+        import struct
+
+        console = melee.Console(is_dolphin=False, allow_old_version=True)
+        payload = bytearray(0x70)
+        payload[0x1:0x3] = (0x0202).to_bytes(2, byteorder="big")
+        payload[0x54] = 6
+        payload[0x55:0x58] = b"NB1"
+        for index, value in enumerate((101, 102, 10, 6, 7, 4)):
+            struct.pack_into(">I", payload, 0x58 + index * 4, value)
+        gamestate = melee.GameState(
+            players={
+                1: melee.PlayerState(character=melee.Character.DK),
+                2: melee.PlayerState(character=melee.Character.SHEIK),
+                3: melee.PlayerState(character=melee.Character.SAMUS),
+                4: melee.PlayerState(character=melee.Character.MEWTWO),
+            }
+        )
+
+        console._Console__handle_slippstream_menu_event(bytes(payload), gamestate)
+
+        self.assertEqual(gamestate.custom["gecko_watch_values"], (101, 102))
+        self.assertEqual(gamestate.custom["gecko_neutral_b_charges"], (10, 6, 7, 4))
+        self.assertEqual(
+            tuple(gamestate.players[port].neutral_b_charge for port in range(1, 5)),
+            (10, 6, 7, 4),
+        )
+
+    def test_legacy_watch_payload_does_not_claim_charge_telemetry(self) -> None:
+        import struct
+
+        console = melee.Console(is_dolphin=False, allow_old_version=True)
+        payload = bytearray(0x68)
+        payload[0x1:0x3] = (0x0202).to_bytes(2, byteorder="big")
+        payload[0x54] = 4
+        for index, value in enumerate((10, 6, 7, 4)):
+            struct.pack_into(">I", payload, 0x58 + index * 4, value)
+        gamestate = melee.GameState(players={1: melee.PlayerState(character=melee.Character.DK)})
+
+        console._Console__handle_slippstream_menu_event(bytes(payload), gamestate)
+
+        self.assertEqual(gamestate.custom["gecko_watch_values"], (10, 6, 7, 4))
+        self.assertNotIn("gecko_neutral_b_charges", gamestate.custom)
+        self.assertIsNone(gamestate.players[1].neutral_b_charge)
+
     def test_offline_css_reads_port_one_costume(self) -> None:
         console = melee.Console(is_dolphin=False, allow_old_version=True)
         payload = bytearray(0x50)
@@ -1077,7 +1147,6 @@ class MenuEventCostumeTests(unittest.TestCase):
         console = melee.Console(is_dolphin=False, allow_old_version=True)
         payload = bytearray(0x50)
         payload[0x1:0x3] = (0x0108).to_bytes(2, byteorder="big")
-        import struct
 
         struct.pack_into(">f", payload, 0x31, 9.0)
         struct.pack_into(">f", payload, 0x35, 8.0)
@@ -1298,19 +1367,17 @@ class AngularStickTests(unittest.TestCase):
 
     def test_invalid_magnitudes_are_rejected(self) -> None:
         for magnitude in (math.nan, math.inf, -math.inf, -0.0001, 1.0001):
-            with self.subTest(magnitude=magnitude):
-                with self.assertRaisesRegex(ValueError, "magnitude must"):
-                    stick_coordinates(
-                        StickReferenceAxis.UP,
-                        0.0,
-                        magnitude=magnitude,
-                    )
+            with self.subTest(magnitude=magnitude), self.assertRaisesRegex(ValueError, "magnitude must"):
+                stick_coordinates(
+                    StickReferenceAxis.UP,
+                    0.0,
+                    magnitude=magnitude,
+                )
 
     def test_non_finite_angles_are_rejected(self) -> None:
         for angle in (math.nan, math.inf, -math.inf):
-            with self.subTest(angle=angle):
-                with self.assertRaisesRegex(ValueError, "must be finite"):
-                    stick_coordinates(StickReferenceAxis.UP, angle)
+            with self.subTest(angle=angle), self.assertRaisesRegex(ValueError, "must be finite"):
+                stick_coordinates(StickReferenceAxis.UP, angle)
 
     def test_tilt_stick_selects_stick_without_resetting_other_inputs(self) -> None:
         class RecordingController:
@@ -1375,7 +1442,8 @@ class AngularStickTests(unittest.TestCase):
 
 
 class RecordingSimpleController:
-    def __init__(self) -> None:
+    def __init__(self, *, analog_input_correction_enabled: bool = True) -> None:
+        self.analog_input_correction_enabled = analog_input_correction_enabled
         self.main_stick = (0.5, 0.5)
         self.c_stick = (0.5, 0.5)
         self.buttons = set()
@@ -1399,6 +1467,12 @@ class RecordingSimpleController:
 
     def press_button(self, button) -> None:
         self.buttons.add(button)
+
+    def release_button(self, button) -> None:
+        self.buttons.discard(button)
+
+    def press_shoulder(self, button, amount) -> None:
+        self.shoulders[button] = amount
 
 
 class RecordingMenuController(RecordingSimpleController):
@@ -1559,6 +1633,114 @@ class SimpleControlsInputTests(unittest.TestCase):
                 self.assertEqual(controller.c_stick, (0.0, 1.0))
                 self.assertEqual(controller.buttons, {melee.Button.BUTTON_A})
 
+    def test_shield_clamps_positive_strength_to_first_usable_trigger_step(self) -> None:
+        for strength, expected in (
+            (0.0001, MIN_SHIELD),
+            (0.3, MIN_SHIELD),
+            (0.5, 0.5),
+            (1.0, 1.0),
+        ):
+            with self.subTest(strength=strength):
+                player = melee.PlayerState(action=melee.Action.STANDING, on_ground=True)
+                controls, controller = self.controls(player)
+                controller.main_stick = (0.25, 0.75)
+                controller.c_stick = (0.75, 0.25)
+                controller.buttons.update(
+                    {
+                        melee.Button.BUTTON_A,
+                        melee.Button.BUTTON_L,
+                        melee.Button.BUTTON_R,
+                    }
+                )
+                controller.shoulders[melee.Button.BUTTON_R] = 0.9
+
+                self.assertTrue(controls.shield(strength))
+                self.assertEqual(controller.main_stick, (0.25, 0.75))
+                self.assertEqual(controller.c_stick, (0.75, 0.25))
+                expected_buttons = {melee.Button.BUTTON_A}
+                if strength == 1.0:
+                    expected_buttons.add(melee.Button.BUTTON_L)
+                self.assertEqual(controller.buttons, expected_buttons)
+                self.assertEqual(controller.shoulders[melee.Button.BUTTON_L], expected)
+                self.assertEqual(controller.shoulders[melee.Button.BUTTON_R], 0.0)
+
+    def test_min_shield_is_exported_from_bot_api(self) -> None:
+        self.assertEqual(MIN_SHIELD, 43.0 / 140.0)
+
+    def test_shield_pretransforms_strength_when_analog_correction_is_disabled(self) -> None:
+        for strength in (0.0001, 0.5, 1.0):
+            with self.subTest(strength=strength):
+                player = melee.PlayerState(action=melee.Action.STANDING, on_ground=True)
+                controller = RecordingSimpleController(
+                    analog_input_correction_enabled=False
+                )
+                controls, _ = self.controls(player, controller)
+
+                self.assertTrue(controls.shield(strength))
+                self.assertAlmostEqual(
+                    controller.shoulders[melee.Button.BUTTON_L],
+                    melee.fix_analog_trigger(max(strength, MIN_SHIELD)),
+                )
+
+    def test_shield_zero_releases_in_any_character_state(self) -> None:
+        player = melee.PlayerState(action=melee.Action.FALLING, on_ground=False)
+        controls, controller = self.controls(player)
+        controller.main_stick = (0.25, 0.75)
+        controller.buttons.update(
+            {
+                melee.Button.BUTTON_A,
+                melee.Button.BUTTON_L,
+                melee.Button.BUTTON_R,
+            }
+        )
+        controller.shoulders[melee.Button.BUTTON_L] = 0.5
+        controller.shoulders[melee.Button.BUTTON_R] = 0.75
+
+        self.assertTrue(controls.shield(0.0))
+        self.assertEqual(controller.main_stick, (0.25, 0.75))
+        self.assertEqual(controller.buttons, {melee.Button.BUTTON_A})
+        self.assertEqual(
+            controller.shoulders,
+            {
+                melee.Button.BUTTON_L: 0.0,
+                melee.Button.BUTTON_R: 0.0,
+            },
+        )
+
+    def test_shield_can_adjust_strength_while_already_shielding(self) -> None:
+        player = melee.PlayerState(action=melee.Action.SHIELD_STUN, on_ground=True)
+        controls, controller = self.controls(player)
+
+        self.assertTrue(controls.shield(0.6))
+        self.assertEqual(controller.shoulders[melee.Button.BUTTON_L], 0.6)
+
+    def test_shield_rejects_ineligible_state_without_changing_inputs(self) -> None:
+        player = melee.PlayerState(action=melee.Action.FALLING, on_ground=False)
+        controls, controller = self.controls(player)
+        controller.main_stick = (0.25, 0.75)
+        controller.buttons.add(melee.Button.BUTTON_A)
+        controller.shoulders[melee.Button.BUTTON_R] = 0.75
+
+        self.assertFalse(controls.shield(0.5))
+        self.assertEqual(controller.main_stick, (0.25, 0.75))
+        self.assertEqual(controller.buttons, {melee.Button.BUTTON_A})
+        self.assertEqual(controller.shoulders[melee.Button.BUTTON_R], 0.75)
+
+    def test_shield_rejects_invalid_strength_without_changing_inputs(self) -> None:
+        player = melee.PlayerState(action=melee.Action.STANDING, on_ground=True)
+        controls, controller = self.controls(player)
+        controller.buttons.add(melee.Button.BUTTON_A)
+        controller.shoulders[melee.Button.BUTTON_R] = 0.75
+
+        for strength in (math.nan, math.inf, -math.inf, -0.0001, 1.0001):
+            with (
+                self.subTest(strength=strength),
+                self.assertRaisesRegex(ValueError, "strength must be finite"),
+            ):
+                controls.shield(strength)
+        self.assertEqual(controller.buttons, {melee.Button.BUTTON_A})
+        self.assertEqual(controller.shoulders[melee.Button.BUTTON_R], 0.75)
+
     def test_dodge_applies_roll_and_spot_dodge_inputs(self) -> None:
         for direction, dodge_button, expected_stick in (
             (StickReferenceAxis.LEFT, melee.Button.BUTTON_L, (0.0, 0.5)),
@@ -1616,6 +1798,60 @@ class SimpleControlsInputTests(unittest.TestCase):
         self.assertEqual(controller.c_stick, (0.75, 0.25))
         self.assertEqual(controller.buttons, {melee.Button.BUTTON_A})
         self.assertEqual(controller.shoulders[melee.Button.BUTTON_L], 0.75)
+
+    def test_dodge_rejects_directions_the_current_iasa_cannot_select(self) -> None:
+        for action, facing, direction, expected in (
+            (melee.Action.DASHING, True, StickReferenceAxis.RIGHT, True),
+            (melee.Action.DASHING, True, StickReferenceAxis.LEFT, False),
+            (melee.Action.DASHING, True, StickReferenceAxis.DOWN, False),
+            (melee.Action.DASHING, False, StickReferenceAxis.LEFT, True),
+            (melee.Action.DASHING, False, StickReferenceAxis.RIGHT, False),
+            (melee.Action.SHIELD_RELEASE, True, StickReferenceAxis.DOWN, True),
+            (melee.Action.SHIELD_RELEASE, True, StickReferenceAxis.LEFT, False),
+            (melee.Action.SHIELD_RELEASE, True, StickReferenceAxis.RIGHT, False),
+        ):
+            with self.subTest(
+                action=action,
+                facing=facing,
+                direction=direction,
+            ):
+                player = melee.PlayerState(
+                    action=action,
+                    on_ground=True,
+                    facing=facing,
+                )
+                controls, controller = self.controls(player)
+                controller.main_stick = (0.25, 0.75)
+                controller.buttons.add(melee.Button.BUTTON_A)
+
+                self.assertEqual(controls.dodge(direction), expected)
+                if not expected:
+                    self.assertEqual(controller.main_stick, (0.25, 0.75))
+                    self.assertEqual(controller.buttons, {melee.Button.BUTTON_A})
+
+    def test_yoshi_guard_off_allows_only_spot_dodge(self) -> None:
+        player = melee.PlayerState(
+            character=melee.Character.YOSHI,
+            action=melee.Action(343),
+            on_ground=True,
+        )
+        for direction, expected in (
+            (StickReferenceAxis.LEFT, False),
+            (StickReferenceAxis.RIGHT, False),
+            (StickReferenceAxis.DOWN, True),
+        ):
+            with self.subTest(direction=direction):
+                controls, controller = self.controls(player)
+                controller.main_stick = (0.25, 0.75)
+                controller.buttons.add(melee.Button.BUTTON_A)
+
+                self.assertEqual(controls.dodge(direction), expected)
+                if expected:
+                    self.assertEqual(controller.main_stick, (0.5, 0.0))
+                    self.assertEqual(controller.buttons, {melee.Button.BUTTON_L})
+                else:
+                    self.assertEqual(controller.main_stick, (0.25, 0.75))
+                    self.assertEqual(controller.buttons, {melee.Button.BUTTON_A})
 
     def test_air_dodge_applies_arbitrary_stick_direction(self) -> None:
         player = melee.PlayerState(action=melee.Action.FALLING, on_ground=False)
@@ -1943,6 +2179,198 @@ class SimpleControlsInputTests(unittest.TestCase):
                     hold,
                 )
 
+    def test_smash_hold_counts_only_observed_engine_charge_ticks(self) -> None:
+        player = melee.PlayerState(
+            character=melee.Character.NESS,
+            action=melee.Action.STANDING,
+            on_ground=True,
+        )
+        controls, _ = self.controls(player)
+        hold = controls.attack(AttackType.USMASH)
+        self.assertIsInstance(hold, Hold)
+        assert isinstance(hold, Hold)
+
+        for frame in range(1, 21):
+            startup = melee.PlayerState(
+                character=melee.Character.NESS,
+                action=melee.Action(342),
+                action_frame=frame,
+                on_ground=True,
+            )
+            startup_controls, _ = self.controls(startup, frame=frame)
+            self.assertIs(
+                startup_controls.attack(AttackType.USMASH, hold=hold),
+                hold,
+            )
+
+        for charge_frame in range(1, 60):
+            charging = melee.PlayerState(
+                character=melee.Character.NESS,
+                action=melee.Action(343),
+                action_frame=charge_frame,
+                on_ground=True,
+            )
+            charge_controls, _ = self.controls(charging, frame=20 + charge_frame)
+            self.assertIs(
+                charge_controls.attack(AttackType.USMASH, hold=hold),
+                hold,
+            )
+
+        self.assertEqual(hold._smash_charge_frames, 58)
+        self.assertGreater(20 + charge_frame, hold.max_hold_frames)
+
+        final_charge = melee.PlayerState(
+            character=melee.Character.NESS,
+            action=melee.Action(343),
+            action_frame=60,
+            on_ground=True,
+        )
+        final_controls, _ = self.controls(final_charge, frame=80)
+        self.assertIs(
+            final_controls.attack(AttackType.USMASH, hold=hold),
+            hold,
+        )
+
+        full_charge = melee.PlayerState(
+            character=melee.Character.NESS,
+            action=melee.Action(343),
+            action_frame=61,
+            on_ground=True,
+        )
+        full_controls, _ = self.controls(full_charge, frame=81)
+        self.assertIsInstance(
+            full_controls.attack(AttackType.USMASH, hold=hold),
+            AttackFrameData,
+        )
+        self.assertEqual(hold._smash_charge_frames, hold.max_hold_frames)
+
+    def test_smash_hold_observation_is_idempotent_within_one_game_frame(self) -> None:
+        player = melee.PlayerState(
+            character=melee.Character.FOX,
+            action=melee.Action.STANDING,
+            on_ground=True,
+        )
+        controls, _ = self.controls(player)
+        hold = controls.attack(AttackType.USMASH)
+        self.assertIsInstance(hold, Hold)
+        assert isinstance(hold, Hold)
+
+        first_charge = melee.PlayerState(
+            character=melee.Character.FOX,
+            action=melee.Action.UPSMASH,
+            action_frame=7,
+            on_ground=True,
+        )
+        first_controls, _ = self.controls(first_charge, frame=10)
+        self.assertTrue(first_controls.check_hold(hold))
+        self.assertTrue(first_controls.check_hold(hold))
+        self.assertEqual(hold._smash_charge_frames, 0)
+
+        next_controls, _ = self.controls(first_charge, frame=11)
+        self.assertTrue(next_controls.check_hold(hold))
+        self.assertTrue(next_controls.check_hold(hold))
+        self.assertEqual(hold._smash_charge_frames, 1)
+
+        released = melee.PlayerState(
+            character=melee.Character.FOX,
+            action=melee.Action.UPSMASH,
+            action_frame=8,
+            on_ground=True,
+        )
+        released_controls, _ = self.controls(released, frame=12)
+        self.assertIsInstance(
+            released_controls.attack(AttackType.USMASH, hold=hold),
+            AttackFrameData,
+        )
+
+    def test_smash_hold_times_out_when_the_smash_never_starts(self) -> None:
+        player = melee.PlayerState(
+            character=melee.Character.FOX,
+            action=melee.Action.STANDING,
+            on_ground=True,
+        )
+        controls, _ = self.controls(player)
+        hold = controls.attack(AttackType.USMASH)
+        self.assertIsInstance(hold, Hold)
+        assert isinstance(hold, Hold)
+
+        for frame in range(1, 31):
+            waiting_controls, _ = self.controls(player, frame=frame)
+            self.assertIs(
+                waiting_controls.attack(AttackType.USMASH, hold=hold),
+                hold,
+            )
+
+        timed_out_controls, _ = self.controls(player, frame=31)
+        self.assertIsNone(
+            timed_out_controls.attack(AttackType.USMASH, hold=hold)
+        )
+
+    def test_ground_charge_hold_stops_when_ground_is_lost(self) -> None:
+        grounded = melee.PlayerState(
+            character=melee.Character.FOX,
+            action=melee.Action.STANDING,
+            on_ground=True,
+        )
+        controls, _ = self.controls(grounded)
+        hold = controls.attack(AttackType.USMASH)
+        self.assertIsInstance(hold, Hold)
+        assert isinstance(hold, Hold)
+
+        falling = melee.PlayerState(
+            character=melee.Character.FOX,
+            action=melee.Action.FALLING,
+            on_ground=False,
+        )
+        falling_controls, _ = self.controls(falling, frame=1)
+        self.assertFalse(falling_controls.check_hold(hold))
+        self.assertIsNone(falling_controls.attack(AttackType.USMASH, hold=hold))
+
+    def test_grab_and_z_air_holds_complete_in_active_states(self) -> None:
+        cases = (
+            (melee.Character.FOX, AttackType.GRAB, melee.Action.STANDING, melee.Action.GRAB),
+            (melee.Character.FOX, AttackType.GRAB, melee.Action.STANDING, melee.Action.GRAB_PULLING),
+            (melee.Character.SAMUS, AttackType.Z_AIR, melee.Action.FALLING, melee.Action(357)),
+            (melee.Character.SAMUS, AttackType.Z_AIR, melee.Action.FALLING, melee.Action(358)),
+            (melee.Character.LINK, AttackType.Z_AIR, melee.Action.FALLING, melee.Action(360)),
+            (melee.Character.YLINK, AttackType.Z_AIR, melee.Action.FALLING, melee.Action(361)),
+        )
+        for character, attack_type, start_action, active_action in cases:
+            with self.subTest(character=character, attack_type=attack_type, active_action=active_action):
+                start = melee.PlayerState(
+                    character=character,
+                    action=start_action,
+                    on_ground=attack_type is AttackType.GRAB,
+                )
+                controls, _ = self.controls(start)
+                hold = controls.attack(attack_type)
+                self.assertIsInstance(hold, Hold)
+                assert isinstance(hold, Hold)
+
+                active = melee.PlayerState(
+                    character=character,
+                    action=active_action,
+                    on_ground=attack_type is AttackType.GRAB,
+                )
+                active_controls, _ = self.controls(active, frame=1)
+                self.assertTrue(active_controls.check_hold(hold))
+                result = active_controls.attack(attack_type, hold=hold)
+                self.assertIsInstance(result, AttackFrameData)
+                assert isinstance(result, AttackFrameData)
+                self.assertIs(result.action, active_action)
+                self.assertIs(
+                    active_controls.character_state.get_state(),
+                    CharacterStatus.Attacking if attack_type is AttackType.Z_AIR else CharacterStatus.GrabbingEnemy,
+                )
+
+        ground_grab = melee.PlayerState(
+            character=melee.Character.SAMUS,
+            action=melee.Action.GRAB,
+            on_ground=True,
+        )
+        ground_controls, _ = self.controls(ground_grab)
+        self.assertIsNone(ground_controls._current_attack_action(ground_grab, AttackType.Z_AIR))
+
     def test_aerials_start_only_in_actionable_air(self) -> None:
         cases = (
             (melee.Action.STANDING, True, False),
@@ -2184,6 +2612,82 @@ class SimpleControlsInputTests(unittest.TestCase):
                 self.assertFalse(can_attack(helpless, self.frame_data, AttackType.NAIR))
                 self.assertFalse(can_airdodge(helpless, self.frame_data))
 
+    def test_character_specific_special_availability(self) -> None:
+        airborne_dk = melee.PlayerState(
+            character=melee.Character.DK,
+            action=melee.Action.FALLING,
+            on_ground=False,
+        )
+        self.assertFalse(can_attack(airborne_dk, self.frame_data, AttackType.DOWN_B))
+
+        for attack_type in (
+            AttackType.SIDE_B,
+            AttackType.LSPECIAL,
+            AttackType.RSPECIAL,
+            AttackType.UP_B,
+        ):
+            with self.subTest(attack_type=attack_type):
+                nana = melee.PlayerState(
+                    character=melee.Character.NANA,
+                    action=melee.Action.STANDING,
+                    on_ground=True,
+                )
+                self.assertFalse(can_attack(nana, self.frame_data, attack_type))
+
+    def test_peach_float_allows_aerial_attacks_and_specials(self) -> None:
+        peach = melee.PlayerState(
+            character=melee.Character.PEACH,
+            action=melee.Action(341),
+            on_ground=False,
+        )
+        for attack_type in (
+            AttackType.NAIR,
+            AttackType.FAIR,
+            AttackType.BAIR,
+            AttackType.UAIR,
+            AttackType.DAIR,
+            AttackType.NEUTRAL_B,
+            AttackType.SIDE_B,
+            AttackType.UP_B,
+            AttackType.DOWN_B,
+        ):
+            with self.subTest(attack_type=attack_type):
+                self.assertTrue(can_attack(peach, self.frame_data, attack_type))
+
+        marth = melee.PlayerState(
+            character=melee.Character.MARTH,
+            action=melee.Action(341),
+            on_ground=False,
+        )
+        self.assertFalse(can_attack(marth, self.frame_data, AttackType.FAIR))
+
+    def test_jigglypuff_aerial_jump_states_are_actionable(self) -> None:
+        for action_id in range(341, 346):
+            with self.subTest(action_id=action_id):
+                player = melee.PlayerState(
+                    character=melee.Character.JIGGLYPUFF,
+                    action=melee.Action(action_id),
+                    on_ground=False,
+                    jumps_left=1,
+                )
+                controls, _ = self.controls(player)
+                self.assertIs(controls.character_state.get_state(), CharacterStatus.InAir)
+                self.assertTrue(controls.character_state.can_attack(AttackType.NAIR))
+                self.assertTrue(controls.character_state.can_attack(AttackType.UP_B))
+                self.assertTrue(controls.character_state.can_airdodge())
+                self.assertTrue(controls.character_state.can_jump())
+
+                player.jumps_left = 0
+                self.assertFalse(controls.character_state.can_jump())
+
+        fox = melee.PlayerState(
+            character=melee.Character.FOX,
+            action=melee.Action(342),
+            on_ground=False,
+        )
+        fox_controls, _ = self.controls(fox)
+        self.assertFalse(fox_controls.character_state.can_airdodge())
+
     def test_tumbling_allows_aerial_offense_but_not_airdodge(self) -> None:
         player = melee.PlayerState(
             character=melee.Character.MARTH,
@@ -2399,6 +2903,92 @@ class SimpleControlsInputTests(unittest.TestCase):
                             {CharacterStatus.Attacking, CharacterStatus.Dodging},
                         )
 
+    def test_character_owned_normals_are_recognized_and_classified(self) -> None:
+        cases = (
+            (melee.Character.NESS, AttackType.FSMASH, 341),
+            (melee.Character.NESS, AttackType.USMASH, 342),
+            (melee.Character.NESS, AttackType.USMASH, 343),
+            (melee.Character.NESS, AttackType.USMASH, 344),
+            (melee.Character.NESS, AttackType.DSMASH, 345),
+            (melee.Character.NESS, AttackType.DSMASH, 346),
+            (melee.Character.NESS, AttackType.DSMASH, 347),
+            (melee.Character.PEACH, AttackType.FSMASH, 349),
+            (melee.Character.PEACH, AttackType.FSMASH, 350),
+            (melee.Character.PEACH, AttackType.FSMASH, 351),
+            (melee.Character.PEACH, AttackType.NAIR, 344),
+            (melee.Character.PEACH, AttackType.FAIR, 345),
+            (melee.Character.PEACH, AttackType.BAIR, 346),
+            (melee.Character.PEACH, AttackType.UAIR, 347),
+            (melee.Character.PEACH, AttackType.DAIR, 348),
+            (melee.Character.GAMEANDWATCH, AttackType.JAB, 341),
+            (melee.Character.GAMEANDWATCH, AttackType.JAB, 344),
+            (melee.Character.GAMEANDWATCH, AttackType.DTILT, 345),
+            (melee.Character.GAMEANDWATCH, AttackType.FSMASH, 346),
+            (melee.Character.GAMEANDWATCH, AttackType.NAIR, 347),
+            (melee.Character.GAMEANDWATCH, AttackType.BAIR, 348),
+            (melee.Character.GAMEANDWATCH, AttackType.UAIR, 349),
+            (melee.Character.GAMEANDWATCH, AttackType.NAIR, 350),
+            (melee.Character.GAMEANDWATCH, AttackType.BAIR, 351),
+            (melee.Character.GAMEANDWATCH, AttackType.UAIR, 352),
+            (melee.Character.LINK, AttackType.FSMASH, 341),
+            (melee.Character.YLINK, AttackType.FSMASH, 341),
+        )
+        for character, attack_type, action_id in cases:
+            with self.subTest(character=character, attack_type=attack_type, action_id=action_id):
+                action = melee.Action(action_id)
+                player = melee.PlayerState(character=character, action=action)
+                controls, _ = self.controls(player)
+
+                self.assertIs(controls._current_attack_action(player, attack_type), action)
+                self.assertIs(controls.character_state.get_state(), CharacterStatus.Attacking)
+
+        fox = melee.PlayerState(character=melee.Character.FOX, action=melee.Action(341))
+        fox_controls, _ = self.controls(fox)
+        self.assertIsNone(fox_controls._current_attack_action(fox, AttackType.FSMASH))
+
+        for action_id in (341, 342, 343):
+            peach = melee.PlayerState(
+                character=melee.Character.PEACH,
+                action=melee.Action(action_id),
+                on_ground=False,
+            )
+            peach_controls, _ = self.controls(peach)
+            self.assertIs(peach_controls.character_state.get_state(), CharacterStatus.InAir)
+
+    def test_character_owned_taunts_are_classified(self) -> None:
+        cases = (
+            (melee.Character.DOC, 341),
+            (melee.Character.DOC, 342),
+            (melee.Character.YLINK, 342),
+            (melee.Character.YLINK, 343),
+            (melee.Character.FOX, 370),
+            (melee.Character.FOX, 375),
+            (melee.Character.FALCO, 370),
+            (melee.Character.FALCO, 375),
+        )
+        for character, action_id in cases:
+            with self.subTest(character=character, action_id=action_id):
+                player = melee.PlayerState(
+                    character=character,
+                    action=melee.Action(action_id),
+                    on_ground=True,
+                    hitstun_frames_left=1,
+                )
+                controls, controller = self.controls(player)
+                controller.buttons.add(melee.Button.BUTTON_A)
+                self.assertIs(controls.character_state.get_state(), CharacterStatus.Taunting)
+                self.assertTrue(controls.character_state.is_taunting())
+                self.assertTrue(controls.taunt())
+                self.assertEqual(controller.buttons, set())
+
+        link = melee.PlayerState(
+            character=melee.Character.LINK,
+            action=melee.Action(342),
+            on_ground=True,
+        )
+        link_controls, _ = self.controls(link)
+        self.assertFalse(link_controls.character_state.is_taunting())
+
     def test_deprecated_absolute_special_aliases_remain_compatible(self) -> None:
         self.assertIs(AttackType.LEFT_B, AttackType.LSPECIAL)
         self.assertIs(AttackType.RIGHT_B, AttackType.RSPECIAL)
@@ -2478,6 +3068,26 @@ class SimpleControlsInputTests(unittest.TestCase):
             on_ground=False,
         )
         self.assertFalse(can_jump(airborne, self.frame_data))
+
+    def test_yoshi_guard_states_are_shielding_and_only_powershield_can_jump(self) -> None:
+        for action_id in range(341, 346):
+            with self.subTest(action_id=action_id):
+                player = melee.PlayerState(
+                    character=melee.Character.YOSHI,
+                    action=melee.Action(action_id),
+                    on_ground=True,
+                )
+                controls, _ = self.controls(player)
+
+                self.assertIs(
+                    controls.character_state.get_state(),
+                    CharacterStatus.Shielding,
+                )
+                self.assertTrue(controls.character_state.is_shielding())
+                self.assertEqual(
+                    controls.character_state.can_jump(),
+                    action_id == 345,
+                )
 
     def test_grab_during_common_shield_phases(self) -> None:
         for action, expected in (
@@ -2893,11 +3503,9 @@ class InputMontageTests(unittest.TestCase):
         self.assertEqual(montage.get_montage_state(), MontageState.Finished)
         self.assertEqual(self.controls.release_count, 1)
 
-    def test_add_branch_rejects_invalid_and_self_references(self):
+    def test_add_branch_rejects_self_reference(self):
         montage = RecordingMontage()
 
-        with self.assertRaisesRegex(TypeError, "InputMontage"):
-            montage.add_branch(object())
         with self.assertRaisesRegex(ValueError, "itself"):
             montage.add_branch(montage)
 
@@ -3190,18 +3798,25 @@ class InputMontageTests(unittest.TestCase):
 
     def test_anonymous_montage_propagates_abort_reason(self):
         abort = Abort("anonymous condition failed")
-        montage = AnonymousInputMontage(
-            frame_limit=2,
-            initial_state=20,
-            can_start=lambda controls, player_state, opponent_state, state: True,
-            on_tick=lambda controls, player_state, opponent_state, state, input_state: (
-                input_state,
-                True,
-            ),
-            should_abort=lambda controls, player_state, opponent_state, state, input_state: abort,
-            cancel=lambda controls, player_state, opponent_state, state, input_state: None,
+        overloads = get_overloads(AnonymousInputMontage.__init__)
+        self.assertEqual(
+            overloads[1].__deprecated__,
+            "Pass an explicit name to AnonymousInputMontage().",
         )
+        with self.assertWarnsRegex(DeprecationWarning, "without a name is deprecated"):
+            montage = AnonymousInputMontage(
+                frame_limit=2,
+                initial_state=20,
+                can_start=lambda controls, player_state, opponent_state, state: True,
+                on_tick=lambda controls, player_state, opponent_state, state, input_state: (
+                    input_state,
+                    True,
+                ),
+                should_abort=lambda controls, player_state, opponent_state, state, input_state: abort,
+                cancel=lambda controls, player_state, opponent_state, state, input_state: None,
+            )
 
+        self.assertEqual(montage.get_name(), "Anonymous Montage")
         self.assertIs(self.tick(montage), abort)
         self.assertEqual(montage.get_montage_state(), MontageState.Aborted)
 
@@ -3210,6 +3825,7 @@ class InputMontageTests(unittest.TestCase):
             AnonymousInputMontage(
                 frame_limit=0,
                 initial_state=None,
+                name="Invalid Montage",
                 can_start=lambda controls, player_state, opponent_state, state: True,
                 on_tick=lambda controls, player_state, opponent_state, state, input_state: (
                     input_state,
@@ -3246,6 +3862,7 @@ class RecordingTechniqueControls:
     def __init__(self):
         self.calls = []
         self.attack_result = object()
+        self.release_result = object()
 
     def release_all(self):
         self.calls.append(("release_all",))
@@ -3256,6 +3873,10 @@ class RecordingTechniqueControls:
     def attack(self, attack_type, *, hold=None):
         self.calls.append(("attack", attack_type, hold))
         return self.attack_result
+
+    def release(self, hold):
+        self.calls.append(("release", hold))
+        return self.release_result
 
     def smash_turn(self):
         self.calls.append(("smash_turn",))
@@ -3278,6 +3899,9 @@ class RecordingTechniqueControls:
             )
         )
 
+    def tilt_analog(self, button, x, y):
+        self.calls.append(("tilt_analog", button, x, y))
+
     def platform_drop(self):
         self.calls.append(("platform_drop",))
         return True
@@ -3297,21 +3921,54 @@ class TechniqueMontageTests(unittest.TestCase):
         self.controls = RecordingTechniqueControls()
         self.frame = 0
 
-    def test_technique_montages_use_stateful_base(self):
+    def test_technique_montages_use_stateful_base_and_human_readable_names(self):
         montages = (
-            InitiateDashMontage(StickReferenceAxis.RIGHT),
-            MultishineMontage(),
-            WavedashMontage(WavedashDirection.Right, angle_degrees=45.0),
-            LedgedashMontage(angle_degrees=45.0),
-            PlatformDropFastFallMontage(),
-            SDIMontage(StickReferenceAxis.RIGHT),
-            PerfectPivotMontage(AttackType.JAB),
-            SmashTurnJumpMontage(),
+            (InitiateDashMontage(StickReferenceAxis.RIGHT), "Initiate Dash"),
+            (DonkeyKongGiantPunchMontage(), "Giant Punch"),
+            (FlareBladeMontage(), "Flare Blade"),
+            (JigglypuffRolloutMontage(), "Rollout"),
+            (LinkBowMontage(), "Link Bow"),
+            (LinkForwardSmashMontage(StickReferenceAxis.RIGHT), "Link Forward Smash"),
+            (MewtwoShadowBallMontage(), "Shadow Ball"),
+            (LuigiGreenMissileMontage(StickReferenceAxis.RIGHT), "Green Missile"),
+            (MultishineMontage(), "Multishine"),
+            (WavedashMontage(WavedashDirection.Right, angle_degrees=45.0), "Wavedash"),
+            (LedgedashMontage(angle_degrees=45.0), "Ledgedash"),
+            (SDIMontage(StickReferenceAxis.RIGHT), "SDI"),
+            (SamusChargeShotMontage(), "Charge Shot"),
+            (SheikNeedleStormMontage(), "Needle Storm"),
+            (ShieldBreakerMontage(), "Shield Breaker"),
+            (PerfectPivotMontage(AttackType.JAB), "Perfect Pivot"),
+            (PlatformDropFastFallMontage(), "Platform Drop Fast Fall"),
+            (
+                QuickAttackMontage(QuickAttackDirection(StickReferenceAxis.UP)),
+                "Quick Attack / Agility",
+            ),
+            (SmashAttackMontage(StickReferenceAxis.UP), "Up Smash"),
+            (SmashTurnJumpMontage(), "Smash Turn Jump"),
+            (SkullBashMontage(StickReferenceAxis.RIGHT), "Skull Bash"),
+            (
+                SwordDanceMontage(StickReferenceAxis.RIGHT),
+                "Dancing Blade / Double-Edge Dance",
+            ),
         )
 
-        for montage in montages:
+        for montage, name in montages:
             with self.subTest(montage=type(montage).__name__):
                 self.assertIsInstance(montage, StatefulInputMontage)
+                self.assertEqual(montage.get_name(), name)
+
+    def test_smash_attack_montage_names_absolute_direction(self):
+        names = {
+            StickReferenceAxis.UP: "Up Smash",
+            StickReferenceAxis.DOWN: "Down Smash",
+            StickReferenceAxis.LEFT: "Left Smash",
+            StickReferenceAxis.RIGHT: "Right Smash",
+        }
+
+        for axis, name in names.items():
+            with self.subTest(axis=axis):
+                self.assertEqual(SmashAttackMontage(axis).get_name(), name)
 
     def test_platform_drop_fast_fall_resets_down_before_second_press(self):
         montage = PlatformDropFastFallMontage()
@@ -3466,6 +4123,7 @@ class TechniqueMontageTests(unittest.TestCase):
         is_defender_in_hitlag=False,
         stock=4,
         facing=True,
+        neutral_b_charge=None,
         stage_geometry=None,
     ):
         game_state = melee.GameState(frame=self.frame, stage_geometry=stage_geometry)
@@ -3484,6 +4142,7 @@ class TechniqueMontageTests(unittest.TestCase):
             is_defender_in_hitlag=is_defender_in_hitlag,
             stock=stock,
             facing=facing,
+            neutral_b_charge=neutral_b_charge,
         )
         player.position.x = position_x
         player.position.y = position_y
@@ -3503,6 +4162,9 @@ class TechniqueMontageTests(unittest.TestCase):
             2,
             frame_data=self.frame_data,
         )
+        self.game_state = game_state
+        self.player_state = player_state
+        self.opponent_state = opponent_state
         self.frame += 1
         return montage.tick(
             self.controls,
@@ -3510,6 +4172,2315 @@ class TechniqueMontageTests(unittest.TestCase):
             opponent_state,
             game_state,
         )
+
+    def smash_hold(
+        self,
+        attack_type,
+        action,
+        *,
+        character=melee.Character.FOX,
+    ):
+        return Hold(
+            attack_type=attack_type,
+            character=character,
+            action=action,
+            frame_data=self.frame_data,
+            max_hold_frames=60,
+            started_frame=self.frame,
+            stick_x=0.5,
+            stick_y=0.5,
+            port=1,
+            charging=True,
+        )
+
+    def bow_hold(self, *, character=melee.Character.LINK):
+        return Hold(
+            attack_type=AttackType.NEUTRAL_B,
+            character=character,
+            action=melee.Action.LINK_SPECIAL_N_START,
+            frame_data=self.frame_data,
+            max_hold_frames=120,
+            started_frame=self.frame,
+            stick_x=0.5,
+            stick_y=0.5,
+            port=1,
+            charging=True,
+        )
+
+    def sword_dance_input_calls(self, direction):
+        return [
+            ("release_all",),
+            (
+                "tilt_stick",
+                direction,
+                0.0,
+                1.0,
+                melee.Button.BUTTON_MAIN,
+            ),
+            ("press_button", melee.Button.BUTTON_B),
+        ]
+
+    def start_sword_dance(
+        self,
+        montage,
+        *,
+        direction=StickReferenceAxis.RIGHT,
+        character=melee.Character.MARTH,
+        on_ground=True,
+    ):
+        initial_action = melee.Action.STANDING if on_ground else melee.Action.FALLING
+        first_action = melee.Action(349) if on_ground else melee.Action(358)
+        self.assertIs(
+            self.tick(
+                montage,
+                initial_action,
+                character=character,
+                on_ground=on_ground,
+            ),
+            montage,
+        )
+        self.assertEqual(
+            self.controls.take_calls(),
+            self.sword_dance_input_calls(direction),
+        )
+        self.assertIs(
+            self.tick(
+                montage,
+                first_action,
+                character=character,
+                on_ground=on_ground,
+            ),
+            montage,
+        )
+        self.assertEqual(self.controls.take_calls(), [("release_all",)])
+
+    def add_sword_dance_segment_on_pre_tick(self, montage, direction, observed_windows):
+        def add_segment(controls, player_state, opponent_state, state):
+            del controls, player_state, opponent_state, state
+            observed_windows.append(montage.can_add_segment(direction))
+            montage.add_segment(direction)
+            return PreTickResult.CONTINUE
+
+        montage.add_pre_tick_listener(add_segment)
+
+    def start_link_forward_smash(
+        self,
+        montage,
+        *,
+        direction=StickReferenceAxis.RIGHT,
+        character=melee.Character.LINK,
+    ):
+        attack_type = AttackType.RSMASH if direction is StickReferenceAxis.RIGHT else AttackType.LSMASH
+        hold = self.smash_hold(
+            attack_type,
+            melee.Action.FSMASH_MID,
+            character=character,
+        )
+        self.controls.attack_result = hold
+        self.assertIs(
+            self.tick(montage, melee.Action.STANDING, character=character),
+            montage,
+        )
+        self.assertEqual(
+            self.controls.take_calls(),
+            [("attack", attack_type, None)],
+        )
+
+        self.controls.release_result = AttackFrameData(
+            character=character,
+            action=melee.Action.FSMASH_MID,
+            frame_data=self.frame_data,
+        )
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action.FSMASH_MID,
+                character=character,
+                action_frame=1,
+            ),
+            montage,
+        )
+        self.assertEqual(self.controls.take_calls(), [("release", hold)])
+
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action.FSMASH_MID,
+                character=character,
+                action_frame=2,
+            ),
+            montage,
+        )
+        self.assertEqual(self.controls.take_calls(), [("release_all",)])
+        return hold
+
+    def test_smash_attack_maps_every_axis_and_zero_is_minimum_charge(self):
+        cases = (
+            (StickReferenceAxis.UP, AttackType.USMASH, melee.Action.UPSMASH),
+            (StickReferenceAxis.DOWN, AttackType.DSMASH, melee.Action.DOWNSMASH),
+            (StickReferenceAxis.LEFT, AttackType.LSMASH, melee.Action.FSMASH_MID),
+            (StickReferenceAxis.RIGHT, AttackType.RSMASH, melee.Action.FSMASH_MID),
+        )
+        for axis, attack_type, action in cases:
+            with self.subTest(axis=axis):
+                montage = SmashAttackMontage(axis, max_charge_frames=0)
+                hold = self.smash_hold(attack_type, action)
+                self.controls.attack_result = hold
+
+                self.assertIsNone(montage.get_framedata())
+                self.assertIs(self.tick(montage, melee.Action.STANDING), montage)
+                self.assertEqual(
+                    self.controls.take_calls(),
+                    [("attack", attack_type, None)],
+                )
+                frame_data = montage.get_framedata()
+                self.assertIsNotNone(frame_data)
+                self.assertEqual(frame_data.character, melee.Character.FOX)
+                self.assertEqual(frame_data.action, action)
+                self.assertIs(frame_data.frame_data, self.frame_data)
+
+                released = AttackFrameData(
+                    character=melee.Character.FOX,
+                    action=action,
+                    frame_data=self.frame_data,
+                )
+                self.controls.release_result = released
+                self.assertIs(self.tick(montage, action), montage)
+                self.assertEqual(
+                    self.controls.take_calls(),
+                    [("release", hold)],
+                )
+                self.assertIs(montage.get_framedata(), released)
+                self.assertIs(
+                    self.tick(montage, action),
+                    True,
+                )
+                self.assertEqual(self.controls.take_calls(), [])
+                self.assertEqual(montage.get_montage_state(), MontageState.Finished)
+
+    def test_smash_attack_honors_charge_cap_and_early_release(self):
+        montage = SmashAttackMontage(
+            StickReferenceAxis.RIGHT,
+            max_charge_frames=2,
+        )
+        hold = self.smash_hold(AttackType.RSMASH, melee.Action.FSMASH_MID)
+        self.controls.attack_result = hold
+        self.assertIs(self.tick(montage, melee.Action.STANDING), montage)
+        self.controls.take_calls()
+
+        self.assertIs(self.tick(montage, melee.Action.STANDING), montage)
+        self.assertEqual(
+            self.controls.take_calls(),
+            [("attack", AttackType.RSMASH, hold)],
+        )
+
+        observed = AttackFrameData(
+            character=melee.Character.FOX,
+            action=melee.Action.FSMASH_MID,
+            frame_data=self.frame_data,
+        )
+        self.controls.attack_result = observed
+        self.assertIs(
+            self.tick(montage, melee.Action.FSMASH_MID, action_frame=1),
+            montage,
+        )
+        self.assertEqual(
+            self.controls.take_calls(),
+            [
+                ("attack", AttackType.RSMASH, hold),
+                ("release_all",),
+                (
+                    "tilt_stick",
+                    StickReferenceAxis.RIGHT,
+                    0.0,
+                    1.0,
+                    melee.Button.BUTTON_MAIN,
+                ),
+                ("press_button", melee.Button.BUTTON_A),
+            ],
+        )
+
+        self.assertEqual(montage.current_power(), 1.0)
+        self.controls.release_result = observed
+        self.assertIs(
+            self.tick(montage, melee.Action.FSMASH_MID, action_frame=1),
+            montage,
+        )
+        self.assertEqual(
+            self.controls.take_calls(),
+            [("attack", AttackType.RSMASH, hold), ("release", hold)],
+        )
+        self.assertAlmostEqual(montage.current_power(), 1.0 + (2 / 60) * 0.3671)
+
+        early = SmashAttackMontage(StickReferenceAxis.LEFT)
+        self.assertIs(early.release_charge(), early)
+        early_hold = self.smash_hold(AttackType.LSMASH, melee.Action.FSMASH_MID)
+        self.controls.attack_result = early_hold
+        self.assertIs(self.tick(early, melee.Action.STANDING), early)
+        self.controls.take_calls()
+        self.controls.release_result = observed
+        self.assertIs(self.tick(early, melee.Action.FSMASH_MID), early)
+        self.assertEqual(self.controls.take_calls(), [("release", early_hold)])
+
+    def test_smash_attack_current_power_spans_damage_multiplier(self):
+        montage = SmashAttackMontage(
+            StickReferenceAxis.UP,
+            max_charge_frames=60,
+        )
+        self.assertEqual(montage.current_power(), 1.0)
+        hold = self.smash_hold(AttackType.USMASH, melee.Action.UPSMASH)
+        self.controls.attack_result = hold
+        self.assertIs(self.tick(montage, melee.Action.STANDING), montage)
+        self.assertEqual(montage.current_power(), 1.0)
+        self.controls.take_calls()
+
+        observed = AttackFrameData(
+            character=melee.Character.FOX,
+            action=melee.Action.UPSMASH,
+            frame_data=self.frame_data,
+        )
+        self.controls.attack_result = observed
+        self.controls.release_result = observed
+        for startup_frame in range(1, 8):
+            self.assertIs(
+                self.tick(montage, melee.Action.UPSMASH, action_frame=startup_frame),
+                montage,
+            )
+            self.assertEqual(montage.current_power(), 1.0)
+            self.controls.take_calls()
+
+        for charge_frame in range(1, 59):
+            self.assertIs(
+                self.tick(montage, melee.Action.UPSMASH, action_frame=7),
+                montage,
+            )
+            self.assertAlmostEqual(
+                montage.current_power(),
+                1.0 + (charge_frame / 60) * 0.3671,
+            )
+            self.controls.take_calls()
+
+        self.assertIs(
+            self.tick(montage, melee.Action.UPSMASH, action_frame=7),
+            montage,
+        )
+        self.assertEqual(
+            self.controls.take_calls(),
+            [("attack", AttackType.USMASH, hold), ("release", hold)],
+        )
+
+        self.assertEqual(montage.get_montage_state(), MontageState.Active)
+        self.assertAlmostEqual(montage.current_power(), 1.3671)
+
+    def test_manual_smash_release_freezes_projected_engine_power(self):
+        montage = SmashAttackMontage(StickReferenceAxis.UP, max_charge_frames=60)
+        hold = self.smash_hold(AttackType.USMASH, melee.Action.UPSMASH)
+        observed = AttackFrameData(
+            character=melee.Character.FOX,
+            action=melee.Action.UPSMASH,
+            frame_data=self.frame_data,
+        )
+        self.controls.attack_result = hold
+        self.assertIs(self.tick(montage, melee.Action.STANDING), montage)
+        self.controls.take_calls()
+        self.controls.attack_result = observed
+
+        self.assertIs(self.tick(montage, melee.Action.UPSMASH, action_frame=7), montage)
+        self.controls.take_calls()
+        self.assertIs(self.tick(montage, melee.Action.UPSMASH, action_frame=7), montage)
+        self.controls.take_calls()
+        self.assertAlmostEqual(montage.current_power(), 1.0 + (1 / 60) * 0.3671)
+
+        montage.release_charge()
+        self.controls.release_result = observed
+        self.assertIs(self.tick(montage, melee.Action.UPSMASH, action_frame=7), montage)
+        self.assertEqual(self.controls.take_calls(), [("release", hold)])
+        self.assertAlmostEqual(montage.current_power(), 1.0 + (3 / 60) * 0.3671)
+
+        self.assertIs(self.tick(montage, melee.Action.UPSMASH, action_frame=8), True)
+        self.assertAlmostEqual(montage.current_power(), 1.0 + (3 / 60) * 0.3671)
+
+    def test_smash_attack_queues_release_before_sixtieth_engine_charge_tick(self):
+        montage = SmashAttackMontage(
+            StickReferenceAxis.UP,
+            max_charge_frames=60,
+        )
+        hold = self.smash_hold(AttackType.USMASH, melee.Action.UPSMASH)
+        self.controls.attack_result = hold
+        self.assertIs(self.tick(montage, melee.Action.STANDING), montage)
+        self.controls.take_calls()
+
+        observed = AttackFrameData(
+            character=melee.Character.FOX,
+            action=melee.Action.UPSMASH,
+            frame_data=self.frame_data,
+        )
+        self.controls.attack_result = observed
+        self.controls.release_result = observed
+        self.assertIs(
+            self.tick(montage, melee.Action.UPSMASH, action_frame=7),
+            montage,
+        )
+        self.controls.take_calls()
+        for _ in range(58):
+            self.assertIs(
+                self.tick(montage, melee.Action.UPSMASH, action_frame=7),
+                montage,
+            )
+            self.assertEqual(
+                self.controls.take_calls(),
+                [
+                    ("attack", AttackType.USMASH, hold),
+                    ("release_all",),
+                    (
+                        "tilt_stick",
+                        StickReferenceAxis.UP,
+                        0.0,
+                        1.0,
+                        melee.Button.BUTTON_MAIN,
+                    ),
+                    ("press_button", melee.Button.BUTTON_A),
+                ],
+            )
+
+        self.assertIs(
+            self.tick(montage, melee.Action.UPSMASH, action_frame=7),
+            montage,
+        )
+        self.assertEqual(
+            self.controls.take_calls(),
+            [("attack", AttackType.USMASH, hold), ("release", hold)],
+        )
+
+    def test_smash_attack_accepts_automatic_full_charge_release(self):
+        montage = SmashAttackMontage(StickReferenceAxis.UP)
+        hold = self.smash_hold(AttackType.USMASH, melee.Action.UPSMASH)
+        observed = AttackFrameData(
+            character=melee.Character.FOX,
+            action=melee.Action.UPSMASH,
+            frame_data=self.frame_data,
+        )
+        self.controls.attack_result = hold
+        self.assertIs(self.tick(montage, melee.Action.STANDING), montage)
+        self.controls.take_calls()
+        self.controls.attack_result = observed
+        self.assertIs(
+            self.tick(montage, melee.Action.UPSMASH, action_frame=7),
+            montage,
+        )
+        self.controls.take_calls()
+        self.assertIs(
+            self.tick(montage, melee.Action.UPSMASH, action_frame=7),
+            montage,
+        )
+        self.controls.take_calls()
+
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action.UPSMASH,
+                action_frame=8,
+                hitlag_left=2,
+            ),
+            True,
+        )
+        self.assertEqual(self.controls.take_calls(), [("release_all",)])
+        self.assertAlmostEqual(montage.current_power(), 1.3671)
+
+    def test_smash_attack_detects_automatic_release_before_real_controls_reject_hitlag(self):
+        montage = SmashAttackMontage(StickReferenceAxis.UP)
+        controller = RecordingSimpleController()
+
+        def tick(action, action_frame=1, hitlag_left=0):
+            game_state = melee.GameState(frame=self.frame)
+            game_state.players = {
+                1: melee.PlayerState(
+                    character=melee.Character.FOX,
+                    action=action,
+                    action_frame=action_frame,
+                    hitlag_left=hitlag_left,
+                ),
+                2: melee.PlayerState(
+                    character=melee.Character.MARTH,
+                    action=melee.Action.STANDING,
+                ),
+            }
+            controls = SimpleControls(
+                game_state,
+                1,
+                controller,
+                frame_data=self.frame_data,
+            )
+            player_state = CharacterState(game_state, 1, frame_data=self.frame_data)
+            opponent_state = CharacterState(game_state, 2, frame_data=self.frame_data)
+            self.frame += 1
+            return montage.tick(controls, player_state, opponent_state, game_state)
+
+        self.assertIs(tick(melee.Action.STANDING), montage)
+        self.assertIs(tick(melee.Action.UPSMASH, action_frame=7), montage)
+        self.assertIs(tick(melee.Action.UPSMASH, action_frame=7), montage)
+        self.assertIs(
+            tick(melee.Action.UPSMASH, action_frame=8, hitlag_left=2),
+            True,
+        )
+        self.assertEqual(controller.buttons, set())
+        self.assertEqual(controller.main_stick, (0.5, 0.5))
+
+    def test_smash_attack_accepts_character_owned_release_states(self):
+        cases = (
+            (melee.Character.NESS, StickReferenceAxis.UP, AttackType.USMASH, 344),
+            (melee.Character.NESS, StickReferenceAxis.DOWN, AttackType.DSMASH, 347),
+            (melee.Character.PEACH, StickReferenceAxis.RIGHT, AttackType.RSMASH, 350),
+            (melee.Character.GAMEANDWATCH, StickReferenceAxis.LEFT, AttackType.LSMASH, 346),
+        )
+        for character, axis, attack_type, action_id in cases:
+            with self.subTest(character=character, axis=axis):
+                self.setUp()
+                montage = SmashAttackMontage(axis, max_charge_frames=0)
+                hold = self.smash_hold(
+                    attack_type,
+                    melee.Action.FSMASH_MID,
+                    character=character,
+                )
+                self.controls.attack_result = hold
+                self.assertIs(
+                    self.tick(montage, melee.Action.STANDING, character=character),
+                    montage,
+                )
+                self.controls.take_calls()
+                self.controls.release_result = AttackFrameData(
+                    character=character,
+                    action=melee.Action.FSMASH_MID,
+                    frame_data=self.frame_data,
+                )
+                action = melee.Action(action_id)
+                self.assertIs(self.tick(montage, action, character=character), montage)
+                self.controls.take_calls()
+                self.assertIs(self.tick(montage, action, character=character), True)
+
+    def test_ness_explicit_smash_charge_state_counts_only_active_ticks(self):
+        montage = SmashAttackMontage(StickReferenceAxis.UP, max_charge_frames=2)
+        hold = self.smash_hold(
+            AttackType.USMASH,
+            melee.Action(342),
+            character=melee.Character.NESS,
+        )
+        startup = AttackFrameData(
+            character=melee.Character.NESS,
+            action=melee.Action(342),
+            frame_data=self.frame_data,
+        )
+        observed = AttackFrameData(
+            character=melee.Character.NESS,
+            action=melee.Action(343),
+            frame_data=self.frame_data,
+        )
+        self.controls.attack_result = hold
+        self.assertIs(
+            self.tick(montage, melee.Action.STANDING, character=melee.Character.NESS),
+            montage,
+        )
+        self.controls.take_calls()
+        self.controls.attack_result = startup
+        self.assertIs(
+            self.tick(montage, melee.Action(342), character=melee.Character.NESS),
+            montage,
+        )
+        self.controls.take_calls()
+        self.controls.attack_result = observed
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action(343),
+                character=melee.Character.NESS,
+                action_frame=1,
+            ),
+            montage,
+        )
+        self.assertEqual(montage.current_power(), 1.0)
+        self.controls.take_calls()
+        self.controls.release_result = observed
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action(343),
+                character=melee.Character.NESS,
+                action_frame=2,
+            ),
+            montage,
+        )
+        self.assertGreater(montage.current_power(), 1.0)
+        self.assertEqual(
+            self.controls.take_calls(),
+            [("attack", AttackType.USMASH, hold), ("release", hold)],
+        )
+
+    def test_ness_first_charge_packet_projects_release_increment(self):
+        montage = SmashAttackMontage(StickReferenceAxis.UP)
+        hold = self.smash_hold(
+            AttackType.USMASH,
+            melee.Action(342),
+            character=melee.Character.NESS,
+        )
+        self.controls.attack_result = hold
+        self.assertIs(
+            self.tick(montage, melee.Action.STANDING, character=melee.Character.NESS),
+            montage,
+        )
+        self.controls.take_calls()
+
+        montage.release_charge()
+        self.controls.release_result = AttackFrameData(
+            character=melee.Character.NESS,
+            action=melee.Action(343),
+            frame_data=self.frame_data,
+        )
+        self.assertIs(
+            self.tick(montage, melee.Action(343), character=melee.Character.NESS),
+            montage,
+        )
+        self.assertAlmostEqual(
+            montage.current_power(),
+            1.0 + (1 / 60) * 0.3671,
+        )
+
+    def test_ness_duplicate_release_packet_preserves_accumulated_charge(self):
+        montage = SmashAttackMontage(StickReferenceAxis.UP)
+        hold = self.smash_hold(
+            AttackType.USMASH,
+            melee.Action(342),
+            character=melee.Character.NESS,
+        )
+        observed = AttackFrameData(
+            character=melee.Character.NESS,
+            action=melee.Action(343),
+            frame_data=self.frame_data,
+        )
+        self.controls.attack_result = hold
+        self.assertIs(
+            self.tick(montage, melee.Action.STANDING, character=melee.Character.NESS),
+            montage,
+        )
+        self.controls.take_calls()
+        self.controls.attack_result = observed
+
+        for action_frame in (1, 2, 3):
+            self.assertIs(
+                self.tick(
+                    montage,
+                    melee.Action(343),
+                    action_frame=action_frame,
+                    character=melee.Character.NESS,
+                ),
+                montage,
+            )
+            self.controls.take_calls()
+
+        self.assertAlmostEqual(
+            montage.current_power(),
+            1.0 + (2 / 60) * 0.3671,
+        )
+        montage.release_charge()
+        self.controls.release_result = observed
+        self.frame -= 1
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action(343),
+                action_frame=3,
+                character=melee.Character.NESS,
+            ),
+            montage,
+        )
+        self.assertAlmostEqual(
+            montage.current_power(),
+            1.0 + (3 / 60) * 0.3671,
+        )
+
+    def test_common_smash_duplicate_release_packet_projects_final_increment(self):
+        montage = SmashAttackMontage(StickReferenceAxis.UP)
+        hold = self.smash_hold(
+            AttackType.USMASH,
+            melee.Action.UPSMASH,
+        )
+        observed = AttackFrameData(
+            character=melee.Character.FOX,
+            action=melee.Action.UPSMASH,
+            frame_data=self.frame_data,
+        )
+        self.controls.attack_result = hold
+        self.assertIs(self.tick(montage, melee.Action.STANDING), montage)
+        self.controls.take_calls()
+        self.controls.attack_result = observed
+
+        for _ in range(3):
+            self.assertIs(
+                self.tick(
+                    montage,
+                    melee.Action.UPSMASH,
+                    action_frame=7,
+                ),
+                montage,
+            )
+            self.controls.take_calls()
+
+        self.assertAlmostEqual(
+            montage.current_power(),
+            1.0 + (2 / 60) * 0.3671,
+        )
+        montage.release_charge()
+        self.controls.release_result = observed
+        self.frame -= 1
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action.UPSMASH,
+                action_frame=7,
+            ),
+            montage,
+        )
+        self.assertAlmostEqual(
+            montage.current_power(),
+            1.0 + (3 / 60) * 0.3671,
+        )
+
+    def test_smash_attack_aborts_when_requested_release_fails(self):
+        montage = SmashAttackMontage(
+            StickReferenceAxis.DOWN,
+            max_charge_frames=0,
+        )
+        hold = self.smash_hold(AttackType.DSMASH, melee.Action.DOWNSMASH)
+        self.controls.attack_result = hold
+        self.assertIs(self.tick(montage, melee.Action.STANDING), montage)
+        self.controls.take_calls()
+        self.controls.release_result = None
+
+        self.assertEqual(
+            self.tick(montage, melee.Action.DOWNSMASH),
+            Abort("smash attack could not be released"),
+        )
+        self.assertEqual(
+            self.controls.take_calls(),
+            [("release", hold), ("release_all",)],
+        )
+
+    def test_smash_attack_waits_for_an_actionable_ground_state(self):
+        montage = SmashAttackMontage(StickReferenceAxis.DOWN)
+
+        self.assertIs(
+            self.tick(montage, melee.Action.FALLING, on_ground=False),
+            montage,
+        )
+        self.assertEqual(self.controls.take_calls(), [])
+        self.assertEqual(montage.get_montage_state(), MontageState.Waiting)
+
+    def test_smash_attack_aborts_if_attack_cannot_continue(self):
+        montage = SmashAttackMontage(StickReferenceAxis.RIGHT, max_charge_frames=2)
+        self.controls.attack_result = None
+
+        self.assertEqual(
+            self.tick(montage, melee.Action.STANDING),
+            Abort("smash attack input was not accepted"),
+        )
+        self.assertEqual(
+            self.controls.take_calls(),
+            [
+                ("attack", AttackType.RSMASH, None),
+                ("release_all",),
+            ],
+        )
+        self.assertEqual(montage.get_montage_state(), MontageState.Aborted)
+
+    def test_smash_attack_validates_charge_cap(self):
+        for value in (-1, 1, 61):
+            with (
+                self.subTest(value=value),
+                self.assertRaisesRegex(
+                    ValueError,
+                    "max_charge_frames must be 0 or between 2 and 60",
+                ),
+            ):
+                SmashAttackMontage(StickReferenceAxis.UP, max_charge_frames=value)
+
+    def test_link_bow_queued_release_uses_first_safe_link_frame(self):
+        montage = LinkBowMontage()
+        self.assertIsNone(montage.current_power())
+        self.assertFalse(montage.can_release())
+        self.assertIs(montage.release(), montage)
+        hold = self.bow_hold()
+        self.controls.attack_result = hold
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action.STANDING,
+                character=melee.Character.LINK,
+            ),
+            montage,
+        )
+        self.assertEqual(
+            self.controls.take_calls(),
+            [("attack", AttackType.NEUTRAL_B, None)],
+        )
+
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action.LINK_SPECIAL_N_START,
+                character=melee.Character.LINK,
+                action_frame=16,
+            ),
+            montage,
+        )
+        self.assertIsNone(montage.current_power())
+        self.assertFalse(montage.can_release())
+        self.assertEqual(
+            self.controls.take_calls(),
+            [("release_all",), ("press_button", melee.Button.BUTTON_B)],
+        )
+
+        self.controls.release_result = AttackFrameData(
+            character=melee.Character.LINK,
+            action=melee.Action.LINK_SPECIAL_N_START,
+            frame_data=self.frame_data,
+        )
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action.LINK_SPECIAL_N_START,
+                character=melee.Character.LINK,
+                action_frame=17,
+            ),
+            montage,
+        )
+        self.assertIsNone(montage.current_power())
+        self.assertFalse(montage.can_release())
+        self.assertEqual(self.controls.take_calls(), [("release", hold)])
+
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action.LINK_SPECIAL_N_END,
+                character=melee.Character.LINK,
+            ),
+            True,
+        )
+        self.assertEqual(self.controls.take_calls(), [("release_all",)])
+        self.assertIsNone(montage.current_power())
+        self.assertFalse(montage.can_release())
+        self.assertIs(montage.release(), montage)
+
+    def test_link_bow_tracks_young_link_charge_and_full_power(self):
+        montage = LinkBowMontage()
+        hold = self.bow_hold(character=melee.Character.YLINK)
+        self.controls.attack_result = hold
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action.STANDING,
+                character=melee.Character.YLINK,
+            ),
+            montage,
+        )
+        self.controls.take_calls()
+
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action.YLINK_SPECIAL_N_START,
+                character=melee.Character.YLINK,
+                action_frame=14,
+            ),
+            montage,
+        )
+        self.assertIsNone(montage.current_power())
+        self.controls.take_calls()
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action.YLINK_SPECIAL_N_START,
+                character=melee.Character.YLINK,
+                action_frame=15,
+            ),
+            montage,
+        )
+        self.assertIsNone(montage.current_power())
+        self.controls.take_calls()
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action.YLINK_SPECIAL_N_START,
+                character=melee.Character.YLINK,
+                action_frame=17,
+            ),
+            montage,
+        )
+        self.assertAlmostEqual(montage.current_power(), 1 / 45)
+        self.controls.take_calls()
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action.YLINK_SPECIAL_N_LOOP,
+                character=melee.Character.YLINK,
+            ),
+            montage,
+        )
+        self.assertEqual(montage.current_power(), 1.0)
+        self.assertEqual(
+            self.controls.take_calls(),
+            [("release_all",), ("press_button", melee.Button.BUTTON_B)],
+        )
+
+        self.assertIs(montage.release(), montage)
+        self.controls.release_result = AttackFrameData(
+            character=melee.Character.YLINK,
+            action=melee.Action.YLINK_SPECIAL_N_LOOP,
+            frame_data=self.frame_data,
+        )
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action.YLINK_SPECIAL_N_LOOP,
+                character=melee.Character.YLINK,
+            ),
+            montage,
+        )
+        self.assertEqual(self.controls.take_calls(), [("release", hold)])
+        self.assertIsNone(montage.current_power())
+
+    def test_link_bow_supports_aerial_charge_and_rejects_other_characters(self):
+        montage = LinkBowMontage()
+        self.assertIs(
+            self.tick(montage, melee.Action.STANDING),
+            montage,
+        )
+        self.assertEqual(self.controls.take_calls(), [])
+        self.assertEqual(montage.get_montage_state(), MontageState.Waiting)
+
+        aerial = LinkBowMontage()
+        self.controls.attack_result = self.bow_hold()
+        self.assertIs(
+            self.tick(
+                aerial,
+                melee.Action.FALLING,
+                character=melee.Character.LINK,
+                on_ground=False,
+            ),
+            aerial,
+        )
+        self.controls.take_calls()
+        self.assertIs(
+            self.tick(
+                aerial,
+                melee.Action.LINK_SPECIAL_AIR_N_START,
+                character=melee.Character.LINK,
+                action_frame=17,
+                on_ground=False,
+            ),
+            aerial,
+        )
+        self.assertAlmostEqual(aerial.current_power(), 1 / 60)
+        self.assertEqual(
+            self.controls.take_calls(),
+            [("release_all",), ("press_button", melee.Button.BUTTON_B)],
+        )
+
+    def test_link_bow_aborts_when_release_fails(self):
+        montage = LinkBowMontage().release()
+        hold = self.bow_hold()
+        self.controls.attack_result = hold
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action.STANDING,
+                character=melee.Character.LINK,
+            ),
+            montage,
+        )
+        self.controls.take_calls()
+        self.controls.release_result = None
+
+        self.assertEqual(
+            self.tick(
+                montage,
+                melee.Action.LINK_SPECIAL_N_START,
+                character=melee.Character.LINK,
+                action_frame=17,
+            ),
+            Abort("bow shot could not be released"),
+        )
+        self.assertEqual(
+            self.controls.take_calls(),
+            [("release", hold), ("release_all",)],
+        )
+
+    def test_hold_to_release_neutral_specials_track_power_and_release(self):
+        cases = (
+            (
+                JigglypuffRolloutMontage,
+                melee.Character.JIGGLYPUFF,
+                melee.Action.JIGGLYPUFF_SPECIAL_N_START_R,
+                melee.Action.JIGGLYPUFF_SPECIAL_N_LOOP,
+                melee.Action.JIGGLYPUFF_SPECIAL_N_RELEASE,
+                3 / 130,
+                True,
+            ),
+            (
+                JigglypuffRolloutMontage,
+                melee.Character.JIGGLYPUFF,
+                melee.Action.JIGGLYPUFF_SPECIAL_AIR_N_START_R,
+                melee.Action.JIGGLYPUFF_SPECIAL_AIR_N_CHARGE_LOOP,
+                melee.Action.JIGGLYPUFF_SPECIAL_AIR_N_CHARGE_RELEASE,
+                3 / 130,
+                False,
+            ),
+            (
+                ShieldBreakerMontage,
+                melee.Character.MARTH,
+                melee.Action.MARTH_SPECIAL_N_START,
+                melee.Action.MARTH_SPECIAL_N_LOOP,
+                melee.Action.MARTH_SPECIAL_N_END0,
+                1 / 121,
+                True,
+            ),
+            (
+                ShieldBreakerMontage,
+                melee.Character.MARTH,
+                melee.Action.MARTH_SPECIAL_AIR_N_START,
+                melee.Action.MARTH_SPECIAL_AIR_N_LOOP,
+                melee.Action.MARTH_SPECIAL_AIR_N_END0,
+                1 / 121,
+                False,
+            ),
+            (
+                FlareBladeMontage,
+                melee.Character.ROY,
+                melee.Action.ROY_SPECIAL_N_START,
+                melee.Action.ROY_SPECIAL_N_LOOP,
+                melee.Action.ROY_SPECIAL_N_END0,
+                1 / 211,
+                True,
+            ),
+            (
+                FlareBladeMontage,
+                melee.Character.ROY,
+                melee.Action.ROY_SPECIAL_AIR_N_START,
+                melee.Action.ROY_SPECIAL_AIR_N_LOOP,
+                melee.Action.ROY_SPECIAL_AIR_N_END0,
+                1 / 211,
+                False,
+            ),
+        )
+        for (
+            montage_type,
+            character,
+            start_action,
+            charge_action,
+            release_action,
+            power,
+            on_ground,
+        ) in cases:
+            with self.subTest(character=character, on_ground=on_ground):
+                self.setUp()
+                montage = montage_type()
+                self.assertIsNone(montage.current_power())
+
+                self.assertFalse(montage.can_release())
+                self.assertIs(
+                    self.tick(
+                        montage,
+                        melee.Action.STANDING if on_ground else melee.Action.FALLING,
+                        character=character,
+                        on_ground=on_ground,
+                    ),
+                    montage,
+                )
+                self.assertEqual(
+                    self.controls.take_calls(),
+                    [("release_all",), ("press_button", melee.Button.BUTTON_B)],
+                )
+                self.assertIs(
+                    self.tick(
+                        montage,
+                        start_action,
+                        character=character,
+                        on_ground=on_ground,
+                    ),
+                    montage,
+                )
+                self.controls.take_calls()
+                self.assertIs(
+                    self.tick(
+                        montage,
+                        charge_action,
+                        character=character,
+                        on_ground=on_ground,
+                    ),
+                    montage,
+                )
+                self.assertAlmostEqual(montage.current_power(), power)
+                self.assertTrue(montage.can_release())
+                self.controls.take_calls()
+
+                self.assertIs(montage.release(), montage)
+                self.assertIs(
+                    self.tick(
+                        montage,
+                        charge_action,
+                        character=character,
+                        on_ground=on_ground,
+                    ),
+                    montage,
+                )
+                self.assertEqual(self.controls.take_calls(), [("release_all",)])
+                self.assertIsNone(montage.current_power())
+                self.assertFalse(montage.can_release())
+                self.assertIs(
+                    self.tick(
+                        montage,
+                        release_action,
+                        character=character,
+                        on_ground=on_ground,
+                    ),
+                    True,
+                )
+                self.assertEqual(self.controls.take_calls(), [("release_all",)])
+
+    def test_rollout_immediate_hit_confirms_release(self):
+        montage = JigglypuffRolloutMontage().release()
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action.STANDING,
+                character=melee.Character.JIGGLYPUFF,
+            ),
+            montage,
+        )
+        self.controls.take_calls()
+
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action.JIGGLYPUFF_SPECIAL_N_HIT,
+                character=melee.Character.JIGGLYPUFF,
+            ),
+            True,
+        )
+        self.assertEqual(self.controls.take_calls(), [("release_all",)])
+
+    def test_hold_to_release_side_specials_prepare_direction_and_release(self):
+        cases = (
+            (
+                LuigiGreenMissileMontage,
+                melee.Character.LUIGI,
+                melee.Action.LUIGI_SPECIAL_S_START,
+                melee.Action.LUIGI_SPECIAL_S_HOLD,
+                melee.Action.LUIGI_SPECIAL_S_MISFIRE,
+                21 / 91,
+                True,
+            ),
+            (
+                LuigiGreenMissileMontage,
+                melee.Character.LUIGI,
+                melee.Action.LUIGI_SPECIAL_AIR_S_START,
+                melee.Action.LUIGI_SPECIAL_AIR_S_HOLD,
+                melee.Action.LUIGI_SPECIAL_AIR_S_MISFIRE,
+                21 / 91,
+                False,
+            ),
+            (
+                SkullBashMontage,
+                melee.Character.PIKACHU,
+                melee.Action.PIKACHU_SPECIAL_S_START,
+                melee.Action.PIKACHU_SPECIAL_S_HOLD,
+                melee.Action.PIKACHU_SPECIAL_S0,
+                21 / 91,
+                True,
+            ),
+            (
+                SkullBashMontage,
+                melee.Character.PIKACHU,
+                melee.Action.PIKACHU_SPECIAL_AIR_S_START,
+                melee.Action.PIKACHU_SPECIAL_AIR_S_HOLD,
+                melee.Action.PIKACHU_SPECIAL_AIR_S0,
+                21 / 91,
+                False,
+            ),
+            (
+                SkullBashMontage,
+                melee.Character.PICHU,
+                melee.Action.PICHU_SPECIAL_S_START,
+                melee.Action.PICHU_SPECIAL_S_HOLD,
+                melee.Action.PICHU_SPECIAL_S0,
+                21 / 181,
+                True,
+            ),
+            (
+                SkullBashMontage,
+                melee.Character.PICHU,
+                melee.Action.PICHU_SPECIAL_AIR_S_START,
+                melee.Action.PICHU_SPECIAL_AIR_S_HOLD,
+                melee.Action.PICHU_SPECIAL_AIR_S0,
+                21 / 181,
+                False,
+            ),
+        )
+        for (
+            montage_type,
+            character,
+            start_action,
+            charge_action,
+            release_action,
+            power,
+            on_ground,
+        ) in cases:
+            with self.subTest(character=character):
+                self.setUp()
+                montage = montage_type(StickReferenceAxis.LEFT)
+                self.assertIs(
+                    self.tick(
+                        montage,
+                        melee.Action.STANDING if on_ground else melee.Action.FALLING,
+                        character=character,
+                        on_ground=on_ground,
+                    ),
+                    montage,
+                )
+                self.assertEqual(self.controls.take_calls(), [("release_all",)])
+                self.assertIs(
+                    self.tick(
+                        montage,
+                        melee.Action.STANDING if on_ground else melee.Action.FALLING,
+                        character=character,
+                        on_ground=on_ground,
+                    ),
+                    montage,
+                )
+                self.assertEqual(
+                    self.controls.take_calls(),
+                    [
+                        ("release_all",),
+                        (
+                            "tilt_stick",
+                            StickReferenceAxis.LEFT,
+                            0.0,
+                            1.0,
+                            melee.Button.BUTTON_MAIN,
+                        ),
+                        ("press_button", melee.Button.BUTTON_B),
+                    ],
+                )
+                self.assertIs(
+                    self.tick(montage, start_action, character=character, on_ground=on_ground),
+                    montage,
+                )
+                self.controls.take_calls()
+                self.assertIs(
+                    self.tick(montage, charge_action, character=character, on_ground=on_ground),
+                    montage,
+                )
+                self.assertAlmostEqual(montage.current_power(), power)
+                self.controls.take_calls()
+                montage.release()
+                self.assertIs(
+                    self.tick(montage, charge_action, character=character, on_ground=on_ground),
+                    montage,
+                )
+                self.controls.take_calls()
+                self.assertIs(
+                    self.tick(montage, release_action, character=character, on_ground=on_ground),
+                    True,
+                )
+
+    def test_side_specials_can_disable_the_smash_bonus(self):
+        cases = (
+            (
+                LuigiGreenMissileMontage,
+                melee.Character.LUIGI,
+                melee.Action.LUIGI_SPECIAL_S_HOLD,
+                1 / 91,
+            ),
+            (
+                SkullBashMontage,
+                melee.Character.PIKACHU,
+                melee.Action.PIKACHU_SPECIAL_S_HOLD,
+                1 / 91,
+            ),
+            (
+                SkullBashMontage,
+                melee.Character.PICHU,
+                melee.Action.PICHU_SPECIAL_S_HOLD,
+                1 / 181,
+            ),
+        )
+        for montage_type, character, charge_action, power in cases:
+            with self.subTest(character=character):
+                self.setUp()
+                montage = montage_type(
+                    StickReferenceAxis.RIGHT,
+                    use_smash_bonus=False,
+                )
+                for _ in range(4):
+                    self.assertIs(
+                        self.tick(
+                            montage,
+                            melee.Action.STANDING,
+                            character=character,
+                        ),
+                        montage,
+                    )
+                    self.assertEqual(
+                        self.controls.take_calls(),
+                        [
+                            ("release_all",),
+                            (
+                                "tilt_stick",
+                                StickReferenceAxis.RIGHT,
+                                0.0,
+                                1.0,
+                                melee.Button.BUTTON_MAIN,
+                            ),
+                        ],
+                    )
+
+                self.assertIs(
+                    self.tick(
+                        montage,
+                        melee.Action.STANDING,
+                        character=character,
+                    ),
+                    montage,
+                )
+                self.assertEqual(
+                    self.controls.take_calls(),
+                    [
+                        ("release_all",),
+                        (
+                            "tilt_stick",
+                            StickReferenceAxis.RIGHT,
+                            0.0,
+                            1.0,
+                            melee.Button.BUTTON_MAIN,
+                        ),
+                        ("press_button", melee.Button.BUTTON_B),
+                    ],
+                )
+                self.assertIs(
+                    self.tick(
+                        montage,
+                        charge_action,
+                        character=character,
+                    ),
+                    montage,
+                )
+                self.assertAlmostEqual(montage.current_power(), power)
+
+    def test_hold_to_release_specials_accept_release_before_startup(self):
+        rollout = JigglypuffRolloutMontage().release()
+        self.assertIs(
+            self.tick(
+                rollout,
+                melee.Action.STANDING,
+                character=melee.Character.JIGGLYPUFF,
+            ),
+            rollout,
+        )
+        self.controls.take_calls()
+        self.assertIs(
+            self.tick(
+                rollout,
+                melee.Action.JIGGLYPUFF_SPECIAL_N_LOOP,
+                character=melee.Character.JIGGLYPUFF,
+            ),
+            rollout,
+        )
+        self.assertEqual(self.controls.take_calls(), [("release_all",)])
+        self.assertFalse(rollout.can_release())
+
+        self.setUp()
+        missile = LuigiGreenMissileMontage(StickReferenceAxis.RIGHT).release()
+        self.assertIs(
+            self.tick(
+                missile,
+                melee.Action.STANDING,
+                character=melee.Character.LUIGI,
+            ),
+            missile,
+        )
+        self.controls.take_calls()
+        self.assertIs(
+            self.tick(
+                missile,
+                melee.Action.STANDING,
+                character=melee.Character.LUIGI,
+            ),
+            missile,
+        )
+        self.controls.take_calls()
+        self.assertIs(
+            self.tick(
+                missile,
+                melee.Action.LUIGI_SPECIAL_S_HOLD,
+                character=melee.Character.LUIGI,
+            ),
+            missile,
+        )
+        self.assertEqual(self.controls.take_calls(), [("release_all",)])
+        self.assertFalse(missile.can_release())
+
+    def test_hold_to_release_full_charge_and_character_gate(self):
+        rollout = JigglypuffRolloutMontage()
+        self.assertIs(
+            self.tick(
+                rollout,
+                melee.Action.STANDING,
+                character=melee.Character.JIGGLYPUFF,
+            ),
+            rollout,
+        )
+        self.controls.take_calls()
+        self.assertIs(
+            self.tick(
+                rollout,
+                melee.Action.JIGGLYPUFF_SPECIAL_N_FULL,
+                character=melee.Character.JIGGLYPUFF,
+            ),
+            rollout,
+        )
+        self.assertEqual(rollout.current_power(), 1.0)
+        self.assertTrue(rollout.can_release())
+        self.assertEqual(
+            self.controls.take_calls(),
+            [("release_all",), ("press_button", melee.Button.BUTTON_B)],
+        )
+
+        shield_breaker = ShieldBreakerMontage()
+        self.assertIs(
+            self.tick(
+                shield_breaker,
+                melee.Action.STANDING,
+                character=melee.Character.MARTH,
+            ),
+            shield_breaker,
+        )
+        self.controls.take_calls()
+        self.assertIs(
+            self.tick(
+                shield_breaker,
+                melee.Action.MARTH_SPECIAL_N_END1,
+                character=melee.Character.MARTH,
+            ),
+            True,
+        )
+        self.controls.take_calls()
+
+        wrong_character = LuigiGreenMissileMontage(StickReferenceAxis.RIGHT)
+        self.assertIs(self.tick(wrong_character, melee.Action.STANDING), wrong_character)
+        self.assertEqual(wrong_character.get_montage_state(), MontageState.Waiting)
+        self.assertEqual(self.controls.take_calls(), [])
+
+    def test_charge_only_montages_can_hold_for_thirty_seconds_after_full_power(self):
+        bow = LinkBowMontage()
+        self.controls.attack_result = self.bow_hold()
+        self.assertIs(
+            self.tick(
+                bow,
+                melee.Action.STANDING,
+                character=melee.Character.LINK,
+            ),
+            bow,
+        )
+        self.controls.take_calls()
+        for _ in range(60 * 30):
+            self.assertIs(
+                self.tick(
+                    bow,
+                    melee.Action.LINK_SPECIAL_N_LOOP,
+                    character=melee.Character.LINK,
+                ),
+                bow,
+            )
+            self.controls.take_calls()
+        self.assertEqual(bow.current_power(), 1.0)
+        self.assertEqual(bow.get_montage_state(), MontageState.Active)
+
+        rollout = JigglypuffRolloutMontage()
+        self.assertIs(
+            self.tick(
+                rollout,
+                melee.Action.STANDING,
+                character=melee.Character.JIGGLYPUFF,
+            ),
+            rollout,
+        )
+        self.controls.take_calls()
+        for _ in range(60 * 30):
+            self.assertIs(
+                self.tick(
+                    rollout,
+                    melee.Action.JIGGLYPUFF_SPECIAL_N_FULL,
+                    character=melee.Character.JIGGLYPUFF,
+                ),
+                rollout,
+            )
+            self.controls.take_calls()
+        self.assertEqual(rollout.current_power(), 1.0)
+        self.assertEqual(rollout.get_montage_state(), MontageState.Active)
+
+        shadow_ball = MewtwoShadowBallMontage()
+        self.assertIs(
+            self.tick(
+                shadow_ball,
+                melee.Action.STANDING,
+                character=melee.Character.MEWTWO,
+                neutral_b_charge=6,
+            ),
+            shadow_ball,
+        )
+        self.controls.take_calls()
+        for _ in range(60 * 30):
+            self.assertIs(
+                self.tick(
+                    shadow_ball,
+                    melee.Action.MEWTWO_SPECIAL_N_LOOP_FULL,
+                    character=melee.Character.MEWTWO,
+                    neutral_b_charge=7,
+                ),
+                shadow_ball,
+            )
+            self.controls.take_calls()
+        self.assertEqual(shadow_ball.current_power(), 1.0)
+        self.assertEqual(shadow_ball.get_montage_state(), MontageState.Active)
+
+    def test_storable_chargeable_special_power_and_fire_transitions(self):
+        cases = (
+            (
+                DonkeyKongGiantPunchMontage,
+                melee.Character.DK,
+                melee.Action.DK_SPECIAL_N_LOOP,
+                melee.Action.DK_SPECIAL_N,
+                5,
+                0.5,
+                True,
+            ),
+            (
+                SamusChargeShotMontage,
+                melee.Character.SAMUS,
+                melee.Action.SAMUS_SPECIAL_N_HOLD,
+                melee.Action.SAMUS_SPECIAL_N,
+                3,
+                3 / 7,
+                True,
+            ),
+            (
+                SheikNeedleStormMontage,
+                melee.Character.SHEIK,
+                melee.Action.SHEIK_SPECIAL_N_LOOP,
+                melee.Action.SHEIK_SPECIAL_N_END,
+                3,
+                0.4,
+                False,
+            ),
+            (
+                MewtwoShadowBallMontage,
+                melee.Character.MEWTWO,
+                melee.Action.MEWTWO_SPECIAL_N_LOOP,
+                melee.Action.MEWTWO_SPECIAL_N_END,
+                3,
+                3 / 7,
+                True,
+            ),
+        )
+        for montage_type, character, loop_action, fire_action, charge, power, fire_b in cases:
+            with self.subTest(character=character):
+                self.setUp()
+                montage = montage_type()
+                self.assertIsNone(montage.current_power())
+                self.assertFalse(montage.can_fire())
+                self.assertIs(
+                    self.tick(
+                        montage,
+                        melee.Action.STANDING,
+                        character=character,
+                        neutral_b_charge=charge,
+                    ),
+                    montage,
+                )
+                self.assertAlmostEqual(montage.current_power(), power)
+                self.assertEqual(
+                    self.controls.take_calls(),
+                    [("release_all",), ("press_button", melee.Button.BUTTON_B)],
+                )
+
+                self.assertIs(
+                    self.tick(
+                        montage,
+                        loop_action,
+                        character=character,
+                        neutral_b_charge=charge,
+                    ),
+                    montage,
+                )
+                expected_charge_calls = [("release_all",)]
+                if character is melee.Character.SHEIK:
+                    expected_charge_calls.append(("press_button", melee.Button.BUTTON_B))
+                self.assertEqual(self.controls.take_calls(), expected_charge_calls)
+                self.assertTrue(montage.can_fire())
+                self.assertTrue(montage.can_store())
+
+                self.assertIs(montage.fire(), montage)
+                self.assertIs(
+                    self.tick(
+                        montage,
+                        loop_action,
+                        character=character,
+                        neutral_b_charge=charge,
+                    ),
+                    montage,
+                )
+                expected_fire_calls = [("release_all",)]
+                if fire_b:
+                    expected_fire_calls.append(("press_button", melee.Button.BUTTON_B))
+                self.assertEqual(self.controls.take_calls(), expected_fire_calls)
+                self.assertIs(
+                    self.tick(
+                        montage,
+                        fire_action,
+                        character=character,
+                        neutral_b_charge=0,
+                    ),
+                    True,
+                )
+                self.assertEqual(self.controls.take_calls(), [("release_all",)])
+
+    def test_storable_chargeable_special_shield_and_grab_storage(self):
+        cases = (
+            (
+                DonkeyKongGiantPunchMontage,
+                melee.Character.DK,
+                melee.Action.DK_SPECIAL_N_LOOP,
+                melee.Action.DK_SPECIAL_N_CANCEL,
+            ),
+            (
+                SamusChargeShotMontage,
+                melee.Character.SAMUS,
+                melee.Action.SAMUS_SPECIAL_N_HOLD,
+                melee.Action.SAMUS_SPECIAL_N_CANCEL,
+            ),
+            (
+                SheikNeedleStormMontage,
+                melee.Character.SHEIK,
+                melee.Action.SHEIK_SPECIAL_N_LOOP,
+                melee.Action.SHEIK_SPECIAL_N_CANCEL,
+            ),
+            (
+                MewtwoShadowBallMontage,
+                melee.Character.MEWTWO,
+                melee.Action.MEWTWO_SPECIAL_N_LOOP,
+                melee.Action.MEWTWO_SPECIAL_N_CANCEL,
+            ),
+        )
+        for montage_type, character, loop_action, cancel_action in cases:
+            with self.subTest(character=character, transition="shield"):
+                self.setUp()
+                montage = montage_type()
+                self.assertIs(
+                    self.tick(
+                        montage,
+                        melee.Action.STANDING,
+                        character=character,
+                        neutral_b_charge=2,
+                    ),
+                    montage,
+                )
+                self.controls.take_calls()
+                self.assertIs(
+                    self.tick(
+                        montage,
+                        loop_action,
+                        character=character,
+                        neutral_b_charge=2,
+                    ),
+                    montage,
+                )
+                self.controls.take_calls()
+                self.assertIs(montage.store(ChargeStoreInput.SHIELD), montage)
+                self.assertIs(
+                    self.tick(
+                        montage,
+                        loop_action,
+                        character=character,
+                        neutral_b_charge=2,
+                    ),
+                    montage,
+                )
+                expected_calls = [("release_all",)]
+                if character is melee.Character.SHEIK:
+                    expected_calls.append(("press_button", melee.Button.BUTTON_B))
+                expected_calls.append(("press_button", melee.Button.BUTTON_L))
+                self.assertEqual(self.controls.take_calls(), expected_calls)
+                self.assertIs(
+                    self.tick(
+                        montage,
+                        cancel_action,
+                        character=character,
+                        neutral_b_charge=2,
+                    ),
+                    True,
+                )
+
+        for montage_type in (
+            DonkeyKongGiantPunchMontage,
+            SamusChargeShotMontage,
+            SheikNeedleStormMontage,
+        ):
+            self.assertIs(
+                montage_type().store(ChargeStoreInput.GRAB).get_montage_state(),
+                MontageState.Waiting,
+            )
+        mewtwo = MewtwoShadowBallMontage()
+        self.assertFalse(mewtwo.can_store(ChargeStoreInput.GRAB))
+        with self.assertRaisesRegex(ValueError, "GRAB cannot store MEWTWO"):
+            mewtwo.store(ChargeStoreInput.GRAB)
+
+    def test_storable_chargeable_special_intent_is_fixed_after_transition_input(self):
+        fire = SamusChargeShotMontage().fire()
+        self.tick(
+            fire,
+            melee.Action.STANDING,
+            character=melee.Character.SAMUS,
+            neutral_b_charge=2,
+        )
+        self.controls.take_calls()
+        self.tick(
+            fire,
+            melee.Action.SAMUS_SPECIAL_N_HOLD,
+            character=melee.Character.SAMUS,
+            neutral_b_charge=2,
+        )
+        self.controls.take_calls()
+        fire.store()
+        self.assertIs(
+            self.tick(
+                fire,
+                melee.Action.SAMUS_SPECIAL_N,
+                character=melee.Character.SAMUS,
+                neutral_b_charge=0,
+            ),
+            True,
+        )
+
+        self.setUp()
+        store = SamusChargeShotMontage().store()
+        self.tick(
+            store,
+            melee.Action.STANDING,
+            character=melee.Character.SAMUS,
+            neutral_b_charge=2,
+        )
+        self.controls.take_calls()
+        self.tick(
+            store,
+            melee.Action.SAMUS_SPECIAL_N_HOLD,
+            character=melee.Character.SAMUS,
+            neutral_b_charge=2,
+        )
+        self.controls.take_calls()
+        store.fire()
+        self.assertIs(
+            self.tick(
+                store,
+                melee.Action.SAMUS_SPECIAL_N_CANCEL,
+                character=melee.Character.SAMUS,
+                neutral_b_charge=2,
+            ),
+            True,
+        )
+
+    def test_storable_chargeable_special_accepts_natural_full_charge_storage(self):
+        montage = SamusChargeShotMontage()
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action.STANDING,
+                character=melee.Character.SAMUS,
+                neutral_b_charge=6,
+            ),
+            montage,
+        )
+        self.controls.take_calls()
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action.SAMUS_SPECIAL_N_HOLD,
+                character=melee.Character.SAMUS,
+                neutral_b_charge=6,
+            ),
+            montage,
+        )
+        self.controls.take_calls()
+
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action.SAMUS_SPECIAL_N_CANCEL,
+                character=melee.Character.SAMUS,
+                neutral_b_charge=7,
+            ),
+            True,
+        )
+        self.assertEqual(self.controls.take_calls(), [])
+
+    def test_dk_storage_waits_for_the_arm_swing_cancel_window(self):
+        for transition, button in (
+            (ChargeStoreInput.SHIELD, melee.Button.BUTTON_L),
+            (ChargeStoreInput.GRAB, melee.Button.BUTTON_Z),
+        ):
+            with self.subTest(transition=transition):
+                self.setUp()
+                montage = DonkeyKongGiantPunchMontage()
+                self.assertIs(
+                    self.tick(
+                        montage,
+                        melee.Action.STANDING,
+                        character=melee.Character.DK,
+                        neutral_b_charge=2,
+                    ),
+                    montage,
+                )
+                self.controls.take_calls()
+                self.assertIs(
+                    self.tick(
+                        montage,
+                        melee.Action.DK_SPECIAL_N_LOOP,
+                        character=melee.Character.DK,
+                        neutral_b_charge=2,
+                    ),
+                    montage,
+                )
+                self.controls.take_calls()
+                montage.store(transition)
+                self.assertIs(
+                    self.tick(
+                        montage,
+                        melee.Action.DK_SPECIAL_N_LOOP,
+                        character=melee.Character.DK,
+                        neutral_b_charge=2,
+                    ),
+                    montage,
+                )
+                self.assertEqual(
+                    self.controls.take_calls(),
+                    [("release_all",), ("press_button", button)],
+                )
+                for _ in range(5):
+                    self.assertIs(
+                        self.tick(
+                            montage,
+                            melee.Action.DK_SPECIAL_N_LOOP,
+                            character=melee.Character.DK,
+                            neutral_b_charge=2,
+                        ),
+                        montage,
+                    )
+                    self.assertEqual(self.controls.take_calls(), [("release_all",)])
+                self.assertIs(
+                    self.tick(
+                        montage,
+                        melee.Action.DK_SPECIAL_N_CANCEL,
+                        character=melee.Character.DK,
+                        neutral_b_charge=2,
+                    ),
+                    True,
+                )
+
+    def test_dk_pending_storage_accepts_the_tenth_wind_auto_store(self):
+        montage = DonkeyKongGiantPunchMontage()
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action.STANDING,
+                character=melee.Character.DK,
+                neutral_b_charge=9,
+            ),
+            montage,
+        )
+        self.controls.take_calls()
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action.DK_SPECIAL_N_LOOP,
+                character=melee.Character.DK,
+                neutral_b_charge=9,
+            ),
+            montage,
+        )
+        self.controls.take_calls()
+        montage.store(ChargeStoreInput.SHIELD)
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action.DK_SPECIAL_N_LOOP,
+                character=melee.Character.DK,
+                neutral_b_charge=9,
+            ),
+            montage,
+        )
+        self.controls.take_calls()
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action.STANDING,
+                character=melee.Character.DK,
+                neutral_b_charge=10,
+            ),
+            True,
+        )
+        self.assertEqual(self.controls.take_calls(), [("release_all",)])
+
+    def test_storable_chargeable_special_roll_support_and_ground_requirement(self):
+        sheik = SheikNeedleStormMontage()
+        self.assertFalse(sheik.can_store(ChargeStoreInput.ROLL_FORWARD))
+        with self.assertRaisesRegex(ValueError, "ROLL_FORWARD cannot store SHEIK"):
+            sheik.store(ChargeStoreInput.ROLL_FORWARD)
+
+        montage = MewtwoShadowBallMontage().store(ChargeStoreInput.ROLL_FORWARD)
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action.FALLING,
+                character=melee.Character.MEWTWO,
+                on_ground=False,
+                neutral_b_charge=3,
+            ),
+            montage,
+        )
+        self.controls.take_calls()
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action.MEWTWO_SPECIAL_AIR_N_LOOP,
+                character=melee.Character.MEWTWO,
+                on_ground=False,
+                neutral_b_charge=3,
+            ),
+            montage,
+        )
+        self.assertFalse(montage.can_store(ChargeStoreInput.ROLL_FORWARD))
+        self.assertEqual(self.controls.take_calls(), [("release_all",)])
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action.MEWTWO_SPECIAL_N_LOOP,
+                character=melee.Character.MEWTWO,
+                on_ground=True,
+                neutral_b_charge=3,
+            ),
+            montage,
+        )
+        self.assertEqual(
+            self.controls.take_calls(),
+            [
+                ("release_all",),
+                (
+                    "tilt_stick",
+                    StickReferenceAxis.RIGHT,
+                    0.0,
+                    1.0,
+                    melee.Button.BUTTON_MAIN,
+                ),
+            ],
+        )
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action.ROLL_FORWARD,
+                character=melee.Character.MEWTWO,
+                neutral_b_charge=3,
+            ),
+            True,
+        )
+
+    def test_storable_chargeable_special_requires_current_telemetry(self):
+        montage = SamusChargeShotMontage()
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action.STANDING,
+                character=melee.Character.SAMUS,
+            ),
+            montage,
+        )
+        self.assertEqual(montage.get_montage_state(), MontageState.Waiting)
+        self.assertEqual(self.controls.take_calls(), [])
+
+        aerial = SamusChargeShotMontage()
+        self.assertIs(
+            self.tick(
+                aerial,
+                melee.Action.FALLING,
+                character=melee.Character.SAMUS,
+                on_ground=False,
+                neutral_b_charge=3,
+            ),
+            aerial,
+        )
+        self.assertEqual(aerial.get_montage_state(), MontageState.Waiting)
+        self.assertIs(aerial.fire(), aerial)
+        self.assertIs(
+            self.tick(
+                aerial,
+                melee.Action.FALLING,
+                character=melee.Character.SAMUS,
+                on_ground=False,
+                neutral_b_charge=3,
+            ),
+            aerial,
+        )
+        self.assertEqual(
+            self.controls.take_calls(),
+            [("release_all",), ("press_button", melee.Button.BUTTON_B)],
+        )
+
+    def test_samus_pending_store_aborts_if_charge_becomes_airborne(self):
+        montage = SamusChargeShotMontage().store()
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action.STANDING,
+                character=melee.Character.SAMUS,
+                neutral_b_charge=2,
+            ),
+            montage,
+        )
+        self.controls.take_calls()
+
+        self.assertEqual(
+            self.tick(
+                montage,
+                melee.Action.SAMUS_SPECIAL_AIR_N_START,
+                character=melee.Character.SAMUS,
+                on_ground=False,
+                neutral_b_charge=2,
+            ),
+            Abort("player left the ground while neutral-B charge was active"),
+        )
+        self.assertEqual(self.controls.take_calls(), [("release_all",)])
+
+    def test_link_forward_smash_fluent_followup_uses_first_valid_tick(self):
+        montage = LinkForwardSmashMontage(StickReferenceAxis.RIGHT).followup()
+        self.assertIs(montage.release_charge(), montage)
+        self.start_link_forward_smash(montage)
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action.FSMASH_MID,
+                character=melee.Character.LINK,
+                action_frame=18,
+                hitlag_left=3,
+            ),
+            montage,
+        )
+        self.assertEqual(self.controls.take_calls(), [("release_all",)])
+
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action.FSMASH_MID,
+                character=melee.Character.LINK,
+                action_frame=18,
+            ),
+            montage,
+        )
+        self.assertEqual(
+            self.controls.take_calls(),
+            [
+                ("release_all",),
+                ("press_button", melee.Button.BUTTON_A),
+            ],
+        )
+
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action(341),
+                character=melee.Character.LINK,
+                action_frame=1,
+            ),
+            True,
+        )
+        self.assertEqual(self.controls.take_calls(), [("release_all",)])
+        self.assertEqual(montage.get_montage_state(), MontageState.Finished)
+        self.assertIs(montage.followup(), montage)
+        self.assertIs(montage.release_charge(), montage)
+        self.assertFalse(montage.can_followup(self.player_state))
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action.FSMASH_MID,
+                character=melee.Character.LINK,
+                action_frame=30,
+            ),
+            False,
+        )
+        self.assertEqual(self.controls.take_calls(), [])
+
+    def test_link_forward_smash_uses_final_window_frame_on_first_confirmation(self):
+        montage = LinkForwardSmashMontage(StickReferenceAxis.RIGHT).followup()
+        hold = self.smash_hold(
+            AttackType.RSMASH,
+            melee.Action.FSMASH_MID,
+            character=melee.Character.LINK,
+        )
+        self.controls.attack_result = hold
+        self.assertIs(
+            self.tick(montage, melee.Action.STANDING, character=melee.Character.LINK),
+            montage,
+        )
+        self.controls.take_calls()
+        self.controls.release_result = AttackFrameData(
+            character=melee.Character.LINK,
+            action=melee.Action.FSMASH_MID,
+            frame_data=self.frame_data,
+        )
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action.FSMASH_MID,
+                character=melee.Character.LINK,
+                action_frame=1,
+            ),
+            montage,
+        )
+        self.controls.take_calls()
+
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action.FSMASH_MID,
+                character=melee.Character.LINK,
+                action_frame=48,
+            ),
+            montage,
+        )
+        self.assertEqual(
+            self.controls.take_calls(),
+            [("release_all",), ("press_button", melee.Button.BUTTON_A)],
+        )
+
+    def test_link_forward_smash_uses_young_link_request_window(self):
+        montage = LinkForwardSmashMontage(StickReferenceAxis.RIGHT).followup()
+        self.start_link_forward_smash(
+            montage,
+            character=melee.Character.YLINK,
+        )
+
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action.FSMASH_MID,
+                character=melee.Character.YLINK,
+                action_frame=18,
+            ),
+            montage,
+        )
+        self.assertFalse(montage.can_followup(self.player_state))
+        self.assertEqual(self.controls.take_calls(), [("release_all",)])
+
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action.FSMASH_MID,
+                character=melee.Character.YLINK,
+                action_frame=19,
+            ),
+            montage,
+        )
+        self.assertEqual(
+            self.controls.take_calls(),
+            [("release_all",), ("press_button", melee.Button.BUTTON_A)],
+        )
+
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action(341),
+                character=melee.Character.YLINK,
+                action_frame=1,
+            ),
+            True,
+        )
+        self.assertEqual(self.controls.take_calls(), [("release_all",)])
+
+    def test_link_forward_smash_delays_followup_with_pre_tick_listener(self):
+        montage = LinkForwardSmashMontage(StickReferenceAxis.LEFT)
+        requested_frames = []
+
+        def delayed_followup(controls, player_state, opponent_state, state):
+            del controls, opponent_state, state
+            player = player_state.player()
+            if player is not None and player.action_frame >= 30 and montage.can_followup(player_state):
+                requested_frames.append(player.action_frame)
+                montage.followup()
+            return PreTickResult.CONTINUE
+
+        montage.add_pre_tick_listener(delayed_followup)
+        self.start_link_forward_smash(montage, direction=StickReferenceAxis.LEFT)
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action.FSMASH_MID,
+                character=melee.Character.LINK,
+                action_frame=29,
+            ),
+            montage,
+        )
+        self.assertEqual(self.controls.take_calls(), [("release_all",)])
+        self.assertEqual(requested_frames, [])
+
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action.FSMASH_MID,
+                character=melee.Character.LINK,
+                action_frame=30,
+            ),
+            montage,
+        )
+        self.assertEqual(requested_frames, [30])
+        self.assertEqual(
+            self.controls.take_calls(),
+            [("release_all",), ("press_button", melee.Button.BUTTON_A)],
+        )
+
+    def test_link_forward_smash_can_followup_covers_full_request_window(self):
+        montage = LinkForwardSmashMontage(StickReferenceAxis.RIGHT)
+        self.start_link_forward_smash(montage)
+
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action.FSMASH_MID,
+                character=melee.Character.LINK,
+                action_frame=17,
+            ),
+            montage,
+        )
+        self.assertFalse(montage.can_followup(self.player_state))
+        self.controls.take_calls()
+
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action.FSMASH_MID,
+                character=melee.Character.LINK,
+                action_frame=18,
+            ),
+            montage,
+        )
+        self.assertTrue(montage.can_followup(self.player_state))
+        self.controls.take_calls()
+
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action.FSMASH_MID,
+                character=melee.Character.LINK,
+                action_frame=48,
+            ),
+            montage,
+        )
+        self.assertTrue(montage.can_followup(self.player_state))
+        self.controls.take_calls()
+
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action.FSMASH_MID,
+                character=melee.Character.LINK,
+                action_frame=49,
+            ),
+            True,
+        )
+        self.assertFalse(montage.can_followup(self.player_state))
+        self.assertEqual(self.controls.take_calls(), [("release_all",)])
+
+    def test_link_forward_smash_hitlag_preserves_late_followup_window(self):
+        montage = LinkForwardSmashMontage(StickReferenceAxis.RIGHT)
+        self.start_link_forward_smash(montage)
+
+        for action_frame in range(3, 18):
+            self.assertIs(
+                self.tick(
+                    montage,
+                    melee.Action.FSMASH_MID,
+                    character=melee.Character.LINK,
+                    action_frame=action_frame,
+                ),
+                montage,
+            )
+            self.controls.take_calls()
+
+        for hitlag_left in range(8, 0, -1):
+            self.assertIs(
+                self.tick(
+                    montage,
+                    melee.Action.FSMASH_MID,
+                    character=melee.Character.LINK,
+                    action_frame=18,
+                    hitlag_left=hitlag_left,
+                ),
+                montage,
+            )
+            self.controls.take_calls()
+
+        for action_frame in range(18, 48):
+            self.assertIs(
+                self.tick(
+                    montage,
+                    melee.Action.FSMASH_MID,
+                    character=melee.Character.LINK,
+                    action_frame=action_frame,
+                ),
+                montage,
+            )
+            self.controls.take_calls()
+
+        self.assertIs(montage.followup(), montage)
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action.FSMASH_MID,
+                character=melee.Character.LINK,
+                action_frame=48,
+            ),
+            montage,
+        )
+        self.assertEqual(
+            self.controls.take_calls(),
+            [("release_all",), ("press_button", melee.Button.BUTTON_A)],
+        )
+
+    def test_link_forward_smash_rejects_requested_late_followup(self):
+        montage = LinkForwardSmashMontage(StickReferenceAxis.RIGHT)
+        self.start_link_forward_smash(montage)
+        self.assertIs(montage.followup(), montage)
+        self.assertEqual(
+            self.tick(
+                montage,
+                melee.Action.FSMASH_MID,
+                character=melee.Character.LINK,
+                action_frame=49,
+            ),
+            Abort("requested follow-up window was missed"),
+        )
+        self.assertEqual(self.controls.take_calls(), [("release_all",), ("release_all",)])
+
+    def test_link_forward_smash_rejects_other_characters(self):
+        montage = LinkForwardSmashMontage(StickReferenceAxis.LEFT)
+
+        self.assertIs(self.tick(montage, melee.Action.STANDING), montage)
+        self.assertEqual(self.controls.take_calls(), [])
+        self.assertEqual(montage.get_montage_state(), MontageState.Waiting)
 
     def test_initiate_dash_neutralizes_before_smashing_in_current_movement_direction(
         self,
@@ -3594,12 +6565,6 @@ class TechniqueMontageTests(unittest.TestCase):
                 self.assertIs(self.tick(montage, melee.Action.DASHING), True)
                 self.assertEqual(self.controls.take_calls(), [])
                 self.assertEqual(montage.get_montage_state(), MontageState.Finished)
-
-    def test_initiate_dash_accepts_only_horizontal_directions(self):
-        for direction in (StickReferenceAxis.UP, StickReferenceAxis.DOWN, "right"):
-            with self.subTest(direction=direction):
-                with self.assertRaisesRegex(ValueError, "LEFT or StickReferenceAxis.RIGHT"):
-                    InitiateDashMontage(direction)
 
     def test_initiate_dash_handoff_leaves_stick_held_for_continuation(self):
         continuation = RecordingMontage()
@@ -3789,10 +6754,6 @@ class TechniqueMontageTests(unittest.TestCase):
             [("attack", AttackType.DASH_ATTACK, None), ("release_all",)],
         )
 
-    def test_perfect_pivot_validates_attack_type(self):
-        with self.assertRaisesRegex(ValueError, "attack_type must be an AttackType"):
-            PerfectPivotMontage("jab")
-
     def test_smash_turn_jump_reverses_then_finishes_with_jump_held(self):
         for jump_button in (melee.Button.BUTTON_X, melee.Button.BUTTON_Y):
             with self.subTest(jump_button=jump_button):
@@ -3959,6 +6920,78 @@ class TechniqueMontageTests(unittest.TestCase):
         )
         self.assertIs(
             self.tick(montage, melee.Action.DOWN_B_GROUND_START),
+            True,
+        )
+        self.assertEqual(montage.get_montage_state(), MontageState.Finished)
+
+    def test_legacy_multishine_uses_spacie_jump_squat_timing(self):
+        for character, jump_squat_frame in (
+            (melee.Character.FOX, 3),
+            (melee.Character.FALCO, 5),
+        ):
+            with self.subTest(character=character):
+                player = melee.PlayerState(
+                    character=character,
+                    action=melee.Action.KNEE_BEND,
+                    action_frame=jump_squat_frame - 1,
+                )
+                melee.techskill.multishine(player, self.controls)
+                self.assertNotIn(
+                    ("press_button", melee.Button.BUTTON_B),
+                    self.controls.take_calls(),
+                )
+
+                player.action_frame = jump_squat_frame
+                melee.techskill.multishine(player, self.controls)
+                self.assertIn(
+                    ("press_button", melee.Button.BUTTON_B),
+                    self.controls.take_calls(),
+                )
+
+    def test_multishine_uses_falco_jump_squat_timing(self):
+        montage = MultishineMontage()
+
+        self.assertIs(
+            self.tick(montage, melee.Action.STANDING, character=melee.Character.FALCO),
+            montage,
+        )
+        self.controls.take_calls()
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action.DOWN_B_GROUND,
+                character=melee.Character.FALCO,
+            ),
+            montage,
+        )
+        self.assertIn(
+            ("press_button", melee.Button.BUTTON_Y),
+            self.controls.take_calls(),
+        )
+
+        for action_frame in range(1, 6):
+            self.assertIs(
+                self.tick(
+                    montage,
+                    melee.Action.KNEE_BEND,
+                    character=melee.Character.FALCO,
+                    action_frame=action_frame,
+                ),
+                montage,
+            )
+            calls = self.controls.take_calls()
+            self.assertEqual(
+                ("press_button", melee.Button.BUTTON_B) in calls,
+                action_frame == 5,
+            )
+
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action.DOWN_B_AIR_START,
+                character=melee.Character.FALCO,
+                on_ground=False,
+            ),
             True,
         )
         self.assertEqual(montage.get_montage_state(), MontageState.Finished)
@@ -4199,7 +7232,7 @@ class TechniqueMontageTests(unittest.TestCase):
         )
 
     def test_multishine_validates_shine_count(self):
-        for shine_count in (True, 0, 1):
+        for shine_count in (0, 1):
             with (
                 self.subTest(shine_count=shine_count),
                 self.assertRaisesRegex(
@@ -4209,30 +7242,50 @@ class TechniqueMontageTests(unittest.TestCase):
             ):
                 MultishineMontage(shine_count=shine_count)
 
-    def test_multishine_waits_for_fox_in_standing_state(self):
+    def test_multishine_waits_for_supported_character_in_standing_state(self):
         montage = MultishineMontage()
 
         self.assertIs(
             self.tick(
                 montage,
                 melee.Action.STANDING,
-                character=melee.Character.FALCO,
+                character=melee.Character.MARTH,
             ),
             montage,
         )
         self.assertEqual(montage.get_montage_state(), MontageState.Waiting)
         self.assertEqual(self.controls.take_calls(), [])
 
-    def test_multishine_starts_from_ground_movement_actions(self):
-        for action in GROUND_MOVEMENT_ACTIONS:
+    def test_multishine_starts_only_when_down_special_is_actionable(self):
+        for action, expected in (
+            (melee.Action.STANDING, True),
+            (melee.Action.WALK_SLOW, True),
+            (melee.Action.WALK_MIDDLE, True),
+            (melee.Action.WALK_FAST, True),
+            (melee.Action.TURNING, True),
+            (melee.Action.RUNNING, True),
+            (melee.Action.RUN_DIRECT, True),
+            (melee.Action.CROUCH_START, True),
+            (melee.Action.CROUCHING, True),
+            (melee.Action.CROUCH_END, True),
+            (melee.Action.EDGE_TEETERING_START, True),
+            (melee.Action.EDGE_TEETERING, True),
+            (melee.Action.DASHING, False),
+            (melee.Action.TURNING_RUN, False),
+            (melee.Action.RUN_BRAKE, False),
+        ):
             with self.subTest(action=action):
                 montage = MultishineMontage()
 
                 self.assertIs(self.tick(montage, action), montage)
-                self.assertEqual(montage.get_montage_state(), MontageState.Active)
-                self.assertIn(
-                    ("press_button", melee.Button.BUTTON_B),
-                    self.controls.take_calls(),
+                self.assertEqual(
+                    montage.get_montage_state(),
+                    MontageState.Active if expected else MontageState.Waiting,
+                )
+                calls = self.controls.take_calls()
+                self.assertEqual(
+                    ("press_button", melee.Button.BUTTON_B) in calls,
+                    expected,
                 )
 
     def test_multishine_waits_during_jump_squat(self):
@@ -4366,15 +7419,66 @@ class TechniqueMontageTests(unittest.TestCase):
         self.assertEqual(montage.get_montage_state(), MontageState.Finished)
 
     def test_multishine_extends_budget_once_per_hitlag_rise(self):
+        for character, peak_hitlag in (
+            (melee.Character.FOX, 4),
+            (melee.Character.FALCO, 5),
+        ):
+            with self.subTest(character=character):
+                self.setUp()
+                montage = MultishineMontage(frame_limit=2)
+                self.tick(montage, melee.Action.STANDING, character=character)
+                self.controls.take_calls()
+
+                for hitlag_left in range(peak_hitlag, 0, -1):
+                    self.assertIs(
+                        self.tick(
+                            montage,
+                            melee.Action.DOWN_B_GROUND_START,
+                            character=character,
+                            action_frame=1,
+                            hitlag_left=hitlag_left,
+                        ),
+                        montage,
+                    )
+                    self.controls.take_calls()
+
+                self.assertIs(
+                    self.tick(
+                        montage,
+                        melee.Action.DOWN_B_GROUND_START,
+                        character=character,
+                        action_frame=2,
+                    ),
+                    montage,
+                )
+                self.controls.take_calls()
+                self.assertIs(
+                    self.tick(
+                        montage,
+                        melee.Action.DOWN_B_GROUND_START,
+                        character=character,
+                        action_frame=3,
+                    ),
+                    False,
+                )
+                self.assertEqual(montage.get_montage_state(), MontageState.TimedOut)
+                self.assertEqual(self.controls.take_calls(), [("release_all",)])
+
+    def test_multishine_hitlag_extension_adds_only_new_delta(self):
         montage = MultishineMontage(frame_limit=2)
-        self.tick(montage, melee.Action.STANDING)
+        self.tick(
+            montage,
+            melee.Action.STANDING,
+            character=melee.Character.FALCO,
+        )
         self.controls.take_calls()
 
-        for hitlag_left in range(4, 0, -1):
+        for hitlag_left in (2, 5, 4, 3, 2, 1):
             self.assertIs(
                 self.tick(
                     montage,
                     melee.Action.DOWN_B_GROUND_START,
+                    character=melee.Character.FALCO,
                     action_frame=1,
                     hitlag_left=hitlag_left,
                 ),
@@ -4383,12 +7487,12 @@ class TechniqueMontageTests(unittest.TestCase):
             self.controls.take_calls()
 
         self.assertIs(
-            self.tick(montage, melee.Action.DOWN_B_GROUND_START, action_frame=2),
-            montage,
-        )
-        self.controls.take_calls()
-        self.assertIs(
-            self.tick(montage, melee.Action.DOWN_B_GROUND_START, action_frame=3),
+            self.tick(
+                montage,
+                melee.Action.DOWN_B_GROUND_START,
+                character=melee.Character.FALCO,
+                action_frame=2,
+            ),
             False,
         )
         self.assertEqual(montage.get_montage_state(), MontageState.TimedOut)
@@ -4434,6 +7538,24 @@ class TechniqueMontageTests(unittest.TestCase):
                 self.assertEqual(montage.get_montage_state(), MontageState.Active)
                 self.assertEqual(self.controls.take_calls(), [("release_all",)])
 
+    def test_multishine_reflector_wait_extension_remains_bounded(self):
+        montage = MultishineMontage(frame_limit=2)
+        self.assertIs(self.tick(montage, melee.Action.STANDING), montage)
+        self.controls.take_calls()
+
+        for _ in range(77):
+            self.assertIs(
+                self.tick(montage, melee.Action.REFLECTOR_HIT_GROUND),
+                montage,
+            )
+            self.controls.take_calls()
+
+        self.assertIs(
+            self.tick(montage, melee.Action.REFLECTOR_HIT_GROUND),
+            False,
+        )
+        self.assertEqual(montage.get_montage_state(), MontageState.TimedOut)
+
     def test_multishine_holds_reflector_after_nonfinal_followup_shine(self):
         montage = MultishineMontage(shine_count=3)
         self.tick(montage, melee.Action.STANDING)
@@ -4475,16 +7597,978 @@ class TechniqueMontageTests(unittest.TestCase):
             self.tick(montage, melee.Action.KNEE_BEND, action_frame=action_frame)
             self.controls.take_calls()
 
-        for action in (
-            melee.Action.REFLECTOR_HIT_GROUND,
-            melee.Action.REFLECTOR_END_GROUND,
+        for action, frame_count in (
+            (melee.Action.REFLECTOR_HIT_GROUND, 20),
+            (melee.Action.REFLECTOR_END_GROUND, 18),
         ):
-            self.assertIs(self.tick(montage, action), montage)
-            self.assertEqual(self.controls.take_calls(), [("release_all",)])
+            for _ in range(frame_count):
+                self.assertIs(self.tick(montage, action), montage)
+                self.assertEqual(self.controls.take_calls(), [("release_all",)])
 
         self.assertIs(self.tick(montage, melee.Action.STANDING), True)
         self.assertEqual(montage.get_montage_state(), MontageState.Finished)
         self.assertEqual(self.controls.take_calls(), [("release_all",)])
+
+    def test_sword_dance_starts_marth_and_roy_on_ground_or_in_air(self):
+        for character in (melee.Character.MARTH, melee.Character.ROY):
+            for direction in (StickReferenceAxis.LEFT, StickReferenceAxis.RIGHT):
+                for on_ground in (False, True):
+                    with self.subTest(
+                        character=character,
+                        direction=direction,
+                        on_ground=on_ground,
+                    ):
+                        self.setUp()
+                        montage = SwordDanceMontage(direction)
+                        self.start_sword_dance(
+                            montage,
+                            direction=direction,
+                            character=character,
+                            on_ground=on_ground,
+                        )
+
+        unsupported = SwordDanceMontage(StickReferenceAxis.RIGHT)
+        self.assertIs(
+            self.tick(unsupported, melee.Action.STANDING),
+            unsupported,
+        )
+        self.assertEqual(unsupported.get_montage_state(), MontageState.Waiting)
+        self.assertEqual(self.controls.take_calls(), [])
+
+    def test_sword_dance_add_segment_rejects_unavailable_slots(self):
+        montage = SwordDanceMontage(StickReferenceAxis.RIGHT)
+        self.assertTrue(montage.can_add_segment(StickReferenceAxis.DOWN))
+        self.assertTrue(montage.add_segment(StickReferenceAxis.DOWN))
+        self.assertTrue(montage.add_segment(StickReferenceAxis.DOWN))
+        self.assertTrue(montage.add_segment(StickReferenceAxis.UP))
+        self.assertFalse(montage.can_add_segment(StickReferenceAxis.RIGHT))
+        self.assertFalse(montage.add_segment(StickReferenceAxis.RIGHT))
+
+    def test_sword_dance_supports_every_directional_route(self):
+        second_steps = (
+            (StickReferenceAxis.UP, melee.Action(350), 15),
+            (StickReferenceAxis.LEFT, melee.Action(351), 15),
+            (StickReferenceAxis.RIGHT, melee.Action(351), 15),
+            (StickReferenceAxis.DOWN, melee.Action(351), 15),
+        )
+        third_steps = (
+            (StickReferenceAxis.UP, melee.Action(352), 16),
+            (StickReferenceAxis.RIGHT, melee.Action(353), 14),
+            (StickReferenceAxis.DOWN, melee.Action(354), 17),
+        )
+        fourth_steps = (
+            (StickReferenceAxis.UP, melee.Action(355)),
+            (StickReferenceAxis.LEFT, melee.Action(356)),
+            (StickReferenceAxis.DOWN, melee.Action(357)),
+        )
+        for character in (melee.Character.MARTH, melee.Character.ROY):
+            first_start_offset = 0 if character is melee.Character.MARTH else 1
+            later_start_offset = 0 if character is melee.Character.MARTH else 1
+            for second_direction, second_action, second_start in second_steps:
+                for third_direction, third_action, third_start in third_steps:
+                    for fourth_direction, fourth_action in fourth_steps:
+                        with self.subTest(
+                            character=character,
+                            second=second_direction,
+                            third=third_direction,
+                            fourth=fourth_direction,
+                        ):
+                            self.setUp()
+                            montage = SwordDanceMontage(StickReferenceAxis.RIGHT)
+                            self.assertTrue(montage.add_segment(second_direction))
+                            self.assertTrue(montage.add_segment(third_direction))
+                            self.assertTrue(montage.add_segment(fourth_direction))
+                            self.start_sword_dance(montage, character=character)
+
+                            self.assertIs(
+                                self.tick(
+                                    montage,
+                                    melee.Action(349),
+                                    character=character,
+                                    action_frame=6 + first_start_offset,
+                                ),
+                                montage,
+                            )
+                            self.assertEqual(
+                                self.controls.take_calls(),
+                                self.sword_dance_input_calls(second_direction),
+                            )
+                            self.assertIs(
+                                self.tick(
+                                    montage,
+                                    second_action,
+                                    character=character,
+                                ),
+                                montage,
+                            )
+                            self.assertEqual(self.controls.take_calls(), [("release_all",)])
+
+                            self.assertIs(
+                                self.tick(
+                                    montage,
+                                    second_action,
+                                    character=character,
+                                    action_frame=second_start + later_start_offset,
+                                ),
+                                montage,
+                            )
+                            self.assertEqual(
+                                self.controls.take_calls(),
+                                self.sword_dance_input_calls(third_direction),
+                            )
+                            self.assertIs(
+                                self.tick(
+                                    montage,
+                                    third_action,
+                                    character=character,
+                                ),
+                                montage,
+                            )
+                            self.assertEqual(self.controls.take_calls(), [("release_all",)])
+
+                            third_offset = later_start_offset
+                            if character is melee.Character.ROY and third_direction is StickReferenceAxis.DOWN:
+                                third_offset = 5
+                            self.assertIs(
+                                self.tick(
+                                    montage,
+                                    third_action,
+                                    character=character,
+                                    action_frame=third_start + third_offset,
+                                ),
+                                montage,
+                            )
+                            self.assertEqual(
+                                self.controls.take_calls(),
+                                self.sword_dance_input_calls(fourth_direction),
+                            )
+                            self.assertIs(
+                                self.tick(
+                                    montage,
+                                    fourth_action,
+                                    character=character,
+                                ),
+                                True,
+                            )
+                            self.assertEqual(self.controls.take_calls(), [("release_all",)])
+                            self.assertFalse(montage.add_segment(StickReferenceAxis.UP))
+
+    def test_sword_dance_accepts_ground_air_transitions(self):
+        montage = SwordDanceMontage(StickReferenceAxis.RIGHT)
+        self.assertTrue(montage.add_segment(StickReferenceAxis.UP))
+        self.assertTrue(montage.add_segment(StickReferenceAxis.DOWN))
+        self.assertTrue(montage.add_segment(StickReferenceAxis.RIGHT))
+        self.start_sword_dance(montage)
+
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action(349),
+                character=melee.Character.MARTH,
+                action_frame=6,
+            ),
+            montage,
+        )
+        self.controls.take_calls()
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action(359),
+                character=melee.Character.MARTH,
+                on_ground=False,
+            ),
+            montage,
+        )
+        self.controls.take_calls()
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action(359),
+                character=melee.Character.MARTH,
+                action_frame=15,
+                on_ground=False,
+            ),
+            montage,
+        )
+        self.controls.take_calls()
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action(354),
+                character=melee.Character.MARTH,
+            ),
+            montage,
+        )
+        self.controls.take_calls()
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action(354),
+                character=melee.Character.MARTH,
+                action_frame=17,
+            ),
+            montage,
+        )
+        self.controls.take_calls()
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action(365),
+                character=melee.Character.MARTH,
+                on_ground=False,
+            ),
+            True,
+        )
+
+    def test_sword_dance_allows_reactive_segments_and_closes_at_deadline(self):
+        montage = SwordDanceMontage(StickReferenceAxis.RIGHT)
+        self.start_sword_dance(montage)
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action(349),
+                character=melee.Character.MARTH,
+                action_frame=5,
+            ),
+            montage,
+        )
+        self.controls.take_calls()
+        self.assertTrue(montage.add_segment(StickReferenceAxis.UP))
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action(349),
+                character=melee.Character.MARTH,
+                action_frame=6,
+            ),
+            montage,
+        )
+        self.assertEqual(
+            self.controls.take_calls(),
+            self.sword_dance_input_calls(StickReferenceAxis.UP),
+        )
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action(350),
+                character=melee.Character.MARTH,
+            ),
+            montage,
+        )
+        self.controls.take_calls()
+        self.assertTrue(montage.add_segment(StickReferenceAxis.DOWN))
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action(350),
+                character=melee.Character.MARTH,
+                action_frame=15,
+            ),
+            montage,
+        )
+
+        self.setUp()
+        closed = SwordDanceMontage(StickReferenceAxis.LEFT)
+        self.start_sword_dance(
+            closed,
+            direction=StickReferenceAxis.LEFT,
+            character=melee.Character.ROY,
+        )
+        self.assertIs(
+            self.tick(
+                closed,
+                melee.Action(349),
+                character=melee.Character.ROY,
+                action_frame=26,
+            ),
+            True,
+        )
+        self.assertFalse(closed.add_segment(StickReferenceAxis.UP))
+
+    def test_sword_dance_pre_tick_listener_observes_exact_window_boundary(self):
+        for character, last_request_frame in (
+            (melee.Character.MARTH, 24),
+            (melee.Character.ROY, 25),
+        ):
+            with self.subTest(character=character, boundary="last"):
+                self.setUp()
+                montage = SwordDanceMontage(StickReferenceAxis.RIGHT)
+                self.start_sword_dance(montage, character=character)
+                observed_windows = []
+                self.add_sword_dance_segment_on_pre_tick(
+                    montage,
+                    StickReferenceAxis.UP,
+                    observed_windows,
+                )
+                self.assertIs(
+                    self.tick(
+                        montage,
+                        melee.Action(349),
+                        character=character,
+                        action_frame=last_request_frame,
+                    ),
+                    montage,
+                )
+                self.assertEqual(observed_windows, [True])
+                self.assertEqual(
+                    self.controls.take_calls(),
+                    self.sword_dance_input_calls(StickReferenceAxis.UP),
+                )
+
+            with self.subTest(character=character, boundary="closed"):
+                self.setUp()
+                montage = SwordDanceMontage(StickReferenceAxis.RIGHT)
+                self.start_sword_dance(montage, character=character)
+                observed_windows = []
+                self.add_sword_dance_segment_on_pre_tick(
+                    montage,
+                    StickReferenceAxis.UP,
+                    observed_windows,
+                )
+                self.assertIs(
+                    self.tick(
+                        montage,
+                        melee.Action(349),
+                        character=character,
+                        action_frame=last_request_frame + 1,
+                    ),
+                    True,
+                )
+                self.assertEqual(observed_windows, [False])
+                self.assertEqual(self.controls.take_calls(), [("release_all",)])
+
+    def test_sword_dance_delays_followup_during_hitlag(self):
+        montage = SwordDanceMontage(StickReferenceAxis.RIGHT)
+        self.assertTrue(montage.add_segment(StickReferenceAxis.UP))
+        self.start_sword_dance(montage)
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action(349),
+                character=melee.Character.MARTH,
+                action_frame=6,
+                hitlag_left=2,
+            ),
+            montage,
+        )
+        self.assertEqual(self.controls.take_calls(), [("release_all",)])
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action(349),
+                character=melee.Character.MARTH,
+                action_frame=6,
+            ),
+            montage,
+        )
+        self.assertEqual(
+            self.controls.take_calls(),
+            self.sword_dance_input_calls(StickReferenceAxis.UP),
+        )
+
+    def test_sword_dance_aborts_missed_or_wrong_transitions(self):
+        missed = SwordDanceMontage(StickReferenceAxis.RIGHT)
+        self.assertTrue(missed.add_segment(StickReferenceAxis.UP))
+        self.start_sword_dance(missed)
+        self.assertEqual(
+            self.tick(
+                missed,
+                melee.Action(349),
+                character=melee.Character.MARTH,
+                action_frame=25,
+            ),
+            Abort("queued Sword Dance segment missed its input window"),
+        )
+
+        self.setUp()
+        wrong = SwordDanceMontage(StickReferenceAxis.RIGHT)
+        self.assertTrue(wrong.add_segment(StickReferenceAxis.UP))
+        self.start_sword_dance(wrong)
+        self.assertIs(
+            self.tick(
+                wrong,
+                melee.Action(349),
+                character=melee.Character.MARTH,
+                action_frame=6,
+            ),
+            wrong,
+        )
+        self.controls.take_calls()
+        self.assertEqual(
+            self.tick(
+                wrong,
+                melee.Action(351),
+                character=melee.Character.MARTH,
+            ),
+            Abort("Sword Dance entered the wrong directional segment"),
+        )
+
+    def test_sword_dance_aborts_character_change_and_failed_startup(self):
+        changed = SwordDanceMontage(StickReferenceAxis.RIGHT)
+        self.start_sword_dance(changed)
+        self.assertEqual(
+            self.tick(
+                changed,
+                melee.Action(349),
+                character=melee.Character.ROY,
+            ),
+            Abort("player character changed"),
+        )
+
+        self.setUp()
+        failed = SwordDanceMontage(StickReferenceAxis.RIGHT)
+        self.assertIs(
+            self.tick(
+                failed,
+                melee.Action.STANDING,
+                character=melee.Character.MARTH,
+            ),
+            failed,
+        )
+        self.controls.take_calls()
+        for _ in range(3):
+            self.assertIs(
+                self.tick(
+                    failed,
+                    melee.Action.STANDING,
+                    character=melee.Character.MARTH,
+                ),
+                failed,
+            )
+            self.controls.take_calls()
+        self.assertEqual(
+            self.tick(
+                failed,
+                melee.Action.STANDING,
+                character=melee.Character.MARTH,
+            ),
+            Abort("Sword Dance did not start"),
+        )
+
+    def test_quick_attack_starts_pikachu_and_pichu_in_arbitrary_directions(self):
+        direction = QuickAttackDirection(StickReferenceAxis.UP, -37.5)
+        for character, action, on_ground in (
+            (melee.Character.PIKACHU, melee.Action.STANDING, True),
+            (melee.Character.PICHU, melee.Action.FALLING, False),
+        ):
+            with self.subTest(character=character):
+                self.setUp()
+                montage = QuickAttackMontage(direction)
+
+                self.assertIs(
+                    self.tick(
+                        montage,
+                        action,
+                        character=character,
+                        on_ground=on_ground,
+                    ),
+                    montage,
+                )
+                self.assertEqual(montage.get_montage_state(), MontageState.Active)
+                self.assertEqual(
+                    self.controls.take_calls(),
+                    [
+                        ("release_all",),
+                        (
+                            "tilt_stick",
+                            StickReferenceAxis.UP,
+                            0.0,
+                            1.0,
+                            melee.Button.BUTTON_MAIN,
+                        ),
+                        ("press_button", melee.Button.BUTTON_B),
+                    ],
+                )
+
+    def test_quick_attack_waits_for_supported_action_and_character(self):
+        direction = QuickAttackDirection(StickReferenceAxis.UP)
+        for character, action in (
+            (melee.Character.FOX, melee.Action.STANDING),
+            (melee.Character.PIKACHU, melee.Action.DAMAGE_HIGH_1),
+        ):
+            with self.subTest(character=character, action=action):
+                montage = QuickAttackMontage(direction)
+                self.assertIs(
+                    self.tick(montage, action, character=character),
+                    montage,
+                )
+                self.assertEqual(montage.get_montage_state(), MontageState.Waiting)
+                self.assertEqual(self.controls.take_calls(), [])
+
+    def test_quick_attack_single_segment_closes_reactive_window(self):
+        montage = QuickAttackMontage(QuickAttackDirection(StickReferenceAxis.RIGHT, 25.0))
+        self.assertTrue(montage.can_add_segment())
+        self.tick(montage, melee.Action.STANDING, character=melee.Character.PIKACHU)
+        self.controls.take_calls()
+        self.tick(
+            montage,
+            melee.Action.PIKACHU_SPECIAL_HI_START0,
+            character=melee.Character.PIKACHU,
+        )
+        self.assertEqual(
+            self.controls.take_calls(),
+            [
+                ("release_all",),
+                (
+                    "tilt_stick",
+                    StickReferenceAxis.RIGHT,
+                    25.0,
+                    1.0,
+                    melee.Button.BUTTON_MAIN,
+                ),
+            ],
+        )
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action.PIKACHU_SPECIAL_HI_START1,
+                character=melee.Character.PIKACHU,
+            ),
+            montage,
+        )
+        self.assertEqual(self.controls.take_calls(), [("release_all",)])
+        self.assertTrue(montage.can_add_segment())
+
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action.PIKACHU_SPECIAL_HI_END,
+                character=melee.Character.PIKACHU,
+                action_frame=8,
+            ),
+            montage,
+        )
+        self.assertFalse(montage.can_add_segment())
+        self.assertIs(
+            montage.add_segment(QuickAttackDirection(StickReferenceAxis.LEFT)),
+            montage,
+        )
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action.PIKACHU_SPECIAL_HI_END,
+                character=melee.Character.PIKACHU,
+                action_frame=9,
+            ),
+            True,
+        )
+
+    def test_quick_attack_accepts_first_segment_hidden_by_terrain_collision(self):
+        montage = QuickAttackMontage(QuickAttackDirection(StickReferenceAxis.DOWN))
+        self.tick(montage, melee.Action.STANDING, character=melee.Character.PIKACHU)
+        self.controls.take_calls()
+        self.tick(
+            montage,
+            melee.Action.PIKACHU_SPECIAL_HI_START0,
+            character=melee.Character.PIKACHU,
+        )
+        self.controls.take_calls()
+
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action.PIKACHU_SPECIAL_HI_END,
+                character=melee.Character.PIKACHU,
+                action_frame=1,
+            ),
+            montage,
+        )
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action.PIKACHU_SPECIAL_HI_END,
+                character=melee.Character.PIKACHU,
+                action_frame=9,
+            ),
+            True,
+        )
+
+    def test_quick_attack_adds_second_segment_during_first_travel(self):
+        second = QuickAttackDirection(StickReferenceAxis.LEFT, -22.0)
+        montage = QuickAttackMontage(QuickAttackDirection(StickReferenceAxis.UP))
+        self.tick(
+            montage,
+            melee.Action.FALLING,
+            character=melee.Character.PICHU,
+            on_ground=False,
+        )
+        self.controls.take_calls()
+        self.tick(
+            montage,
+            melee.Action.PICHU_SPECIAL_AIR_HI_START0,
+            character=melee.Character.PICHU,
+            on_ground=False,
+        )
+        self.controls.take_calls()
+        self.tick(
+            montage,
+            melee.Action.PICHU_SPECIAL_AIR_HI_START1,
+            character=melee.Character.PICHU,
+            on_ground=False,
+        )
+        self.assertEqual(self.controls.take_calls(), [("release_all",)])
+
+        self.assertIs(montage.add_segment(second), montage)
+        self.assertFalse(montage.can_add_segment())
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action.PICHU_SPECIAL_AIR_HI_START1,
+                character=melee.Character.PICHU,
+                on_ground=False,
+            ),
+            montage,
+        )
+        self.assertEqual(
+            self.controls.take_calls(),
+            [
+                ("release_all",),
+                (
+                    "tilt_stick",
+                    StickReferenceAxis.LEFT,
+                    -22.0,
+                    1.0,
+                    melee.Button.BUTTON_MAIN,
+                ),
+            ],
+        )
+        self.tick(
+            montage,
+            melee.Action.PICHU_SPECIAL_AIR_HI_END,
+            character=melee.Character.PICHU,
+            action_frame=8,
+            on_ground=False,
+        )
+        self.controls.take_calls()
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action.PICHU_SPECIAL_AIR_HI_START1,
+                character=melee.Character.PICHU,
+                on_ground=False,
+            ),
+            True,
+        )
+        self.assertEqual(self.controls.take_calls(), [("release_all",)])
+
+    def test_quick_attack_accepts_second_segment_at_last_reliable_input_frame(self):
+        second = QuickAttackDirection(StickReferenceAxis.DOWN, 45.0)
+        montage = QuickAttackMontage(QuickAttackDirection(StickReferenceAxis.RIGHT))
+        self.tick(montage, melee.Action.STANDING, character=melee.Character.PIKACHU)
+        self.controls.take_calls()
+        self.tick(
+            montage,
+            melee.Action.PIKACHU_SPECIAL_HI_START1,
+            character=melee.Character.PIKACHU,
+        )
+        self.controls.take_calls()
+        self.tick(
+            montage,
+            melee.Action.PIKACHU_SPECIAL_HI_END,
+            character=melee.Character.PIKACHU,
+            action_frame=6,
+        )
+        self.controls.take_calls()
+
+        self.assertTrue(montage.can_add_segment())
+        montage.add_segment(second)
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action.PIKACHU_SPECIAL_HI_END,
+                character=melee.Character.PIKACHU,
+                action_frame=7,
+            ),
+            montage,
+        )
+        self.assertEqual(
+            self.controls.take_calls(),
+            [
+                ("release_all",),
+                (
+                    "tilt_stick",
+                    StickReferenceAxis.DOWN,
+                    45.0,
+                    1.0,
+                    melee.Button.BUTTON_MAIN,
+                ),
+            ],
+        )
+        self.assertFalse(montage.can_add_segment())
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action.PIKACHU_SPECIAL_HI_START1,
+                character=melee.Character.PIKACHU,
+            ),
+            True,
+        )
+
+    def test_quick_attack_accepts_second_segment_hidden_by_terrain_collision(self):
+        montage = QuickAttackMontage(QuickAttackDirection(StickReferenceAxis.UP)).add_segment(
+            QuickAttackDirection(StickReferenceAxis.DOWN)
+        )
+        self.tick(montage, melee.Action.STANDING, character=melee.Character.PIKACHU)
+        self.controls.take_calls()
+        self.tick(
+            montage,
+            melee.Action.PIKACHU_SPECIAL_HI_END,
+            character=melee.Character.PIKACHU,
+            action_frame=1,
+        )
+        self.controls.take_calls()
+        self.tick(
+            montage,
+            melee.Action.PIKACHU_SPECIAL_HI_END,
+            character=melee.Character.PIKACHU,
+            action_frame=7,
+        )
+        self.controls.take_calls()
+
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action.PIKACHU_SPECIAL_HI_END,
+                character=melee.Character.PIKACHU,
+                action_frame=0,
+            ),
+            True,
+        )
+        self.assertEqual(self.controls.take_calls(), [("release_all",)])
+
+    def test_quick_attack_keeps_last_input_frame_open_during_hitlag(self):
+        second = QuickAttackDirection(StickReferenceAxis.LEFT)
+        montage = QuickAttackMontage(QuickAttackDirection(StickReferenceAxis.UP))
+        self.tick(montage, melee.Action.STANDING, character=melee.Character.PIKACHU)
+        self.controls.take_calls()
+        self.tick(
+            montage,
+            melee.Action.PIKACHU_SPECIAL_HI_START1,
+            character=melee.Character.PIKACHU,
+        )
+        self.controls.take_calls()
+
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action.PIKACHU_SPECIAL_HI_END,
+                character=melee.Character.PIKACHU,
+                action_frame=7,
+            ),
+            montage,
+        )
+        self.assertFalse(montage.can_add_segment())
+        self.controls.take_calls()
+
+        observed_windows = []
+
+        def add_second_during_hitlag(controls, player_state, opponent_state, state):
+            del controls, player_state, opponent_state, state
+            observed_windows.append(montage.can_add_segment())
+            if montage.can_add_segment():
+                montage.add_segment(second)
+            return PreTickResult.CONTINUE
+
+        montage.add_pre_tick_listener(add_second_during_hitlag)
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action.PIKACHU_SPECIAL_HI_END,
+                character=melee.Character.PIKACHU,
+                action_frame=8,
+                hitlag_left=2,
+            ),
+            montage,
+        )
+        self.assertEqual(observed_windows, [True])
+        self.assertFalse(montage.can_add_segment())
+        self.controls.take_calls()
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action.PIKACHU_SPECIAL_HI_END,
+                character=melee.Character.PIKACHU,
+                action_frame=8,
+                hitlag_left=1,
+            ),
+            montage,
+        )
+        self.assertFalse(montage.can_add_segment())
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action.PIKACHU_SPECIAL_HI_START1,
+                character=melee.Character.PIKACHU,
+            ),
+            True,
+        )
+
+    def test_quick_attack_keeps_frame8_closed_without_hitlag(self):
+        montage = QuickAttackMontage(QuickAttackDirection(StickReferenceAxis.UP))
+        self.tick(montage, melee.Action.STANDING, character=melee.Character.PIKACHU)
+        self.controls.take_calls()
+        self.tick(
+            montage,
+            melee.Action.PIKACHU_SPECIAL_HI_START1,
+            character=melee.Character.PIKACHU,
+        )
+        self.controls.take_calls()
+        self.tick(
+            montage,
+            melee.Action.PIKACHU_SPECIAL_HI_END,
+            character=melee.Character.PIKACHU,
+            action_frame=7,
+        )
+        self.controls.take_calls()
+
+        observed_windows = []
+
+        def try_late_segment(controls, player_state, opponent_state, state):
+            del controls, player_state, opponent_state, state
+            observed_windows.append(montage.can_add_segment())
+            if montage.can_add_segment():
+                montage.add_segment(QuickAttackDirection(StickReferenceAxis.LEFT))
+            return PreTickResult.CONTINUE
+
+        montage.add_pre_tick_listener(try_late_segment)
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action.PIKACHU_SPECIAL_HI_END,
+                character=melee.Character.PIKACHU,
+                action_frame=8,
+            ),
+            montage,
+        )
+        self.assertEqual(observed_windows, [False])
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action.PIKACHU_SPECIAL_HI_END,
+                character=melee.Character.PIKACHU,
+                action_frame=9,
+            ),
+            True,
+        )
+
+    def test_quick_attack_first_added_segment_wins(self):
+        first = QuickAttackDirection(StickReferenceAxis.LEFT)
+        montage = QuickAttackMontage(QuickAttackDirection(StickReferenceAxis.UP))
+        self.assertIs(montage.add_segment(first), montage)
+        self.assertIs(
+            montage.add_segment(QuickAttackDirection(StickReferenceAxis.RIGHT)),
+            montage,
+        )
+        self.tick(montage, melee.Action.STANDING, character=melee.Character.PIKACHU)
+        self.controls.take_calls()
+        self.tick(
+            montage,
+            melee.Action.PIKACHU_SPECIAL_HI_START1,
+            character=melee.Character.PIKACHU,
+        )
+        self.assertIn(
+            (
+                "tilt_stick",
+                StickReferenceAxis.LEFT,
+                0.0,
+                1.0,
+                melee.Button.BUTTON_MAIN,
+            ),
+            self.controls.take_calls(),
+        )
+
+    def test_quick_attack_aborts_when_requested_second_segment_is_rejected(self):
+        direction = QuickAttackDirection(StickReferenceAxis.UP)
+        montage = QuickAttackMontage(direction).add_segment(direction)
+        self.tick(montage, melee.Action.STANDING, character=melee.Character.PIKACHU)
+        self.controls.take_calls()
+        self.tick(
+            montage,
+            melee.Action.PIKACHU_SPECIAL_HI_START1,
+            character=melee.Character.PIKACHU,
+        )
+        self.controls.take_calls()
+        self.tick(
+            montage,
+            melee.Action.PIKACHU_SPECIAL_HI_END,
+            character=melee.Character.PIKACHU,
+            action_frame=8,
+        )
+        self.controls.take_calls()
+
+        self.assertEqual(
+            self.tick(
+                montage,
+                melee.Action.DEAD_FALL,
+                character=melee.Character.PIKACHU,
+                on_ground=False,
+            ),
+            Abort("second Quick Attack segment did not start"),
+        )
+
+    def test_quick_attack_completes_on_ledge_and_ignores_attacker_hitlag(self):
+        montage = QuickAttackMontage(QuickAttackDirection(StickReferenceAxis.UP)).add_segment(
+            QuickAttackDirection(StickReferenceAxis.RIGHT)
+        )
+        self.tick(montage, melee.Action.STANDING, character=melee.Character.PIKACHU)
+        self.controls.take_calls()
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action.PIKACHU_SPECIAL_AIR_HI_START1,
+                character=melee.Character.PIKACHU,
+                hitlag_left=4,
+                on_ground=False,
+            ),
+            montage,
+        )
+        self.controls.take_calls()
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action.EDGE_CATCHING,
+                character=melee.Character.PIKACHU,
+                on_ground=False,
+            ),
+            True,
+        )
+
+    def test_quick_attack_completes_when_startup_grabs_ledge(self):
+        montage = QuickAttackMontage(QuickAttackDirection(StickReferenceAxis.UP))
+        self.tick(
+            montage,
+            melee.Action.FALLING,
+            character=melee.Character.PIKACHU,
+            on_ground=False,
+        )
+        self.controls.take_calls()
+
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action.EDGE_CATCHING,
+                character=melee.Character.PIKACHU,
+                on_ground=False,
+            ),
+            True,
+        )
+        self.assertEqual(self.controls.take_calls(), [("release_all",)])
+
+    def test_quick_attack_rejects_nonfinite_direction_and_character_change(self):
+        with self.assertRaisesRegex(ValueError, "finite"):
+            QuickAttackDirection(StickReferenceAxis.UP, math.nan)
+
+        montage = QuickAttackMontage(QuickAttackDirection(StickReferenceAxis.UP))
+        self.tick(montage, melee.Action.STANDING, character=melee.Character.PIKACHU)
+        self.controls.take_calls()
+        self.assertEqual(
+            self.tick(
+                montage,
+                melee.Action.PICHU_SPECIAL_HI_START0,
+                character=melee.Character.PICHU,
+            ),
+            Abort("player character changed"),
+        )
 
     def test_sdi_alternates_diagonals_then_uses_c_stick_asdi(self):
         montage = SDIMontage(StickReferenceAxis.RIGHT)
@@ -4859,10 +8943,6 @@ class TechniqueMontageTests(unittest.TestCase):
         self.assertEqual(montage.get_montage_state(), MontageState.Aborted)
         self.assertEqual(self.controls.take_calls(), [("release_all",)])
 
-    def test_sdi_validates_direction(self):
-        with self.assertRaisesRegex(ValueError, "StickReferenceAxis"):
-            SDIMontage("right")
-
     def test_wavedash_airdodges_on_final_fox_jump_squat_frame(self):
         montage = WavedashMontage(WavedashDirection.Right, angle_degrees=45.0)
 
@@ -5013,15 +9093,12 @@ class TechniqueMontageTests(unittest.TestCase):
     def test_wavedash_validates_angle_and_buttons(self):
         with self.assertRaises(TypeError):
             WavedashMontage(WavedashDirection.Right)
-        with self.assertRaisesRegex(ValueError, "direction"):
-            WavedashMontage("right", angle_degrees=45.0)
         for angle in (math.nan, 16.84, 90.1):
-            with self.subTest(angle=angle):
-                with self.assertRaises(ValueError):
-                    WavedashMontage(
-                        WavedashDirection.Right,
-                        angle_degrees=angle,
-                    )
+            with self.subTest(angle=angle), self.assertRaises(ValueError):
+                WavedashMontage(
+                    WavedashDirection.Right,
+                    angle_degrees=angle,
+                )
         with self.assertRaisesRegex(ValueError, "jump_button"):
             WavedashMontage(
                 WavedashDirection.Right,

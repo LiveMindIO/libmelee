@@ -54,7 +54,9 @@ uv pip install --python .venv/bin/python .
 
 - `melee.bot.InputMontage` instances are single-use, short-lived input sequences.
 - Each montage accepts an optional name and otherwise uses its concrete class name.
-  `StatefulInputMontage` and `AnonymousInputMontage` pass this name through.
+  Shipped concrete montages provide concise human-readable names at construction.
+  `AnonymousInputMontage` requires an explicit name; omission is deprecated and
+  retains `Anonymous Montage` only for runtime compatibility.
 - `Abort(reason)` is the reason-bearing failure result parallel to strategy
   `Exit(reason)`. Every transition to `MontageState.Aborted` returns that value and
   logs the montage name and reason at WARNING. `add_abort_listener()` registers
@@ -101,10 +103,14 @@ uv pip install --python .venv/bin/python .
   guards with an explicit fallback case.
 - Terminal montage instances cannot restart. Instantiate a new montage for every
   attempt.
+- Public montage parameters rely on strict annotations and stubs for type safety;
+  do not duplicate those types with runtime `isinstance` or enum-membership
+  checks. Runtime validation remains appropriate for semantic ranges and subsets
+  such as positive frame limits, charge bounds, and allowed jump/dodge buttons.
 - Concrete montages live in separate files under `melee/bot/techskill/`, with
   reused state and helpers in `melee/bot/techskill/common.py`.
-  The shipped Initiate Dash, Multishine, Wavedash, Ledgedash, SDI, Perfect Pivot,
-  and Smash Turn Jump montages model their mutable phases as typed
+  The shipped movement, defense, attack-chain, chargeable-special, storable
+  chargeable-special, and smash montages model mutable phases as typed
   `StatefulInputMontage` values and dispatch phase transitions with structural
   pattern matching.
   `InitiateDashMontage` requests a neutral reset frame only when already moving
@@ -112,16 +118,41 @@ uv pip install --python .venv/bin/python .
   directly to one maximum absolute left/right frame. Success leaves that
   direction held, so the caller or an `add_branch()` continuation must reset the
   stick once the desired location is reached.
-  `MultishineMontage` is Fox-only and performs a configurable `shine_count` of at
-  least two consecutive shines. Its baseline frame limit allows the normal
-  eight-frame cycle plus four transition frames per shine. A rise in observed
-  shine attacker hitlag adds four frames to the active budget once for that hit;
+  `MultishineMontage` supports Fox and Falco and performs a configurable
+  `shine_count` of at least two consecutive shines. It uses each fighter's
+  three- or five-frame jump squat. Its baseline frame limit allows the normal
+  cycle plus transition slack per shine. A rise in observed shine attacker
+  hitlag adds only the newly observed frames to the active budget;
   decreasing `hitlag_left` packets do not repeatedly extend the limit.
+  Fresh Reflector hit and release frames also extend the budget one-for-one;
+  repeated or out-of-order copies do not. The extension is capped at one full
+  38-frame hit-plus-release sequence per requested shine so the safety limit
+  remains finite under a stuck game state.
   Later shines begin as `Action.DOWN_B_AIR_START` after the jump-cancel, then
   become a grounded shine on landing. Projectile reflections enter separate
   ground/air hit and release states with no jump-cancel IASA. It holds B through
   non-final hit states so they return to the jump-cancelable Reflector loop;
   release and final states remain neutral until they resolve.
+  `QuickAttackMontage(initial_direction)` supports Pikachu's Quick Attack and
+  Pichu's Agility with continuous full-circle `QuickAttackDirection` values.
+  It initiates with cardinal up+B, then holds the initial movement vector through
+  startup so horizontal and downward routes cannot select another special.
+  Melee permits exactly two movement segments. `add_segment(direction)` queues
+  the optional second segment before activation or reactively through observed
+  end-state frame 7; frame 8 remains usable only during hitlag. `can_add_segment()`
+  reports whether the slot and window are still open. The first request is sticky. Pikachu requires more than 38 degrees
+  between segments and Pichu more than 5; a requested segment rejected by the
+  game aborts the montage unless the move safely reaches the ledge first. Terrain
+  can hide a travel packet; an initial end state confirms segment one, while a
+  post-deadline end-frame reset confirms segment two launched into a collision.
+  `SwordDanceMontage(initial_direction)` starts Marth or Roy side-B with an
+  absolute horizontal input and accepts up to three follow-ups. `add_segment()`
+  returns a boolean rather than the montage. Every hit accepts every cardinal
+  axis; down selects the side branch on hit two because it has no low branch,
+  and both horizontal axes always select side. Routes can be prequeued or
+  extended reactively until the current character- and branch-specific request
+  window closes. Each continuation is a fresh B edge, ground/air variants are
+  one logical segment, and hitlag delays rather than consumes a queued input.
   `WavedashMontage` uses the
   character-specific final jump-squat frame and aborts if that state is missed.
   `PerfectPivotMontage` requires an onstage grounded `DASHING` state, requests the
@@ -138,6 +169,49 @@ uv pip install --python .venv/bin/python .
   before its down-inward air dodge. It presses jump for exactly one input frame and
   leaves X/Y neutral throughout the rise; confirmed jumps remain confirmed through
   apex, but landing or leaving neutral aerial movement before clearance aborts the route.
+  `SmashAttackMontage(axis, max_charge_frames=60)` bounds the engine charge
+  counter at zero (minimum charge) or 2 through Melee's 60-frame maximum without
+  counting startup animation; one tick cannot be requested because Melee
+  increments before consuming released A. It recognizes Ness, Peach, and Game &
+  Watch's character-owned normal-smash states. `release_charge()`
+  idempotently queues an earlier release for the next active tick; cancellation
+  abandons the attack instead. `current_power()` returns the locally observed
+  and final-release-projected `1.0` through `1.3671` damage multiplier. Ground
+  loss aborts and neutralizes rather than reinterpreting the hold as an aerial.
+  The montage confirms startup before succeeding.
+  `LinkBowMontage` supports Link and Young Link on the ground or in air.
+  `release()` queues the shot; `can_release()` and normalized `current_power()`
+  become available on the first safe release frame and return unavailable after
+  release. Power includes the final counter increment applied when the queued
+  release reaches the bow IASA callback.
+  `JigglypuffRolloutMontage` uses the same caller-release queries and keeps full
+  Rollout held through a one-minute safety window. `LuigiGreenMissileMontage`
+  and `SkullBashMontage` accept an absolute horizontal direction. Their default
+  `use_smash_bonus=True` commits neutral then horizontal+B for the 20-count bonus;
+  `False` pre-holds the direction through the tap window before pressing B.
+  `ShieldBreakerMontage` and
+  `FlareBladeMontage` cover Marth and Roy. Green Missile, both Skull Bashes,
+  Shield Breaker, and Flare Blade complete when their game-enforced full charge
+  auto-launches; callers cannot hold those moves past full power.
+  `DonkeyKongGiantPunchMontage`, `SamusChargeShotMontage`,
+  `SheikNeedleStormMontage`, and `MewtwoShadowBallMontage` read exact persisted
+  charge from `PlayerState.neutral_b_charge`. `fire()` and
+  `store(ChargeStoreInput)` queue character-specific transitions; requests may
+  change until a controller edge commits, then the in-flight intent is fixed. Callers gate
+  them with `can_fire()` and `can_store()`. Mewtwo cannot grab-store, Sheik cannot
+  roll-store, rolls require ground, and Samus can only begin or continue charging
+  on the ground. Legacy payloads leave telemetry `None`, so these montages cannot
+  start. Retainable charge states use the one-minute safety window. DK storage
+  latches shoulder input and may wait through a full arm-swing loop before its
+  cancel action, so its transition-confirmation allowance is 120 frames.
+  `LinkForwardSmashMontage(direction, max_charge_frames=0)` supports Link and
+  Young Link and inherits charge release.
+  Chained `.followup()` requests the first valid second slash. Delayed callers use
+  a pre-tick listener to gate `.followup()` with `can_followup(player_state)`, true
+  without hitlag on Link frames 18-48 or Young Link frames 19-48. Those inputs
+  commit during their script/decomp-backed windows at frames 19-49 and 20-49;
+  shared action 341 confirms success.
+  First-slash hitlag extends the safety budget one-for-one so late timing remains valid.
   `SimpleControls.platform_drop()` is the one-input non-fast-fall path and is
   gated by `CharacterState.can_platform_drop()` plus current semisolid geometry.
   `PlatformDropFastFallMontage` observes the drop, commits neutral to reset the
@@ -197,18 +271,27 @@ uv pip install --python .venv/bin/python .
   name the expected action before a later `PlayerState` confirms startup.
 - `CharacterState.can_jump()` and the module-level `can_jump()` allow actionable
   ground jumps and remaining aerial jumps. Actionable shield phases are jumpable
-  for all characters except Yoshi; shield stun is not.
+  for the roster; Yoshi can jump only from its character-owned GuardOn_1
+  powershield state. Shield stun is not jumpable.
 - `CharacterState.can_shield()` uses direct Guard-transition actions rather than
   the broader ground bucket. It rejects `KNEE_BEND`, turn-run, run brake, and
   landing states; an airborne shoulder input is an air dodge, not a shield.
+- `SimpleControls.shield(strength)` uses analog L while clearing digital L/R and
+  analog R so the requested pressure is authoritative. Zero always releases;
+  positive values clamp to exported `MIN_SHIELD` (`43/140`) through `1.0`, and act
+  only when Guard can start or is already active (including stun). It preserves
+  Melee-observed strength whether controller analog correction is enabled or
+  disabled. Full depression
+  additionally presses digital L to represent the trigger click.
 - `can_dodge()` models direct ground Escape paths from standing, early dash, and
   eligible shield phases. Shield stun and `KNEE_BEND` are false; dash and shield
   release remain action-level answers because their hidden engine windows are not
   represented by `PlayerState`. Yoshi's raw 341-345 guard states are handled
-  character-aware.
-- `can_airdodge()` is true in the normal `_ACTIONABLE_AIR` jump/fall actions and
-  `PLATFORM_DROP`. It rejects tumble, active air dodge, attacks, and helpless post-Up-B
-  `DEAD_FALL` / `SPECIAL_FALL_*` states. A final-frame `KNEE_BEND` input used by
+  character-aware; GuardOff accepts only `DOWN` for its spot-dodge path.
+- `can_airdodge()` is true in the normal `_ACTIONABLE_AIR` jump/fall actions,
+  `PLATFORM_DROP`, and Jigglypuff's character-owned aerial jumps. It rejects
+  tumble, active air dodge, attacks, and helpless post-Up-B `DEAD_FALL` /
+  `SPECIAL_FALL_*` states. A final-frame `KNEE_BEND` input used by
   Wavedash schedules next-frame air dodge but is not itself eligible.
 - `HorizontalStickReferenceAxis` is the strict `LEFT | RIGHT` subset returned by
   `CharacterState.forward_axis()` / `backward_axis()`. `GroundDodgeStickReferenceAxis`
@@ -218,7 +301,13 @@ uv pip install --python .venv/bin/python .
   convention for arbitrary air-dodge vectors. Both default to digital L, accept
   digital R, clear pending inputs only after their corresponding state query
   succeeds, return whether input was applied, and never flush. The stick and
-  shoulder remain latched until the caller replaces or clears them later.
+  shoulder remain latched until the caller replaces or clears them later. During
+  early dash, `dodge()` accepts only the absolute forward direction because Melee
+  forces a forward roll; during shield release, it accepts only down for spot dodge.
+- Character-relative recognition covers Peach float aerials, Game & Watch
+  normals, Samus/Link/Young Link tether-grab states, and Dr. Mario/Young
+  Link/Fox/Falco character-owned taunts. Active grab and Z-air holds are
+  recognized before start-only eligibility is reapplied.
 - `can_jump()` accepts direct common ground jump paths and a remaining aerial
   jump from normal air, tumble, platform drop, and helpless FallSpecial states.
   It rejects `KNEE_BEND`, landing, shield stun, and hitlag.

@@ -56,7 +56,12 @@ class SmashTurnJumpMontage(StatefulInputMontage[_SmashTurnJumpPhase]):
             jump_button: X or Y button pressed for the jump and intentionally left
                 held for the caller or selected branch to manage after success.
         """
-        super().__init__(frame_limit, _SmashTurnJumpPhase.Initial, cancel_montage)
+        super().__init__(
+            frame_limit,
+            _SmashTurnJumpPhase.Initial,
+            cancel_montage,
+            name="Smash Turn Jump",
+        )
         validate_button(
             jump_button,
             frozenset({Button.BUTTON_X, Button.BUTTON_Y}),
