@@ -14,6 +14,7 @@ Open API written in Python 3 for making your own Smash Bros: Melee AI that works
   framedata
   logger
   enums
+  public_api
 
 Quick Example
 --------------------
