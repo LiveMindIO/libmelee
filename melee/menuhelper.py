@@ -261,6 +261,17 @@ class MenuHelper():
         target_x = -32.5 + 3.5 + (column * 7.0)
         #Wiggle room in positioning character
         wiggleroom = 1.5
+        target_x_min = target_x - wiggleroom
+        target_x_max = target_x + wiggleroom
+        # DESNOTE(jbarber, 2026-08-24): The generic tolerance reaches past the
+        # outer edges of these end portraits. Keep the established inward
+        # tolerance while tightening only the unsafe outer edge.
+        # See https://github.com/doldecomp/melee/blob/f49c14fdb835c8d69f0b1eaa9b1a12afa129653f/src/melee/mn/mncharsel.c#L96-L116
+        outer_wiggleroom = 0.8
+        if not swag and target_character is enums.Character.PICHU:
+            target_x_min = target_x - outer_wiggleroom
+        elif not swag and target_character is enums.Character.ROY:
+            target_x_max = target_x + outer_wiggleroom
 
         # Set our CPU level correctly
         if use_cpu and (
@@ -386,7 +397,7 @@ class MenuHelper():
 
         #We want to get to a state where the cursor is NOT over the character,
         # but it's selected. Thus ensuring the token is on the character
-        isOverCharacter = abs(cursor_x - target_x) < wiggleroom and \
+        isOverCharacter = target_x_min < cursor_x < target_x_max and \
             abs(cursor_y - target_y) < wiggleroom
 
         #Don't hold down on B, since we'll quit the menu if we do
@@ -452,11 +463,11 @@ class MenuHelper():
                 controller.tilt_analog(enums.Button.BUTTON_MAIN, .5, 0)
                 return
             #Move right if we're too left
-            if cursor_x < target_x - wiggleroom:
+            if cursor_x < target_x_min:
                 controller.tilt_analog(enums.Button.BUTTON_MAIN, 1, .5)
                 return
             #Move left if we're too right
-            if cursor_x > target_x + wiggleroom:
+            if cursor_x > target_x_max:
                 controller.tilt_analog(enums.Button.BUTTON_MAIN, 0, .5)
                 return
         controller.release_all()
