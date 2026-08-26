@@ -165,6 +165,8 @@ uv pip install --python .venv/bin/python .
   resets airborne jump input for one committed frame before requesting the double
   jump, then retains the `SimpleControls` attack hold until the aerial is observed.
   Zero is an instant cancel; callers delay based on hitbox startup and target height.
+  `frame_limit` must be at least `attack_delay_frames + 9`, which budgets the
+  slowest supported grounded route through aerial confirmation.
   `PerfectPivotMontage` requires an onstage grounded `DASHING` state, requests the
   opposite direction based on current facing, and delegates its `AttackType` only
   on the resulting one-frame `TURNING` state; a missed turn frame aborts. Use

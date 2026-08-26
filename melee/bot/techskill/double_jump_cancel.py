@@ -66,6 +66,13 @@ _AERIAL_JUMP_ACTIONS: Final = frozenset(
     }
 )
 
+# DESNOTE(jbarber, 2026-08-26): A configuration must support the montage's
+# slowest documented start: one initial jump request, five jump-squat packets,
+# the first-jump packet that requests the double jump, the delayed aerial request,
+# and its confirming packet. This is nine active ticks plus the requested delay.
+# See https://www.ssbwiki.com/Jump#Jump_squat
+_GROUNDED_ROUTE_FRAME_OVERHEAD: Final = 9
+
 
 class DoubleJumpCancelMontage(StatefulInputMontage[_DoubleJumpCancelState]):
     """Double jump and cancel its momentum with an aerial attack.
@@ -78,7 +85,9 @@ class DoubleJumpCancelMontage(StatefulInputMontage[_DoubleJumpCancelState]):
     ``attack_delay_frames`` counts complete double-jump animation frames before
     the aerial request. Zero requests the aerial while observing double-jump frame
     one, producing the earliest possible cancel. Practical low aerials often need
-    a later request so their hitbox becomes active before landing.
+    a later request so their hitbox becomes active before landing. ``frame_limit``
+    must be at least ``attack_delay_frames + 9`` so every supported grounded start
+    can reach the aerial confirmation packet.
     """
 
     def __init__(
@@ -94,6 +103,11 @@ class DoubleJumpCancelMontage(StatefulInputMontage[_DoubleJumpCancelState]):
             raise ValueError("attack_type must be an aerial attack")
         if attack_delay_frames < 0:
             raise ValueError("attack_delay_frames must be greater than or equal to zero")
+        minimum_frame_limit = attack_delay_frames + _GROUNDED_ROUTE_FRAME_OVERHEAD
+        if frame_limit < minimum_frame_limit:
+            raise ValueError(
+                f"frame_limit must be at least {minimum_frame_limit} for the requested attack_delay_frames"
+            )
         validate_button(
             jump_button,
             frozenset({Button.BUTTON_X, Button.BUTTON_Y}),

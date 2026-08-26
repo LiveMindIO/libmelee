@@ -4432,11 +4432,100 @@ class TechniqueMontageTests(unittest.TestCase):
                 DoubleJumpCancelMontage(attack_type)
         with self.assertRaisesRegex(ValueError, "greater than or equal to zero"):
             DoubleJumpCancelMontage(AttackType.FAIR, attack_delay_frames=-1)
+        for frame_limit, attack_delay_frames, minimum in (
+            (8, 0, 9),
+            (24, 16, 25),
+        ):
+            with (
+                self.subTest(
+                    frame_limit=frame_limit,
+                    attack_delay_frames=attack_delay_frames,
+                ),
+                self.assertRaisesRegex(ValueError, f"at least {minimum}"),
+            ):
+                DoubleJumpCancelMontage(
+                    AttackType.FAIR,
+                    frame_limit=frame_limit,
+                    attack_delay_frames=attack_delay_frames,
+                )
+        DoubleJumpCancelMontage(
+            AttackType.FAIR,
+            frame_limit=24,
+            attack_delay_frames=15,
+        )
         with self.assertRaisesRegex(ValueError, "jump_button"):
             DoubleJumpCancelMontage(
                 AttackType.FAIR,
                 jump_button=melee.Button.BUTTON_A,
             )
+
+    def test_double_jump_cancel_completes_at_exact_grounded_frame_budget(self):
+        montage = DoubleJumpCancelMontage(
+            AttackType.FAIR,
+            frame_limit=24,
+            attack_delay_frames=15,
+        )
+        self.assertIs(
+            self.tick(montage, melee.Action.STANDING, character=melee.Character.PEACH),
+            montage,
+        )
+        for action_frame in range(1, 6):
+            self.assertIs(
+                self.tick(
+                    montage,
+                    melee.Action.KNEE_BEND,
+                    character=melee.Character.PEACH,
+                    action_frame=action_frame,
+                ),
+                montage,
+            )
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action.JUMPING_FORWARD,
+                character=melee.Character.PEACH,
+                on_ground=False,
+            ),
+            montage,
+        )
+        for action_frame in range(1, 16):
+            self.assertIs(
+                self.tick(
+                    montage,
+                    melee.Action.JUMPING_ARIAL_FORWARD,
+                    character=melee.Character.PEACH,
+                    action_frame=action_frame,
+                    on_ground=False,
+                    jumps_left=0,
+                ),
+                montage,
+            )
+        self.controls.attack_result = self.commit_hold(
+            AttackType.FAIR,
+            melee.Action.FAIR,
+            character=melee.Character.PEACH,
+        )
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action.JUMPING_ARIAL_FORWARD,
+                character=melee.Character.PEACH,
+                action_frame=16,
+                on_ground=False,
+                jumps_left=0,
+            ),
+            montage,
+        )
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action.FAIR,
+                character=melee.Character.PEACH,
+                on_ground=False,
+                jumps_left=0,
+            ),
+            True,
+        )
 
     def test_double_jump_cancel_rejects_unsupported_character_and_spent_jump(self):
         for character, jumps_left in (

@@ -360,7 +360,8 @@ Libmelee includes concrete technique montages:
   Ness, Peach, and Mewtwo with any standard aerial. It can own the first jump or
   start in air, forces a fresh double-jump edge, and confirms the aerial through
   `SimpleControls`. Zero requests an instant cancel; delay later when a low aerial
-  otherwise lands before its hitbox becomes active.
+  otherwise lands before its hitbox becomes active. `frame_limit` must be at least
+  `attack_delay_frames + 9` so every supported grounded route can finish.
 - `LedgedashMontage` releases with the C-stick away, double-jumps inward on the
   first falling frame, and air dodges down-inward after the character's world-space
   ECB bottom clears a configurable threshold. The default `0.25` world-Y threshold
