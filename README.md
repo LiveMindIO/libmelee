@@ -351,6 +351,16 @@ Libmelee includes concrete technique montages:
   are clamped one representable value inside the accepted interval. It succeeds
   only after `LANDING_SPECIAL` ends in an actionable grounded state and aborts if
   the observed state skips past jump squat before the air-dodge request.
+- `SuperWavedashMontage(direction)` performs Samus's standard grounded bomb
+  super wavedash. It schedules opposite and desired horizontal inputs for bomb
+  animation frames 41 and 42, then returns the stick to neutral for maximum
+  travel. Standing and crouched bomb starts use the same animation-frame window;
+  the height-dependent falling variant is intentionally unsupported.
+- `DoubleJumpCancelMontage(attack_type, attack_delay_frames=0)` supports Yoshi,
+  Ness, Peach, and Mewtwo with any standard aerial. It can own the first jump or
+  start in air, forces a fresh double-jump edge, and confirms the aerial through
+  `SimpleControls`. Zero requests an instant cancel; delay later when a low aerial
+  otherwise lands before its hitbox becomes active.
 - `LedgedashMontage` releases with the C-stick away, double-jumps inward on the
   first falling frame, and air dodges down-inward after the character's world-space
   ECB bottom clears a configurable threshold. The default `0.25` world-Y threshold

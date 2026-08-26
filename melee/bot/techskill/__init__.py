@@ -8,6 +8,7 @@ from melee.bot.techskill.chargeable_special import (
     SkullBashMontage,
 )
 from melee.bot.techskill.common import WavedashDirection
+from melee.bot.techskill.double_jump_cancel import DoubleJumpCancelMontage
 from melee.bot.techskill.initiate_dash import InitiateDashMontage
 from melee.bot.techskill.ledgedash import LedgedashMontage
 from melee.bot.techskill.link_bow import LinkBowMontage
@@ -26,12 +27,14 @@ from melee.bot.techskill.storable_chargeable_special import (
     SamusChargeShotMontage,
     SheikNeedleStormMontage,
 )
+from melee.bot.techskill.super_wavedash import SuperWavedashMontage
 from melee.bot.techskill.sword_dance import SwordDanceMontage
 from melee.bot.techskill.wavedash import WavedashMontage
 
 __all__ = [
     "ChargeStoreInput",
     "DonkeyKongGiantPunchMontage",
+    "DoubleJumpCancelMontage",
     "FlareBladeMontage",
     "InitiateDashMontage",
     "JigglypuffRolloutMontage",
@@ -52,6 +55,7 @@ __all__ = [
     "SkullBashMontage",
     "SmashAttackMontage",
     "SmashTurnJumpMontage",
+    "SuperWavedashMontage",
     "SwordDanceMontage",
     "WavedashDirection",
     "WavedashMontage",
