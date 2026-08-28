@@ -155,6 +155,18 @@ uv pip install --python .venv/bin/python .
   one logical segment, and hitlag delays rather than consumes a queued input.
   `WavedashMontage` uses the
   character-specific final jump-squat frame and aborts if that state is missed.
+  `SuperWavedashMontage(direction)` supports Samus's standard grounded bomb
+  route. Observed bomb frames 40 and 41 schedule opposite and desired horizontal
+  input for engine frames 41 and 42; frame 42 schedules neutral. Standing and
+  crouched starts share that underlying animation window. The falling variant is
+  outside its contract.
+  `DoubleJumpCancelMontage(attack_type, attack_delay_frames=0)` supports Yoshi,
+  Ness, Peach, and Mewtwo standard aerials from grounded or airborne starts. It
+  resets airborne jump input for one committed frame before requesting the double
+  jump, then retains the `SimpleControls` attack hold until the aerial is observed.
+  Zero is an instant cancel; callers delay based on hitbox startup and target height.
+  `frame_limit` must be at least `attack_delay_frames + 9`, which budgets the
+  slowest supported grounded route through aerial confirmation.
   `PerfectPivotMontage` requires an onstage grounded `DASHING` state, requests the
   opposite direction based on current facing, and delegates its `AttackType` only
   on the resulting one-frame `TURNING` state; a missed turn frame aborts. Use

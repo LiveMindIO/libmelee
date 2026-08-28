@@ -26,6 +26,7 @@ from melee.bot import (
     Continue,
     CrowdControl,
     DonkeyKongGiantPunchMontage,
+    DoubleJumpCancelMontage,
     Exit,
     FlareBladeMontage,
     GroundDodgeStickReferenceAxis,
@@ -60,6 +61,7 @@ from melee.bot import (
     StatefulInputMontage,
     StickReferenceAxis,
     Strategy,
+    SuperWavedashMontage,
     SwordDanceMontage,
     WavedashDirection,
     WavedashMontage,
@@ -3925,6 +3927,7 @@ class TechniqueMontageTests(unittest.TestCase):
         montages = (
             (InitiateDashMontage(StickReferenceAxis.RIGHT), "Initiate Dash"),
             (DonkeyKongGiantPunchMontage(), "Giant Punch"),
+            (DoubleJumpCancelMontage(AttackType.FAIR), "Double Jump Cancel"),
             (FlareBladeMontage(), "Flare Blade"),
             (JigglypuffRolloutMontage(), "Rollout"),
             (LinkBowMontage(), "Link Bow"),
@@ -3951,12 +3954,599 @@ class TechniqueMontageTests(unittest.TestCase):
                 SwordDanceMontage(StickReferenceAxis.RIGHT),
                 "Dancing Blade / Double-Edge Dance",
             ),
+            (SuperWavedashMontage(WavedashDirection.Right), "Super Wavedash"),
         )
 
         for montage, name in montages:
             with self.subTest(montage=type(montage).__name__):
                 self.assertIsInstance(montage, StatefulInputMontage)
                 self.assertEqual(montage.get_name(), name)
+
+    def test_super_wavedash_applies_frame_exact_inputs_in_both_directions(self):
+        for direction, opposite_axis, desired_axis in (
+            (WavedashDirection.Right, StickReferenceAxis.LEFT, StickReferenceAxis.RIGHT),
+            (WavedashDirection.Left, StickReferenceAxis.RIGHT, StickReferenceAxis.LEFT),
+        ):
+            with self.subTest(direction=direction):
+                montage = SuperWavedashMontage(direction)
+
+                self.assertIs(
+                    self.tick(montage, melee.Action.STANDING, character=melee.Character.SAMUS),
+                    montage,
+                )
+                self.assertEqual(
+                    self.controls.take_calls(),
+                    [
+                        ("release_all",),
+                        ("tilt_stick", StickReferenceAxis.DOWN, 0.0, 1.0, melee.Button.BUTTON_MAIN),
+                        ("press_button", melee.Button.BUTTON_B),
+                    ],
+                )
+                self.assertIs(
+                    self.tick(
+                        montage,
+                        melee.Action.SAMUS_SPECIAL_AIR_LW_BOMB,
+                        character=melee.Character.SAMUS,
+                        action_frame=20,
+                        on_ground=False,
+                    ),
+                    montage,
+                )
+                self.assertEqual(self.controls.take_calls(), [("release_all",)])
+
+                self.assertIs(
+                    self.tick(
+                        montage,
+                        melee.Action.SAMUS_SPECIAL_LW_BOMB,
+                        character=melee.Character.SAMUS,
+                        action_frame=40,
+                    ),
+                    montage,
+                )
+                self.assertEqual(
+                    self.controls.take_calls(),
+                    [
+                        ("release_all",),
+                        ("tilt_stick", opposite_axis, 0.0, 1.0, melee.Button.BUTTON_MAIN),
+                    ],
+                )
+                self.assertIs(
+                    self.tick(
+                        montage,
+                        melee.Action.SAMUS_SPECIAL_LW_BOMB,
+                        character=melee.Character.SAMUS,
+                        action_frame=41,
+                    ),
+                    montage,
+                )
+                self.assertEqual(
+                    self.controls.take_calls(),
+                    [
+                        ("release_all",),
+                        ("tilt_stick", desired_axis, 0.0, 1.0, melee.Button.BUTTON_MAIN),
+                    ],
+                )
+                self.assertIs(
+                    self.tick(
+                        montage,
+                        melee.Action.SAMUS_SPECIAL_LW_BOMB,
+                        character=melee.Character.SAMUS,
+                        action_frame=42,
+                    ),
+                    montage,
+                )
+                self.assertEqual(self.controls.take_calls(), [("release_all",)])
+                self.assertIs(
+                    self.tick(
+                        montage,
+                        melee.Action.SAMUS_SPECIAL_LW_BOMB,
+                        character=melee.Character.SAMUS,
+                        action_frame=43,
+                    ),
+                    montage,
+                )
+                self.assertEqual(self.controls.take_calls(), [("release_all",)])
+                self.assertIs(
+                    self.tick(montage, melee.Action.CROUCHING, character=melee.Character.SAMUS),
+                    True,
+                )
+                self.assertEqual(self.controls.take_calls(), [("release_all",)])
+
+    def test_super_wavedash_supports_crouched_bomb_start(self):
+        montage = SuperWavedashMontage(WavedashDirection.Right)
+
+        self.assertIs(
+            self.tick(montage, melee.Action.CROUCHING, character=melee.Character.SAMUS),
+            montage,
+        )
+        self.assertIn(("press_button", melee.Button.BUTTON_B), self.controls.take_calls())
+
+    def test_super_wavedash_rejects_missed_or_airborne_frame_41_window(self):
+        for action_frame, on_ground, reason in (
+            (41, True, "opposite-direction window"),
+            (40, False, "airborne"),
+        ):
+            with self.subTest(action_frame=action_frame, on_ground=on_ground):
+                montage = SuperWavedashMontage(WavedashDirection.Right)
+                self.assertIs(
+                    self.tick(montage, melee.Action.STANDING, character=melee.Character.SAMUS),
+                    montage,
+                )
+                self.controls.take_calls()
+
+                result = self.tick(
+                    montage,
+                    melee.Action.SAMUS_SPECIAL_LW_BOMB,
+                    character=melee.Character.SAMUS,
+                    action_frame=action_frame,
+                    on_ground=on_ground,
+                )
+
+                self.assertIsInstance(result, Abort)
+                self.assertIn(reason, result.reason)
+
+    def test_double_jump_cancel_performs_every_aerial_for_supported_characters(self):
+        aerial_actions = {
+            AttackType.NAIR: melee.Action.NAIR,
+            AttackType.FAIR: melee.Action.FAIR,
+            AttackType.BAIR: melee.Action.BAIR,
+            AttackType.UAIR: melee.Action.UAIR,
+            AttackType.DAIR: melee.Action.DAIR,
+        }
+        characters = (
+            melee.Character.YOSHI,
+            melee.Character.NESS,
+            melee.Character.PEACH,
+            melee.Character.MEWTWO,
+        )
+
+        for character in characters:
+            for attack_type, action in aerial_actions.items():
+                with self.subTest(character=character, attack_type=attack_type):
+                    montage = DoubleJumpCancelMontage(attack_type)
+                    self.assertIs(
+                        self.tick(montage, melee.Action.STANDING, character=character),
+                        montage,
+                    )
+                    self.assertEqual(
+                        self.controls.take_calls(),
+                        [("release_all",), ("press_button", melee.Button.BUTTON_Y)],
+                    )
+                    self.assertIs(
+                        self.tick(montage, melee.Action.KNEE_BEND, character=character),
+                        montage,
+                    )
+                    self.assertEqual(self.controls.take_calls(), [("release_all",)])
+                    self.assertIs(
+                        self.tick(
+                            montage,
+                            melee.Action.JUMPING_FORWARD,
+                            character=character,
+                            on_ground=False,
+                        ),
+                        montage,
+                    )
+                    self.assertEqual(
+                        self.controls.take_calls(),
+                        [("release_all",), ("press_button", melee.Button.BUTTON_Y)],
+                    )
+
+                    hold = self.commit_hold(attack_type, action, character=character)
+                    self.controls.attack_result = hold
+                    self.assertIs(
+                        self.tick(
+                            montage,
+                            melee.Action.JUMPING_ARIAL_FORWARD,
+                            character=character,
+                            on_ground=False,
+                            jumps_left=0,
+                        ),
+                        montage,
+                    )
+                    self.assertEqual(
+                        self.controls.take_calls(),
+                        [("release_all",), ("attack", attack_type, None)],
+                    )
+
+                    frame_data = AttackFrameData(
+                        character=character,
+                        action=action,
+                        frame_data=self.frame_data,
+                    )
+                    self.controls.attack_result = frame_data
+                    self.assertIs(
+                        self.tick(
+                            montage,
+                            action,
+                            character=character,
+                            on_ground=False,
+                            jumps_left=0,
+                        ),
+                        True,
+                    )
+                    self.assertEqual(
+                        self.controls.take_calls(),
+                        [("release_all",)],
+                    )
+
+    def test_double_jump_cancel_airborne_start_resets_jump_before_fresh_edge(self):
+        montage = DoubleJumpCancelMontage(
+            AttackType.FAIR,
+            jump_button=melee.Button.BUTTON_X,
+        )
+
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action.FALLING,
+                character=melee.Character.NESS,
+                on_ground=False,
+                jumps_left=1,
+            ),
+            montage,
+        )
+        self.assertEqual(self.controls.take_calls(), [("release_all",)])
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action.FALLING,
+                character=melee.Character.NESS,
+                on_ground=False,
+                jumps_left=1,
+            ),
+            montage,
+        )
+        self.assertEqual(
+            self.controls.take_calls(),
+            [("release_all",), ("press_button", melee.Button.BUTTON_X)],
+        )
+
+    def test_double_jump_cancel_can_begin_during_existing_jump_squat(self):
+        montage = DoubleJumpCancelMontage(AttackType.NAIR)
+
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action.KNEE_BEND,
+                character=melee.Character.YOSHI,
+            ),
+            montage,
+        )
+        self.assertEqual(self.controls.take_calls(), [("release_all",)])
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action.JUMPING_BACKWARD,
+                character=melee.Character.YOSHI,
+                on_ground=False,
+            ),
+            montage,
+        )
+        self.assertEqual(
+            self.controls.take_calls(),
+            [("release_all",), ("press_button", melee.Button.BUTTON_Y)],
+        )
+
+    def test_double_jump_cancel_aborts_when_aerial_input_is_rejected(self):
+        montage = DoubleJumpCancelMontage(AttackType.DAIR)
+        for _ in range(2):
+            self.assertIs(
+                self.tick(
+                    montage,
+                    melee.Action.FALLING,
+                    character=melee.Character.MEWTWO,
+                    on_ground=False,
+                    jumps_left=1,
+                ),
+                montage,
+            )
+            self.controls.take_calls()
+        self.controls.attack_result = None
+
+        result = self.tick(
+            montage,
+            melee.Action.JUMPING_ARIAL_BACKWARD,
+            character=melee.Character.MEWTWO,
+            on_ground=False,
+            jumps_left=0,
+        )
+
+        self.assertIsInstance(result, Abort)
+        self.assertIn("aerial attack could not start", result.reason)
+
+    def test_double_jump_cancel_does_not_reissue_aerial_input_after_landing(self):
+        montage = DoubleJumpCancelMontage(AttackType.FAIR)
+        for _ in range(2):
+            self.assertIs(
+                self.tick(
+                    montage,
+                    melee.Action.FALLING,
+                    character=melee.Character.NESS,
+                    on_ground=False,
+                    jumps_left=1,
+                ),
+                montage,
+            )
+            self.controls.take_calls()
+        hold = self.commit_hold(
+            AttackType.FAIR,
+            melee.Action.FAIR,
+            character=melee.Character.NESS,
+        )
+        self.controls.attack_result = hold
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action.JUMPING_ARIAL_FORWARD,
+                character=melee.Character.NESS,
+                on_ground=False,
+                jumps_left=0,
+            ),
+            montage,
+        )
+        self.controls.take_calls()
+
+        result = self.tick(
+            montage,
+            melee.Action.STANDING,
+            character=melee.Character.NESS,
+            on_ground=True,
+            jumps_left=0,
+        )
+
+        self.assertIsInstance(result, Abort)
+        self.assertIn("landed before", result.reason)
+        self.assertEqual(self.controls.take_calls(), [("release_all",)])
+
+    def test_double_jump_cancel_reapplies_noncharging_hold_until_aerial_is_observed(self):
+        montage = DoubleJumpCancelMontage(AttackType.BAIR)
+        for _ in range(2):
+            self.assertIs(
+                self.tick(
+                    montage,
+                    melee.Action.FALLING,
+                    character=melee.Character.MEWTWO,
+                    on_ground=False,
+                    jumps_left=1,
+                ),
+                montage,
+            )
+            self.controls.take_calls()
+        hold = self.commit_hold(
+            AttackType.BAIR,
+            melee.Action.BAIR,
+            character=melee.Character.MEWTWO,
+        )
+        self.controls.attack_result = hold
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action.JUMPING_ARIAL_BACKWARD,
+                character=melee.Character.MEWTWO,
+                on_ground=False,
+                jumps_left=0,
+            ),
+            montage,
+        )
+        self.controls.take_calls()
+
+        replacement_hold = self.commit_hold(
+            AttackType.BAIR,
+            melee.Action.BAIR,
+            character=melee.Character.MEWTWO,
+        )
+        self.controls.attack_result = replacement_hold
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action.JUMPING_ARIAL_BACKWARD,
+                character=melee.Character.MEWTWO,
+                action_frame=2,
+                on_ground=False,
+                jumps_left=0,
+            ),
+            montage,
+        )
+        self.assertEqual(
+            self.controls.take_calls(),
+            [("attack", AttackType.BAIR, hold)],
+        )
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action.BAIR,
+                character=melee.Character.MEWTWO,
+                on_ground=False,
+                jumps_left=0,
+            ),
+            True,
+        )
+        self.assertEqual(self.controls.take_calls(), [("release_all",)])
+
+    def test_double_jump_cancel_honors_attack_delay(self):
+        montage = DoubleJumpCancelMontage(
+            AttackType.UAIR,
+            attack_delay_frames=2,
+        )
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action.JUMPING_FORWARD,
+                character=melee.Character.PEACH,
+                on_ground=False,
+                jumps_left=1,
+            ),
+            montage,
+        )
+        self.controls.take_calls()
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action.JUMPING_FORWARD,
+                character=melee.Character.PEACH,
+                on_ground=False,
+                jumps_left=1,
+            ),
+            montage,
+        )
+        self.controls.take_calls()
+
+        for action_frame in (1, 2):
+            self.assertIs(
+                self.tick(
+                    montage,
+                    melee.Action.JUMPING_ARIAL_FORWARD,
+                    character=melee.Character.PEACH,
+                    action_frame=action_frame,
+                    on_ground=False,
+                    jumps_left=0,
+                ),
+                montage,
+            )
+            self.assertEqual(self.controls.take_calls(), [("release_all",)])
+
+        self.controls.attack_result = self.commit_hold(
+            AttackType.UAIR,
+            melee.Action.UAIR,
+            character=melee.Character.PEACH,
+        )
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action.JUMPING_ARIAL_FORWARD,
+                character=melee.Character.PEACH,
+                action_frame=3,
+                on_ground=False,
+                jumps_left=0,
+            ),
+            montage,
+        )
+        self.assertEqual(
+            self.controls.take_calls(),
+            [("release_all",), ("attack", AttackType.UAIR, None)],
+        )
+
+    def test_double_jump_cancel_validates_configuration(self):
+        for attack_type in (AttackType.JAB, AttackType.UP_B, AttackType.GRAB):
+            with self.subTest(attack_type=attack_type), self.assertRaisesRegex(ValueError, "aerial attack"):
+                DoubleJumpCancelMontage(attack_type)
+        with self.assertRaisesRegex(ValueError, "greater than or equal to zero"):
+            DoubleJumpCancelMontage(AttackType.FAIR, attack_delay_frames=-1)
+        for frame_limit, attack_delay_frames, minimum in (
+            (8, 0, 9),
+            (24, 16, 25),
+        ):
+            with (
+                self.subTest(
+                    frame_limit=frame_limit,
+                    attack_delay_frames=attack_delay_frames,
+                ),
+                self.assertRaisesRegex(ValueError, f"at least {minimum}"),
+            ):
+                DoubleJumpCancelMontage(
+                    AttackType.FAIR,
+                    frame_limit=frame_limit,
+                    attack_delay_frames=attack_delay_frames,
+                )
+        DoubleJumpCancelMontage(
+            AttackType.FAIR,
+            frame_limit=24,
+            attack_delay_frames=15,
+        )
+        with self.assertRaisesRegex(ValueError, "jump_button"):
+            DoubleJumpCancelMontage(
+                AttackType.FAIR,
+                jump_button=melee.Button.BUTTON_A,
+            )
+
+    def test_double_jump_cancel_completes_at_exact_grounded_frame_budget(self):
+        montage = DoubleJumpCancelMontage(
+            AttackType.FAIR,
+            frame_limit=24,
+            attack_delay_frames=15,
+        )
+        self.assertIs(
+            self.tick(montage, melee.Action.STANDING, character=melee.Character.PEACH),
+            montage,
+        )
+        for action_frame in range(1, 6):
+            self.assertIs(
+                self.tick(
+                    montage,
+                    melee.Action.KNEE_BEND,
+                    character=melee.Character.PEACH,
+                    action_frame=action_frame,
+                ),
+                montage,
+            )
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action.JUMPING_FORWARD,
+                character=melee.Character.PEACH,
+                on_ground=False,
+            ),
+            montage,
+        )
+        for action_frame in range(1, 16):
+            self.assertIs(
+                self.tick(
+                    montage,
+                    melee.Action.JUMPING_ARIAL_FORWARD,
+                    character=melee.Character.PEACH,
+                    action_frame=action_frame,
+                    on_ground=False,
+                    jumps_left=0,
+                ),
+                montage,
+            )
+        self.controls.attack_result = self.commit_hold(
+            AttackType.FAIR,
+            melee.Action.FAIR,
+            character=melee.Character.PEACH,
+        )
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action.JUMPING_ARIAL_FORWARD,
+                character=melee.Character.PEACH,
+                action_frame=16,
+                on_ground=False,
+                jumps_left=0,
+            ),
+            montage,
+        )
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action.FAIR,
+                character=melee.Character.PEACH,
+                on_ground=False,
+                jumps_left=0,
+            ),
+            True,
+        )
+
+    def test_double_jump_cancel_rejects_unsupported_character_and_spent_jump(self):
+        for character, jumps_left in (
+            (melee.Character.FOX, 1),
+            (melee.Character.YOSHI, 0),
+        ):
+            with self.subTest(character=character, jumps_left=jumps_left):
+                montage = DoubleJumpCancelMontage(AttackType.FAIR)
+
+                self.assertIs(
+                    self.tick(
+                        montage,
+                        melee.Action.FALLING,
+                        character=character,
+                        on_ground=False,
+                        jumps_left=jumps_left,
+                    ),
+                    montage,
+                )
+                self.assertEqual(montage.get_montage_state(), MontageState.Waiting)
+                self.assertEqual(self.controls.take_calls(), [])
 
     def test_smash_attack_montage_names_absolute_direction(self):
         names = {
@@ -4193,6 +4783,26 @@ class TechniqueMontageTests(unittest.TestCase):
             stick_y=0.5,
             port=1,
             charging=True,
+        )
+
+    def commit_hold(
+        self,
+        attack_type,
+        action,
+        *,
+        character=melee.Character.FOX,
+    ):
+        return Hold(
+            attack_type=attack_type,
+            character=character,
+            action=action,
+            frame_data=self.frame_data,
+            max_hold_frames=0,
+            started_frame=self.frame,
+            stick_x=0.5,
+            stick_y=0.5,
+            port=1,
+            charging=False,
         )
 
     def bow_hold(self, *, character=melee.Character.LINK):
