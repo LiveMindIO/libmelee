@@ -4117,6 +4117,7 @@ class TechniqueMontageTests(unittest.TestCase):
         ecb_bottom_y=0.0,
         speed_y_self=0.0,
         speed_ground_x_self=0.0,
+        main_stick_x=0.5,
         hitlag_left=0,
         hitstun_frames_left=0,
         is_powershield=False,
@@ -4147,6 +4148,7 @@ class TechniqueMontageTests(unittest.TestCase):
         player.position.x = position_x
         player.position.y = position_y
         player.ecb.bottom.y = ecb_bottom_y
+        player.controller_state.main_stick = (main_stick_x, 0.5)
         opponent = melee.PlayerState(
             character=melee.Character.MARTH,
             action=melee.Action.STANDING,
@@ -6566,6 +6568,38 @@ class TechniqueMontageTests(unittest.TestCase):
                 self.assertEqual(self.controls.take_calls(), [])
                 self.assertEqual(montage.get_montage_state(), MontageState.Finished)
 
+    def test_initiate_dash_neutralizes_held_stick_while_stationary(self):
+        montage = InitiateDashMontage(StickReferenceAxis.RIGHT)
+
+        self.assertIs(
+            self.tick(montage, melee.Action.STANDING, main_stick_x=1.0),
+            montage,
+        )
+        self.assertEqual(self.controls.take_calls(), [("release_all",)])
+
+        self.assertIs(
+            self.tick(montage, melee.Action.STANDING, main_stick_x=0.5),
+            montage,
+        )
+        self.assertEqual(
+            self.controls.take_calls(),
+            [
+                ("release_all",),
+                (
+                    "tilt_stick",
+                    StickReferenceAxis.RIGHT,
+                    0.0,
+                    1.0,
+                    melee.Button.BUTTON_MAIN,
+                ),
+            ],
+        )
+
+        self.assertIs(
+            self.tick(montage, melee.Action.DASHING, main_stick_x=1.0),
+            True,
+        )
+
     def test_initiate_dash_handoff_leaves_stick_held_for_continuation(self):
         continuation = RecordingMontage()
         montage = InitiateDashMontage(StickReferenceAxis.RIGHT).add_branch(continuation)
@@ -6609,6 +6643,29 @@ class TechniqueMontageTests(unittest.TestCase):
         )
         self.assertEqual(montage.get_montage_state(), MontageState.Active)
 
+    def test_initiate_dash_waits_until_ground_movement_is_actionable(self):
+        montage = InitiateDashMontage(StickReferenceAxis.RIGHT)
+
+        self.assertIs(self.tick(montage, melee.Action.NEUTRAL_ATTACK_1), montage)
+        self.assertEqual(self.controls.take_calls(), [])
+        self.assertEqual(montage.get_montage_state(), MontageState.Waiting)
+
+        self.assertIs(self.tick(montage, melee.Action.STANDING), montage)
+        self.assertEqual(
+            self.controls.take_calls(),
+            [
+                ("release_all",),
+                (
+                    "tilt_stick",
+                    StickReferenceAxis.RIGHT,
+                    0.0,
+                    1.0,
+                    melee.Button.BUTTON_MAIN,
+                ),
+            ],
+        )
+        self.assertEqual(montage.get_montage_state(), MontageState.Active)
+
     def test_initiate_dash_aborts_and_neutralizes_if_player_leaves_ground(self):
         montage = InitiateDashMontage(StickReferenceAxis.LEFT)
         self.assertIs(self.tick(montage, melee.Action.STANDING), montage)
@@ -6630,12 +6687,37 @@ class TechniqueMontageTests(unittest.TestCase):
         self.assertIs(self.tick(montage, melee.Action.STANDING), montage)
         self.controls.take_calls()
 
+        self.assertIs(self.tick(montage, melee.Action.STANDING), montage)
+        self.controls.take_calls()
+
         self.assertEqual(
             self.tick(montage, melee.Action.STANDING),
             Abort("dash input did not produce DASHING"),
         )
         self.assertEqual(self.controls.take_calls(), [("release_all",)])
         self.assertEqual(montage.get_montage_state(), MontageState.Aborted)
+
+    def test_initiate_dash_allows_one_delayed_result_frame(self):
+        montage = InitiateDashMontage(StickReferenceAxis.RIGHT)
+        self.assertIs(self.tick(montage, melee.Action.STANDING), montage)
+        self.controls.take_calls()
+
+        self.assertIs(self.tick(montage, melee.Action.STANDING), montage)
+        self.assertEqual(
+            self.controls.take_calls(),
+            [
+                (
+                    "tilt_stick",
+                    StickReferenceAxis.RIGHT,
+                    0.0,
+                    1.0,
+                    melee.Button.BUTTON_MAIN,
+                )
+            ],
+        )
+
+        self.assertIs(self.tick(montage, melee.Action.DASHING), True)
+        self.assertEqual(self.controls.take_calls(), [])
 
     def test_perfect_pivot_reverses_attacks_then_releases_for_each_facing_direction(
         self,

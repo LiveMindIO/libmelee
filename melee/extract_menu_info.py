@@ -36,9 +36,12 @@ WATCH_PAYLOAD_COUNT_OFFSET = 0x54
 WATCH_PAYLOAD_VALUES_OFFSET = 0x58
 WATCH_PAYLOAD_VALUE_SIZE = 4
 NEUTRAL_B_CHARGE_SIGNATURE = b"NB1"
+CROWD_CONTROL_SIGNATURE = b"CC1"
 NEUTRAL_B_CHARGE_SIGNATURE_OFFSET = 0x55
 NEUTRAL_B_CHARGE_VALUE_COUNT = 4
 NEUTRAL_B_CHARGE_CUSTOM_KEY = "gecko_neutral_b_charges"
+TIMEOUT_TELEMETRY_VALUE_COUNT = 5
+TIMEOUT_TELEMETRY_CUSTOM_KEY = "gecko_timeout_telemetry"
 NEUTRAL_B_CHARGE_CHARACTERS = frozenset(
     {
         enums.Character.DK,
@@ -328,21 +331,27 @@ def _apply_watch_payload_fields(event_bytes: bytes, gamestate: GameState) -> Non
         _read_u32(event_bytes, WATCH_PAYLOAD_VALUES_OFFSET + (index * WATCH_PAYLOAD_VALUE_SIZE))
         for index in range(count)
     )
+    signature = event_bytes[
+        NEUTRAL_B_CHARGE_SIGNATURE_OFFSET:
+        NEUTRAL_B_CHARGE_SIGNATURE_OFFSET + len(NEUTRAL_B_CHARGE_SIGNATURE)
+    ]
     has_charge_extension = (
         count >= NEUTRAL_B_CHARGE_VALUE_COUNT
-        and event_bytes[
-            NEUTRAL_B_CHARGE_SIGNATURE_OFFSET:
-            NEUTRAL_B_CHARGE_SIGNATURE_OFFSET + len(NEUTRAL_B_CHARGE_SIGNATURE)
-        ]
-        == NEUTRAL_B_CHARGE_SIGNATURE
+        and signature in (NEUTRAL_B_CHARGE_SIGNATURE, CROWD_CONTROL_SIGNATURE)
     )
     if not has_charge_extension:
         gamestate.custom["gecko_watch_values"] = values
         return
 
-    debug_count = count - NEUTRAL_B_CHARGE_VALUE_COUNT
+    timeout_count = TIMEOUT_TELEMETRY_VALUE_COUNT if signature == CROWD_CONTROL_SIGNATURE else 0
+    debug_count = count - NEUTRAL_B_CHARGE_VALUE_COUNT - timeout_count
     gamestate.custom["gecko_watch_values"] = values[:debug_count]
-    charges = values[debug_count:]
+    if timeout_count:
+        timeout_end = debug_count + timeout_count
+        gamestate.custom[TIMEOUT_TELEMETRY_CUSTOM_KEY] = values[debug_count:timeout_end]
+    else:
+        timeout_end = debug_count
+    charges = values[timeout_end:]
     gamestate.custom[NEUTRAL_B_CHARGE_CUSTOM_KEY] = charges
     for port, player_state in gamestate.players.items():
         if 1 <= port <= len(charges) and player_state.character in NEUTRAL_B_CHARGE_CHARACTERS:

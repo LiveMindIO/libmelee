@@ -8,7 +8,7 @@ from melee.bot.character_state import CharacterState, HorizontalStickReferenceAx
 from melee.bot.input_montage import Abort, InputMontage
 from melee.bot.simple_controls import SimpleControls, StickReferenceAxis
 from melee.bot.stateful_input_montage import StatefulInputMontage
-from melee.bot.techskill.common import is_interrupted, player
+from melee.bot.techskill.common import GROUND_MOVEMENT_ACTIONS, is_interrupted, player
 from melee.enums import Action, Character
 from melee.gamestate import GameState
 
@@ -17,6 +17,7 @@ class _DashPhase(Enum):
     Initial = auto()
     NeutralRequested = auto()
     DashRequested = auto()
+    DashAwaitingResult = auto()
 
 
 class InitiateDashMontage(StatefulInputMontage[_DashPhase]):
@@ -37,7 +38,7 @@ class InitiateDashMontage(StatefulInputMontage[_DashPhase]):
     def __init__(
         self,
         direction: HorizontalStickReferenceAxis,
-        frame_limit: int = 3,
+        frame_limit: int = 4,
         cancel_montage: InputMontage | None = None,
     ) -> None:
         super().__init__(
@@ -62,6 +63,7 @@ class InitiateDashMontage(StatefulInputMontage[_DashPhase]):
             player_state_value is None
             or not player_state_value.on_ground
             or player_state_value.off_stage
+            or player_state_value.action not in GROUND_MOVEMENT_ACTIONS
             or is_interrupted(player_state, player_state_value, include_hitlag=True)
         ):
             return False
@@ -111,9 +113,14 @@ class InitiateDashMontage(StatefulInputMontage[_DashPhase]):
                 # request the full horizontal pulse immediately.
                 controls.release_all()
                 horizontal_speed = float(player_state_value.speed_ground_x_self)
+                main_stick_x = float(player_state_value.controller_state.main_stick[0])
                 moving_in_requested_direction = (
-                    self._direction is StickReferenceAxis.RIGHT and horizontal_speed > 0.0
-                ) or (self._direction is StickReferenceAxis.LEFT and horizontal_speed < 0.0)
+                    self._direction is StickReferenceAxis.RIGHT
+                    and (horizontal_speed > 0.0 or main_stick_x > 0.5)
+                ) or (
+                    self._direction is StickReferenceAxis.LEFT
+                    and (horizontal_speed < 0.0 or main_stick_x < 0.5)
+                )
                 if moving_in_requested_direction:
                     return _DashPhase.NeutralRequested, self
                 controls.tilt_stick(self._direction, 0.0)
@@ -123,6 +130,11 @@ class InitiateDashMontage(StatefulInputMontage[_DashPhase]):
                 controls.tilt_stick(self._direction, 0.0)
                 return _DashPhase.DashRequested, self
             case _DashPhase.DashRequested if player_state_value.action is Action.DASHING:
+                return input_state, True
+            case _DashPhase.DashRequested:
+                controls.tilt_stick(self._direction, 0.0)
+                return _DashPhase.DashAwaitingResult, self
+            case _DashPhase.DashAwaitingResult if player_state_value.action is Action.DASHING:
                 return input_state, True
             case _:
                 return input_state, Abort("dash input did not produce DASHING")
