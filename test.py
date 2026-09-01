@@ -28,6 +28,7 @@ from melee.bot import (
     DonkeyKongGiantPunchMontage,
     DoubleJumpCancelMontage,
     Exit,
+    ExtenderMontage,
     FlareBladeMontage,
     GroundDodgeStickReferenceAxis,
     Hold,
@@ -3928,6 +3929,7 @@ class TechniqueMontageTests(unittest.TestCase):
             (InitiateDashMontage(StickReferenceAxis.RIGHT), "Initiate Dash"),
             (DonkeyKongGiantPunchMontage(), "Giant Punch"),
             (DoubleJumpCancelMontage(AttackType.FAIR), "Double Jump Cancel"),
+            (ExtenderMontage(), "Extender"),
             (FlareBladeMontage(), "Flare Blade"),
             (JigglypuffRolloutMontage(), "Rollout"),
             (LinkBowMontage(), "Link Bow"),
@@ -4084,6 +4086,279 @@ class TechniqueMontageTests(unittest.TestCase):
 
                 self.assertIsInstance(result, Abort)
                 self.assertIn(reason, result.reason)
+
+    def test_extender_activates_then_homes_and_grabs(self):
+        montage = ExtenderMontage(homing=True)
+        self.assertFalse(montage.is_extender_active())
+        self.assertFalse(montage.grab())
+
+        self.assertIs(
+            self.tick(montage, melee.Action.STANDING, character=melee.Character.SAMUS),
+            montage,
+        )
+        self.assertEqual(
+            self.controls.take_calls(),
+            [("release_all",), ("press_button", melee.Button.BUTTON_Z)],
+        )
+
+        for action_frame, button in (
+            (7, melee.Button.BUTTON_D_UP),
+            (8, melee.Button.BUTTON_D_DOWN),
+            (9, melee.Button.BUTTON_D_UP),
+            (10, melee.Button.BUTTON_A),
+        ):
+            self.assertIs(
+                self.tick(
+                    montage,
+                    melee.Action.GRAB,
+                    character=melee.Character.SAMUS,
+                    action_frame=action_frame,
+                ),
+                montage,
+            )
+            self.assertEqual(
+                self.controls.take_calls(),
+                [("release_all",), ("press_button", button)],
+            )
+
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action.GRAB,
+                character=melee.Character.SAMUS,
+                action_frame=11,
+            ),
+            montage,
+        )
+        self.assertEqual(self.controls.take_calls(), [("release_all",)])
+        self.assertTrue(montage.is_extender_active())
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action.GRAB,
+                character=melee.Character.SAMUS,
+                action_frame=30,
+            ),
+            montage,
+        )
+        self.assertEqual(self.controls.take_calls(), [("release_all",)])
+
+        self.assertIs(
+            self.tick(montage, melee.Action.STANDING, character=melee.Character.SAMUS),
+            montage,
+        )
+        self.assertEqual(
+            self.controls.take_calls(),
+            [("release_all",), ("press_button", melee.Button.BUTTON_Z)],
+        )
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action.GRAB,
+                character=melee.Character.SAMUS,
+                action_frame=8,
+            ),
+            montage,
+        )
+        self.assertEqual(
+            self.controls.take_calls(),
+            [("release_all",), ("press_button", melee.Button.BUTTON_L)],
+        )
+
+        self.assertTrue(montage.grab())
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action.GRAB,
+                character=melee.Character.SAMUS,
+                action_frame=20,
+            ),
+            montage,
+        )
+        self.assertEqual(
+            self.controls.take_calls(),
+            [("release_all",), ("press_button", melee.Button.BUTTON_A)],
+        )
+        self.assertFalse(montage.grab())
+        self.assertFalse(montage.enable_homing())
+
+        self.assertIs(
+            self.tick(montage, melee.Action.GRAB_PULLING, character=melee.Character.SAMUS),
+            True,
+        )
+        self.assertEqual(self.controls.take_calls(), [("release_all",)])
+
+    def test_extender_active_skips_setup_and_can_enable_homing_later(self):
+        montage = ExtenderMontage(extender_active=True)
+        self.assertTrue(montage.is_extender_active())
+
+        self.assertIs(
+            self.tick(montage, melee.Action.STANDING, character=melee.Character.SAMUS),
+            montage,
+        )
+        self.assertEqual(
+            self.controls.take_calls(),
+            [("release_all",), ("press_button", melee.Button.BUTTON_Z)],
+        )
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action.GRAB,
+                character=melee.Character.SAMUS,
+                action_frame=8,
+            ),
+            montage,
+        )
+        self.assertEqual(self.controls.take_calls(), [("release_all",)])
+
+        self.assertTrue(montage.enable_homing())
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action.GRAB,
+                character=melee.Character.SAMUS,
+                action_frame=9,
+            ),
+            montage,
+        )
+        self.assertEqual(
+            self.controls.take_calls(),
+            [("release_all",), ("press_button", melee.Button.BUTTON_L)],
+        )
+
+    def test_extender_rejects_invalid_start_and_missed_setup_window(self):
+        for character, on_ground in (
+            (melee.Character.FOX, True),
+            (melee.Character.SAMUS, False),
+        ):
+            with self.subTest(character=character, on_ground=on_ground):
+                montage = ExtenderMontage()
+                self.assertIs(
+                    self.tick(
+                        montage,
+                        melee.Action.STANDING,
+                        character=character,
+                        on_ground=on_ground,
+                    ),
+                    montage,
+                )
+                self.assertEqual(montage.get_montage_state(), MontageState.Waiting)
+
+        montage = ExtenderMontage()
+        self.assertIs(
+            self.tick(montage, melee.Action.STANDING, character=melee.Character.SAMUS),
+            montage,
+        )
+        self.controls.take_calls()
+        result = self.tick(
+            montage,
+            melee.Action.GRAB,
+            character=melee.Character.SAMUS,
+            action_frame=8,
+        )
+        self.assertIsInstance(result, Abort)
+        self.assertIn("frame-8 input window", result.reason)
+
+    def test_extender_latch_is_single_use_and_reports_a_miss(self):
+        montage = ExtenderMontage(extender_active=True, homing=True)
+        self.assertFalse(montage.grab())
+        self.assertIs(
+            self.tick(montage, melee.Action.STANDING, character=melee.Character.SAMUS),
+            montage,
+        )
+        self.controls.take_calls()
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action.GRAB,
+                character=melee.Character.SAMUS,
+                action_frame=6,
+            ),
+            montage,
+        )
+        self.assertEqual(
+            self.controls.take_calls(),
+            [("release_all",), ("press_button", melee.Button.BUTTON_L)],
+        )
+        self.assertFalse(montage.grab())
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action.GRAB,
+                character=melee.Character.SAMUS,
+                action_frame=7,
+            ),
+            montage,
+        )
+        self.assertEqual(
+            self.controls.take_calls(),
+            [("release_all",), ("press_button", melee.Button.BUTTON_L)],
+        )
+        self.assertTrue(montage.grab())
+        self.assertFalse(montage.grab())
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action.GRAB,
+                character=melee.Character.SAMUS,
+                action_frame=8,
+            ),
+            montage,
+        )
+        self.assertEqual(
+            self.controls.take_calls(),
+            [("release_all",), ("press_button", melee.Button.BUTTON_A)],
+        )
+
+        result = self.tick(
+            montage,
+            melee.Action.STANDING,
+            character=melee.Character.SAMUS,
+        )
+        self.assertIsInstance(result, Abort)
+        self.assertIn("latch did not grab", result.reason)
+
+    def test_extender_requires_latch_input_and_resets_on_stock_change(self):
+        montage = ExtenderMontage(extender_active=True)
+        self.assertIs(
+            self.tick(montage, melee.Action.STANDING, character=melee.Character.SAMUS),
+            montage,
+        )
+        self.controls.take_calls()
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action.GRAB,
+                character=melee.Character.SAMUS,
+                action_frame=8,
+            ),
+            montage,
+        )
+        self.controls.take_calls()
+        result = self.tick(
+            montage,
+            melee.Action.GRAB_PULLING,
+            character=melee.Character.SAMUS,
+        )
+        self.assertIsInstance(result, Abort)
+        self.assertIn("without a confirmed extender latch", result.reason)
+        self.assertFalse(montage.grab())
+        self.assertFalse(montage.enable_homing())
+
+        montage = ExtenderMontage(extender_active=True)
+        self.assertIs(
+            self.tick(montage, melee.Action.STANDING, character=melee.Character.SAMUS),
+            montage,
+        )
+        result = self.tick(
+            montage,
+            melee.Action.GRAB,
+            character=melee.Character.SAMUS,
+            stock=3,
+        )
+        self.assertIsInstance(result, Abort)
+        self.assertIn("stock changed", result.reason)
+        self.assertFalse(montage.is_extender_active())
 
     def test_double_jump_cancel_performs_every_aerial_for_supported_characters(self):
         aerial_actions = {

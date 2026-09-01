@@ -356,6 +356,16 @@ Libmelee includes concrete technique montages:
   animation frames 41 and 42, then returns the stick to neutral for maximum
   travel. Standing and crouched bomb starts use the same animation-frame window;
   the height-dependent falling variant is intentionally unsupported.
+- `ExtenderMontage(homing=False, extender_active=False)` activates and uses
+  Samus's extended grounded Grapple Beam. From a fresh stock it performs a setup
+  grab, schedules D-pad Up, Down, Up, and A on grab frames 8-11, waits for
+  recovery, then starts the extended grab. Pass `extender_active=True` when the
+  bot already tracks that persistent per-stock unlock. `enable_homing()` holds
+  digital L while the actual extender travels; `grab()` queues the one fresh A
+  edge that arms its grounded catch capsule once the beam is out. Early and
+  duplicate requests are rejected. `is_extender_active()` reports the montage's
+  inferred per-stock unlock. The caller owns latch timing because standard Slippi
+  state does not expose the simulated grapple-tip position.
 - `DoubleJumpCancelMontage(attack_type, attack_delay_frames=0)` supports Yoshi,
   Ness, Peach, and Mewtwo with any standard aerial. It can own the first jump or
   start in air, forces a fresh double-jump edge, and confirms the aerial through

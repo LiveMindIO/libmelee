@@ -9,6 +9,7 @@ from melee.bot.techskill.chargeable_special import (
 )
 from melee.bot.techskill.common import WavedashDirection
 from melee.bot.techskill.double_jump_cancel import DoubleJumpCancelMontage
+from melee.bot.techskill.extender import ExtenderMontage
 from melee.bot.techskill.initiate_dash import InitiateDashMontage
 from melee.bot.techskill.ledgedash import LedgedashMontage
 from melee.bot.techskill.link_bow import LinkBowMontage
@@ -35,6 +36,7 @@ __all__ = [
     "ChargeStoreInput",
     "DonkeyKongGiantPunchMontage",
     "DoubleJumpCancelMontage",
+    "ExtenderMontage",
     "FlareBladeMontage",
     "InitiateDashMontage",
     "JigglypuffRolloutMontage",

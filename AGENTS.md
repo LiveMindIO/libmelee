@@ -160,6 +160,16 @@ uv pip install --python .venv/bin/python .
   input for engine frames 41 and 42; frame 42 schedules neutral. Standing and
   crouched starts share that underlying animation window. The falling variant is
   outside its contract.
+  `ExtenderMontage(homing=False, extender_active=False)` performs Samus's
+  per-stock activation setup before its actual extended grab unless the caller
+  declares the unlock already active. Observed setup-grab frames 7-10 schedule
+  D-pad Up, Down, Up, and A for engine frames 8-11. `enable_homing()` holds only
+  digital L while the extender travels; `grab()` queues its one fresh A edge and
+  rejects calls before the beam is out or while an edge is already pending. It
+  cannot be retried after that edge is sent. `is_extender_active()` exposes the
+  inferred per-stock unlock. Extended grounded grapples need the explicit latch
+  input even without homing. Standard Slippi projectile state does not prove the
+  simulated beam-tip position, so callers own latch timing.
   `DoubleJumpCancelMontage(attack_type, attack_delay_frames=0)` supports Yoshi,
   Ness, Peach, and Mewtwo standard aerials from grounded or airborne starts. It
   resets airborne jump input for one committed frame before requesting the double
