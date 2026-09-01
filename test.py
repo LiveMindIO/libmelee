@@ -2,14 +2,20 @@
 import hashlib
 import inspect
 import math
+import struct
 import sys
+import tempfile
 import unittest
+from pathlib import Path
 from typing import get_args, get_type_hints
 from uuid import UUID
 
 from typing_extensions import get_overloads
 
 import melee
+from melee._gamecube import GameCubeDisc
+from melee._hsd_dat import HsdDat, parse_figatree_frame_count
+from melee._subaction import interpret_subaction
 from melee.bot import (
     MIN_SHIELD,
     Abort,
@@ -84,6 +90,427 @@ from melee.bot.techskill.common import (
     clamp_wavedash_angle,
 )
 from melee.controller import fix_analog_stick
+
+
+def _subaction_command(opcode, *fields):
+    """Pack synthetic command fields in the schema's MSB-first order."""
+    value = opcode
+    bits = 6
+    for field, width in fields:
+        value = (value << width) | (field & ((1 << width) - 1))
+        bits += width
+    words = (bits + 31) // 32
+    value <<= words * 32 - bits
+    return struct.pack(f">{words}I", *(value >> (32 * (words - index - 1)) & 0xFFFFFFFF for index in range(words)))
+
+
+def _synthetic_animation_dat(frame_count=8.0):
+    data = bytearray(0x20)
+    struct.pack_into(">f", data, 8, frame_count)
+    roots = struct.pack(">II", 0, 0)
+    strings = b"Attack11_figatree\0"
+    total = 0x20 + len(data) + len(roots) + len(strings)
+    header = struct.pack(">IIIII4s8x", total, len(data), 0, 1, 0, b"HSD0")
+    return header + data + roots + strings
+
+
+def _synthetic_fighter_dat(animation_size):
+    action_count = 327
+    fighter, actions = 0x00, 0x60
+    dynamic = actions + action_count * 0x18
+    symbol = (dynamic + action_count * 2 + 3) & ~3
+    script = (symbol + 0x3F) & ~0x1F
+    subroutine_offset = script + 0xC0
+    target = script + 0x100
+    data = bytearray(target + 0xC0)
+    struct.pack_into(">I", data, fighter + 0x0C, actions)
+    struct.pack_into(">I", data, fighter + 0x10, dynamic)
+    action_symbol = b"Attack11_figatree\0"
+    data[symbol : symbol + len(action_symbol)] = action_symbol
+    struct.pack_into(">IIIIII", data, actions, symbol, 0, animation_size, script, 0xA0000042, 0x12345678)
+
+    hitbox_fields = (
+        (1, 3), (2, 3), (1, 1), (5, 8), (0, 1), (10, 10),
+        (384, 16), (-256, 16), (128, 16), (-384, 16),
+        (361, 9), (90, 9), (20, 9), (1, 1), (1, 1), (1, 1), (1, 1), (0, 1),
+        (30, 9), (3, 5), (-4, 8), (2, 3), (7, 5), (1, 1), (1, 1),
+    )
+    create = _subaction_command(11, *hitbox_fields)
+    damage = _subaction_command(12, (1, 3), (17, 23))
+    size = _subaction_command(13, (1, 3), (640, 23))
+    interaction = _subaction_command(14, (1, 24), (0, 1), (0, 1))
+    throw = _subaction_command(
+        34, (0, 3), (12, 23), (45, 9), (80, 9), (25, 9), (0, 5),
+        (40, 9), (2, 4), (1, 3), (3, 4), (0, 12),
+    )
+    main = b"".join(
+        (
+            create,
+            _subaction_command(1, (2, 26)),
+            damage,
+            size,
+            interaction,
+            _subaction_command(5, (0, 26), (subroutine_offset, 32)),
+            _subaction_command(3, (2, 26)),
+            _subaction_command(1, (1, 26)),
+            _subaction_command(26, (1, 26)),
+            _subaction_command(4),
+            _subaction_command(7, (0, 26), (target, 32)),
+            _subaction_command(16),  # skipped by the goto
+        )
+    )
+    data[script : script + len(main)] = main
+    subroutine = _subaction_command(2, (3, 26)) + throw + _subaction_command(6)
+    data[subroutine_offset : subroutine_offset + len(subroutine)] = subroutine
+    target_script = b"".join(
+        (
+            _subaction_command(27, (2, 26)),
+            _subaction_command(28, (5, 8), (1, 18)),
+            throw,
+            _subaction_command(23, (0, 26)),
+            _subaction_command(1, (1, 26)),
+            _subaction_command(15, (1, 26)),
+            create,
+            _subaction_command(16),
+            _subaction_command(0),
+        )
+    )
+    data[target : target + len(target_script)] = target_script
+
+    relocations = (0x0C, 0x10, actions, actions + 0x0C, script + 0x28, script + 0x40)
+    reloc = b"".join(struct.pack(">I", offset) for offset in relocations)
+    roots = struct.pack(">II", fighter, 0)
+    strings = b"ftDataFox\0"
+    total = 0x20 + len(data) + len(reloc) + len(roots) + len(strings)
+    header = struct.pack(">IIIII4s8x", total, len(data), len(relocations), 1, 0, b"HSD0")
+    return header + data + reloc + roots + strings
+
+
+def _synthetic_iso(members):
+    names = ["fighter", *members]
+    string_offsets = {}
+    strings = bytearray()
+    for name in names:
+        string_offsets[name] = len(strings)
+        strings.extend(name.encode("ascii") + b"\0")
+    count = len(members) + 2
+    fst_entries = [struct.pack(">III", 0x01000000, 0, count)]
+    fst_entries.append(struct.pack(">III", 0x01000000 | string_offsets["fighter"], 0, count))
+    file_offset = 0x1000
+    file_layout = []
+    for name, contents in members.items():
+        fst_entries.append(struct.pack(">III", string_offsets[name], file_offset, len(contents)))
+        file_layout.append((file_offset, contents))
+        file_offset += (len(contents) + 0x1F) & ~0x1F
+    fst = b"".join(fst_entries) + strings
+    image = bytearray(max(file_offset, 0x500 + len(fst)))
+    image[0:8] = b"GALE01\0\2"
+    struct.pack_into(">III", image, 0x424, 0x500, len(fst), len(fst))
+    image[0x500 : 0x500 + len(fst)] = fst
+    for offset, contents in file_layout:
+        image[offset : offset + len(contents)] = contents
+    return bytes(image)
+
+
+def _synthetic_split_pair_iso(base, animation):
+    names = ("base", "PlFx.dat", "animation", "PlFxAJ.dat")
+    string_offsets = {}
+    strings = bytearray()
+    for name in names:
+        string_offsets[name] = len(strings)
+        strings.extend(name.encode("ascii") + b"\0")
+    base_offset = 0x1000
+    animation_offset = (base_offset + len(base) + 0x1F) & ~0x1F
+    entries = (
+        struct.pack(">III", 0x01000000, 0, 5),
+        struct.pack(">III", 0x01000000 | string_offsets["base"], 0, 3),
+        struct.pack(">III", string_offsets["PlFx.dat"], base_offset, len(base)),
+        struct.pack(">III", 0x01000000 | string_offsets["animation"], 0, 5),
+        struct.pack(">III", string_offsets["PlFxAJ.dat"], animation_offset, len(animation)),
+    )
+    fst = b"".join(entries) + strings
+    image = bytearray(animation_offset + len(animation))
+    image[0:8] = b"GALE01\0\2"
+    struct.pack_into(">III", image, 0x424, 0x500, len(fst), len(fst))
+    image[0x500 : 0x500 + len(fst)] = fst
+    image[base_offset : base_offset + len(base)] = base
+    image[animation_offset : animation_offset + len(animation)] = animation
+    return bytes(image)
+
+
+class DiscFrameDataTests(unittest.TestCase):
+    def setUp(self):
+        self.animation = _synthetic_animation_dat()
+        self.fighter = _synthetic_fighter_dat(len(self.animation))
+        self.members = {
+            "PlFx.dat": self.fighter,
+            "PlFxAJ.dat": self.animation,
+            "PlFxNr.dat": b"costume",
+            "PlCo.dat": self.fighter,
+            "PlCoAJ.dat": self.animation,
+            "PlFx.usd": b"distractor",
+        }
+        self.temporary_directory = tempfile.TemporaryDirectory()
+        self.iso_path = Path(self.temporary_directory.name) / "synthetic.iso"
+        self.iso_path.write_bytes(_synthetic_iso(self.members))
+
+    def tearDown(self):
+        self.temporary_directory.cleanup()
+
+    def test_iso_validation_fst_bounded_read_and_exact_pairing(self):
+        disc = GameCubeDisc(self.iso_path)
+        self.assertEqual(tuple(disc.fighter_members), ("Fx",))
+        base, animations = disc.fighter_members["Fx"]
+        self.assertEqual(base.name, "PlFx.dat")
+        self.assertEqual(animations.name, "PlFxAJ.dat")
+        self.assertEqual(disc.read_member(base), self.fighter)
+        self.assertNotIn("Co", disc.fighter_members)
+
+        bad_revision = bytearray(self.iso_path.read_bytes())
+        bad_revision[7] = 1
+        bad_path = Path(self.temporary_directory.name) / "bad-revision.iso"
+        bad_path.write_bytes(bad_revision)
+        with self.assertRaisesRegex(melee.DiscImageError, "revision 1"):
+            GameCubeDisc(bad_path)
+        with self.assertRaisesRegex(melee.DiscImageError, "regular file"):
+            GameCubeDisc(Path(self.temporary_directory.name))
+
+        for offset, value, message in ((0, ord("X"), "disc ID"), (6, 1, "disc number")):
+            with self.subTest(message=message):
+                invalid = bytearray(self.iso_path.read_bytes())
+                invalid[offset] = value
+                invalid_path = Path(self.temporary_directory.name) / f"bad-{offset}.iso"
+                invalid_path.write_bytes(invalid)
+                with self.assertRaisesRegex(melee.DiscImageError, message):
+                    GameCubeDisc(invalid_path)
+
+        bad_maximum = bytearray(self.iso_path.read_bytes())
+        fst_size = struct.unpack_from(">I", bad_maximum, 0x428)[0]
+        struct.pack_into(">I", bad_maximum, 0x42C, fst_size - 1)
+        bad_maximum_path = Path(self.temporary_directory.name) / "bad-fst-maximum.iso"
+        bad_maximum_path.write_bytes(bad_maximum)
+        with self.assertRaisesRegex(melee.DiscImageError, "header maximum"):
+            GameCubeDisc(bad_maximum_path)
+
+        split_path = Path(self.temporary_directory.name) / "split-pair.iso"
+        split_path.write_bytes(_synthetic_split_pair_iso(self.fighter, self.animation))
+        self.assertEqual(dict(GameCubeDisc(split_path).fighter_members), {})
+
+    def test_dat_roots_actions_and_figatree_frame_count(self):
+        dat = HsdDat(self.fighter, context="synthetic fighter")
+        actions = dat.fighter_actions()
+        self.assertEqual(len(actions), 327)
+        self.assertEqual(actions[0].symbol, "Attack11_figatree")
+        self.assertEqual(actions[0].flags, 0xA0000042)
+        self.assertEqual(
+            dat.fighter_actions(expected_root="ftDataFox", expected_count=327),
+            actions,
+        )
+        self.assertEqual(
+            parse_figatree_frame_count(self.animation, expected_root="Attack11_figatree"),
+            8.0,
+        )
+        with self.assertRaisesRegex(melee.DatParseError, "'Wrong_figatree'"):
+            parse_figatree_frame_count(self.animation, expected_root="Wrong_figatree")
+
+    def test_public_api_combat_timeline_and_local_geometry(self):
+        data = melee.DiscFrameData(self.iso_path)
+        self.assertEqual(data.available_fighter_codes, ("Fx",))
+        self.assertEqual(data.build.game_id, "GALE01")
+        self.assertEqual(data.build.version, "1.02")
+        self.assertIs(data.fighter("fx"), data.fighter("Fx"))
+        action = data.action("Fx", 0)
+        script_data_offset = HsdDat(self.fighter).fighter_actions()[0].script_data_offset
+        assert script_data_offset is not None
+        self.assertEqual(action.animation_frame_count, 8.0)
+        self.assertEqual(action.script_dat_offset, script_data_offset + 0x20)
+        self.assertEqual(action.timeline.iasa_frame, 6)
+        self.assertEqual(len(action.timeline.frames), 8)
+
+        first = action.timeline.hitbox_generations[0]
+        self.assertEqual(first.initial_hitbox.damage, 10)
+        self.assertEqual(first.initial_hitbox.size, 1.5)
+        self.assertEqual(first.initial_hitbox.bone_local_x, -1.5)
+        self.assertEqual(first.initial_hitbox.bone_local_y, 0.5)
+        self.assertEqual(first.initial_hitbox.bone_local_z, -1.0)
+        self.assertTrue(first.initial_hitbox.requires_thrown_hitbox_owner)
+        self.assertEqual(first.initial_hitbox.shield_damage, -4)
+        self.assertEqual(first.final_hitbox.damage, 17)
+        self.assertEqual(first.final_hitbox.size, 2.5)
+        self.assertTrue(first.initial_hitbox.fighter_interaction)
+        self.assertTrue(first.initial_hitbox.non_fighter_interaction)
+        self.assertFalse(first.final_hitbox.fighter_interaction)
+        self.assertTrue(first.final_hitbox.non_fighter_interaction)
+        self.assertEqual(len(action.timeline.hitbox_generations), 2)
+        self.assertEqual(
+            [event.change for event in action.timeline.hitbox_events][-2:],
+            [melee.HitboxChange.CREATE, melee.HitboxChange.CLEAR],
+        )
+
+        self.assertEqual(len(action.timeline.throw_events), 2)
+        throw = action.timeline.throw_events[0]
+        self.assertEqual((throw.damage, throw.angle, throw.knockback_growth), (12, 45, 80))
+        self.assertEqual(
+            [event.scope for event in action.timeline.hurt_state_events[-2:]],
+            [melee.HurtScope.ALL_BONES, melee.HurtScope.BONE],
+        )
+        self.assertEqual(action.timeline.hurt_state_events[-1].bone_id, 5)
+        self.assertEqual([event.local_frame for event in action.timeline.hurt_state_events[:2]], [5, 6])
+        self.assertTrue(action.timeline.frames[0].active_hitboxes)
+        self.assertTrue(action.timeline.frames[5].interrupt_allowed)
+        with self.assertRaises(AttributeError):
+            action.raw_flags = 0
+        with self.assertRaisesRegex(melee.DiscFrameDataError, "DAT action index 327"):
+            data.action("Fx", 327)
+
+    def test_control_flow_and_lossless_command_lengths(self):
+        dat = HsdDat(self.fighter)
+        script_data_offset = dat.fighter_actions()[0].script_data_offset
+        assert script_data_offset is not None
+        timeline = interpret_subaction(
+            dat.data,
+            script_data_offset,
+            pointer_locations=dat.pointer_locations,
+            animation_frame_count=8,
+        )
+        opcodes = [executed.command.opcode for executed in timeline.commands]
+        self.assertIn(5, opcodes)
+        self.assertIn(6, opcodes)
+        self.assertIn(7, opcodes)
+        self.assertEqual(opcodes.count(26), 2)
+        create = next(executed.command for executed in timeline.commands if executed.command.opcode == 11)
+        self.assertEqual(len(create.raw_words), 5)
+        self.assertEqual(create.dat_offset, script_data_offset + 0x20)
+        self.assertFalse(timeline.animation_timer_encountered)
+
+        animation_timer = struct.pack(">II", 8 << 26, 0)
+        halted = interpret_subaction(animation_timer, 0)
+        self.assertTrue(halted.animation_timer_encountered)
+        self.assertEqual(len(halted.commands), 1)
+
+        unknown_common = interpret_subaction(_subaction_command(9, (0xAB, 8), (0x12345, 18)) + struct.pack(">I", 0), 0)
+        self.assertEqual([item.command.opcode for item in unknown_common.commands], [9, 0])
+        self.assertEqual(unknown_common.commands[0].command.parameter("param_1"), 0xAB)
+        self.assertEqual(unknown_common.commands[0].command.parameter("param_2"), 0x12345)
+
+        fighter_lengths = (
+            5, 5, 1, 1, 1, 1, 1, 3, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 3,
+            1, 1, 1, 7, 4, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 3, 3, 2, 1, 4,
+        )
+        for opcode, length in enumerate(fighter_lengths, 10):
+            with self.subTest(opcode=opcode):
+                command = struct.pack(f">{length}I", opcode << 26, *([0] * (length - 1)))
+                parsed = interpret_subaction(command + struct.pack(">I", 0), 0, animation_frame_count=1)
+                self.assertEqual(len(parsed.commands[0].command.raw_words), length)
+                self.assertEqual(parsed.commands[-1].command.opcode, 0)
+
+    def test_malformed_iso_dat_and_subactions_fail_with_context(self):
+        bad_fst = bytearray(self.iso_path.read_bytes())
+        struct.pack_into(">I", bad_fst, 0x428, len(bad_fst))
+        bad_fst_path = Path(self.temporary_directory.name) / "bad-fst.iso"
+        bad_fst_path.write_bytes(bad_fst)
+        with self.assertRaisesRegex(melee.DiscImageError, "FST range"):
+            GameCubeDisc(bad_fst_path)
+
+        bad_directory = bytearray(self.iso_path.read_bytes())
+        struct.pack_into(">I", bad_directory, 0x500 + 12 + 4, 1)
+        bad_directory_path = Path(self.temporary_directory.name) / "bad-directory.iso"
+        bad_directory_path.write_bytes(bad_directory)
+        with self.assertRaisesRegex(melee.DiscImageError, "names parent"):
+            GameCubeDisc(bad_directory_path)
+
+        bad_dat = bytearray(self.fighter)
+        data_size = struct.unpack_from(">I", bad_dat, 4)[0]
+        struct.pack_into(">I", bad_dat, 0x20 + data_size, 0xFFFFFFFF)
+        with self.assertRaisesRegex(melee.DatParseError, "relocation 0"):
+            HsdDat(bytes(bad_dat), context="broken")
+        bad_string = bytearray(self.fighter)
+        dat = HsdDat(self.fighter)
+        actions = dat.pointer(0x0C, nullable=False)
+        assert actions is not None
+        symbol = dat.pointer(actions, nullable=False)
+        script = dat.pointer(actions + 0x0C, nullable=False)
+        assert symbol is not None and script is not None
+        bad_string[0x20 + symbol : 0x20 + script] = b"A" * (script - symbol)
+        with self.assertRaisesRegex(melee.DatParseError, "object boundary"):
+            HsdDat(bytes(bad_string), context="broken string").fighter_actions()
+        with self.assertRaisesRegex(melee.SubactionParseError, "truncated"):
+            interpret_subaction(struct.pack(">I", 11 << 26), 0)
+        call = struct.pack(">III", 5 << 26, 8, 0)
+        with self.assertRaisesRegex(melee.SubactionParseError, "not relocated"):
+            interpret_subaction(call, 0)
+        goto_cycle = struct.pack(">II", 7 << 26, 0)
+        with self.assertRaisesRegex(melee.SubactionParseError, "cycle"):
+            interpret_subaction(goto_cycle, 0, pointer_locations=frozenset({4}))
+        with self.assertRaisesRegex(melee.SubactionParseError, "frame guard"):
+            interpret_subaction(_subaction_command(1, ((1 << 26) - 1, 26)), 0)
+        with self.assertRaisesRegex(melee.SubactionParseError, "frame guard"):
+            interpret_subaction(_subaction_command(1, (10_000, 26)), 0, max_frames=10_000)
+        invalid_hitbox = _subaction_command(12, (4, 3), (1, 23)) + _subaction_command(0)
+        with self.assertRaisesRegex(melee.SubactionParseError, "hitbox ID 4"):
+            interpret_subaction(invalid_hitbox, 0)
+        invalid_throw = _subaction_command(
+            34, (2, 3), (0, 23), (0, 9), (0, 9), (0, 9), (0, 5), (0, 9), (0, 4), (0, 3), (0, 4), (0, 12)
+        )
+        with self.assertRaisesRegex(melee.SubactionParseError, "invalid type 2"):
+            interpret_subaction(invalid_throw, 0)
+
+        timer_then_event = _subaction_command(1, (2, 26)) + _subaction_command(23) + _subaction_command(0)
+        no_animation = interpret_subaction(timer_then_event, 0)
+        self.assertEqual(len(no_animation.frames), 3)
+        self.assertTrue(no_animation.frames[-1].interrupt_allowed)
+
+        with self.assertRaisesRegex(melee.SubactionParseError, "invalid animation frame count"):
+            interpret_subaction(struct.pack(">I", 0), 0, animation_frame_count=10_001)
+
+        unaligned = bytearray(self.animation)
+        struct.pack_into(">I", unaligned, 4, 0x21)
+        with self.assertRaisesRegex(melee.DatParseError, "not 4-byte aligned"):
+            HsdDat(bytes(unaligned))
+
+        reference_data = struct.pack(">I", 0xFFFFFFFF) + bytes(0x1C)
+        reference = struct.pack(">II", 0, 0)
+        reference_strings = b"external\0"
+        reference_total = 0x20 + len(reference_data) + len(reference) + len(reference_strings)
+        reference_header = struct.pack(
+            ">IIIII4s8x", reference_total, len(reference_data), 0, 0, 1, b"HSD0"
+        )
+        reference_dat = reference_header + reference_data + reference + reference_strings
+        parsed_reference = HsdDat(reference_dat)
+        self.assertEqual(parsed_reference.references[0].name, "external")
+        self.assertEqual(parsed_reference.object_offsets, (len(reference_data),))
+        cyclic_reference = bytearray(reference_dat)
+        struct.pack_into(">I", cyclic_reference, 0x20, 0)
+        with self.assertRaisesRegex(melee.DatParseError, "reference 0 has a cycle"):
+            HsdDat(bytes(cyclic_reference))
+
+        zero_pointer_data = bytes(4)
+        zero_pointer_relocation = struct.pack(">I", 0)
+        zero_pointer_total = 0x20 + len(zero_pointer_data) + len(zero_pointer_relocation)
+        zero_pointer_header = struct.pack(
+            ">IIIII4s8x", zero_pointer_total, len(zero_pointer_data), 1, 0, 0, b"HSD0"
+        )
+        zero_pointer_dat = HsdDat(zero_pointer_header + zero_pointer_data + zero_pointer_relocation)
+        self.assertEqual(zero_pointer_dat.pointer(0), 0)
+
+        wrong_version = bytearray(self.animation)
+        wrong_version[0x14:0x18] = b"BAD0"
+        with self.assertRaisesRegex(melee.DatParseError, "archive version"):
+            HsdDat(bytes(wrong_version))
+
+        truncated_figa_data = bytes(0x0C)
+        truncated_figa_root = struct.pack(">II", 0, 0)
+        truncated_figa_strings = b"test_figatree\0"
+        truncated_figa_total = 0x20 + len(truncated_figa_data) + len(truncated_figa_root) + len(
+            truncated_figa_strings
+        )
+        truncated_figa_header = struct.pack(
+            ">IIIII4s8x", truncated_figa_total, len(truncated_figa_data), 0, 1, 0, b"HSD0"
+        )
+        with self.assertRaisesRegex(melee.DatParseError, "FigaTree range"):
+            parse_figatree_frame_count(
+                truncated_figa_header + truncated_figa_data + truncated_figa_root + truncated_figa_strings
+            )
 
 
 class RecordingBot(BaseBot[object]):
