@@ -46,8 +46,6 @@ class HsdDat:
         if self.data_size % 4:
             self._fail(f"data size 0x{self.data_size:X} is not 4-byte aligned")
         self.version = self._file[0x14:0x18]
-        if self.version != b"HSD0":
-            self._fail(f"unsupported archive version {self.version!r}; expected b'HSD0'")
         self.data = self._file[0x20 : 0x20 + self.data_size]
         reloc_start = 0x20 + self.data_size
         tables_size = reloc_count * 4 + (root_count + ref_count) * 8
@@ -182,21 +180,15 @@ class HsdDat:
                 self._fail(f"invalid expected fighter action count {expected_count}")
             boundary = actions + expected_count * 0x18
             self.require_range(actions, expected_count * 0x18, "fighter action table")
-            if dynamic != boundary:
-                actual = "null" if dynamic is None else f"0x{dynamic:X}"
-                self._fail(f"fighter dynamic behavior table is {actual}, expected 0x{boundary:X}")
-            assert dynamic is not None
-            self.require_range(dynamic, expected_count * 2, "fighter dynamic behavior table")
-            if self.next_object_offset(actions) != dynamic:
+            if self.next_object_offset(actions) < boundary:
                 self._fail("fighter action table overlaps another HSD object")
+            if dynamic is None:
+                self._fail("fighter dynamic behavior table is null")
+            self.require_range(dynamic, expected_count * 2, "fighter dynamic behavior table")
             if self.next_object_offset(dynamic) < dynamic + expected_count * 2:
                 self._fail("fighter dynamic behavior table overlaps another HSD object")
         else:
-            if dynamic is not None and dynamic <= actions:
-                self._fail(
-                    f"fighter dynamic behavior table 0x{dynamic:X} does not follow action table 0x{actions:X}"
-                )
-            boundary = dynamic if dynamic is not None else self.next_object_offset(actions)
+            boundary = dynamic if dynamic is not None and dynamic > actions else self.next_object_offset(actions)
         if boundary <= actions or (boundary - actions) % 0x18:
             self._fail(f"action table 0x{actions:X}..0x{boundary:X} is not a whole number of 0x18-byte entries")
 

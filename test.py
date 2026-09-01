@@ -116,9 +116,9 @@ def _synthetic_animation_dat(frame_count=8.0):
 
 def _synthetic_fighter_dat(animation_size):
     action_count = 327
-    fighter, actions = 0x00, 0x60
-    dynamic = actions + action_count * 0x18
-    symbol = (dynamic + action_count * 2 + 3) & ~3
+    fighter, dynamic = 0x00, 0x60
+    actions = (dynamic + action_count * 2 + 3) & ~3
+    symbol = actions + action_count * 0x18
     script = (symbol + 0x3F) & ~0x1F
     subroutine_offset = script + 0xC0
     target = script + 0x100
@@ -440,12 +440,28 @@ class DiscFrameDataTests(unittest.TestCase):
         with self.assertRaisesRegex(melee.SubactionParseError, "not relocated"):
             interpret_subaction(call, 0)
         goto_cycle = struct.pack(">II", 7 << 26, 0)
-        with self.assertRaisesRegex(melee.SubactionParseError, "cycle"):
-            interpret_subaction(goto_cycle, 0, pointer_locations=frozenset({4}))
+        goto_timeline = interpret_subaction(goto_cycle, 0, pointer_locations=frozenset({4}))
+        self.assertTrue(goto_timeline.script_loop_encountered)
+        looping_script = _subaction_command(2, (20, 26)) + goto_cycle
+        looping_timeline = interpret_subaction(
+            looping_script,
+            0,
+            pointer_locations=frozenset({8}),
+        )
+        self.assertTrue(looping_timeline.script_loop_encountered)
+        self.assertEqual([item.command.opcode for item in looping_timeline.commands], [2, 7])
         with self.assertRaisesRegex(melee.SubactionParseError, "frame guard"):
             interpret_subaction(_subaction_command(1, ((1 << 26) - 1, 26)), 0)
         with self.assertRaisesRegex(melee.SubactionParseError, "frame guard"):
             interpret_subaction(_subaction_command(1, (10_000, 26)), 0, max_frames=10_000)
+        truncated_timeline = interpret_subaction(
+            _subaction_command(1, (3, 26)),
+            0,
+            max_frames=3,
+            truncate_at_max_frames=True,
+        )
+        self.assertTrue(truncated_timeline.frame_guard_encountered)
+        self.assertEqual(len(truncated_timeline.frames), 3)
         invalid_hitbox = _subaction_command(12, (4, 3), (1, 23)) + _subaction_command(0)
         with self.assertRaisesRegex(melee.SubactionParseError, "hitbox ID 4"):
             interpret_subaction(invalid_hitbox, 0)
@@ -492,11 +508,6 @@ class DiscFrameDataTests(unittest.TestCase):
         )
         zero_pointer_dat = HsdDat(zero_pointer_header + zero_pointer_data + zero_pointer_relocation)
         self.assertEqual(zero_pointer_dat.pointer(0), 0)
-
-        wrong_version = bytearray(self.animation)
-        wrong_version[0x14:0x18] = b"BAD0"
-        with self.assertRaisesRegex(melee.DatParseError, "archive version"):
-            HsdDat(bytes(wrong_version))
 
         truncated_figa_data = bytes(0x0C)
         truncated_figa_root = struct.pack(">II", 0, 0)

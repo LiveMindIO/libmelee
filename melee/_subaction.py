@@ -172,6 +172,8 @@ class ActionTimeline:
     iasa_frame: int | None
     frames: tuple[FrameSnapshot, ...]
     animation_timer_encountered: bool
+    script_loop_encountered: bool
+    frame_guard_encountered: bool
 
 
 # Number of 32-bit words consumed by opcodes 10 through 58 in NTSC 1.02.
@@ -374,6 +376,7 @@ def interpret_subaction(
     max_call_depth: int = 64,
     max_loop_depth: int = 64,
     max_frames: int = 10_000,
+    truncate_at_max_frames: bool = False,
 ) -> ActionTimeline:
     """Interpret a fighter script while retaining every reached command word."""
 
@@ -396,6 +399,8 @@ def interpret_subaction(
     hurt_events: list[HurtStateEvent] = []
     iasa_time: float | None = None
     animation_timer = False
+    script_loop = False
+    frame_guard = False
     seen: set[tuple[int, float, tuple[int, ...], tuple[tuple[int, int], ...]]] = set()
 
     while True:
@@ -426,15 +431,25 @@ def interpret_subaction(
         if opcode == 0:
             break
         if opcode == 1:
-            time += int(command.parameter("frame"))
-            if _frame(time) > max_frames:
-                raise SubactionParseError(f"{context}: frame guard exceeded {max_frames} frames")
+            next_time = time + int(command.parameter("frame"))
+            if _frame(next_time) > max_frames:
+                if not truncate_at_max_frames:
+                    raise SubactionParseError(f"{context}: frame guard exceeded {max_frames} frames")
+                time = float(max_frames - 1)
+                frame_guard = True
+                break
+            time = next_time
             pc += 4
             continue
         if opcode == 2:
-            time = max(time, float(command.parameter("frame")))
-            if _frame(time) > max_frames:
-                raise SubactionParseError(f"{context}: frame guard exceeded {max_frames} frames")
+            next_time = max(time, float(command.parameter("frame")))
+            if _frame(next_time) > max_frames:
+                if not truncate_at_max_frames:
+                    raise SubactionParseError(f"{context}: frame guard exceeded {max_frames} frames")
+                time = float(max_frames - 1)
+                frame_guard = True
+                break
+            time = next_time
             pc += 4
             continue
         if opcode == 3:
@@ -464,6 +479,9 @@ def interpret_subaction(
             target = int(command.parameter("target"))
             if target % 4 or target < 0 or target >= len(data):
                 raise SubactionParseError(f"{context}: opcode {opcode} targets invalid data offset 0x{target:X}")
+            if opcode == 7 and target <= pc:
+                script_loop = True
+                break
             if opcode == 5:
                 if len(calls) >= max_call_depth:
                     raise SubactionParseError(f"{context}: call depth guard exceeded {max_call_depth}")
@@ -498,6 +516,8 @@ def interpret_subaction(
         _frame(iasa_time) if iasa_time is not None else None,
         frames,
         animation_timer,
+        script_loop,
+        frame_guard,
     )
 
 

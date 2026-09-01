@@ -148,7 +148,7 @@ def _empty_timeline(frame_count: float | None) -> ActionTimeline:
         frames = tuple(
             FrameSnapshot(frame, float(frame - 1), (), False) for frame in range(1, max(0, math.ceil(frame_count)) + 1)
         )
-    return ActionTimeline((), (), (), (), (), None, None, frames, False)
+    return ActionTimeline((), (), (), (), (), None, None, frames, False, False, False)
 
 
 class DiscFrameData:
@@ -265,6 +265,7 @@ class DiscFrameData:
                     animation_frame_count=frame_count,
                     context=f"{dat_member.path} action {raw.index}",
                     max_frames=_MAX_TIMELINE_FRAMES,
+                    truncate_at_max_frames=True,
                 )
                 if raw.script_data_offset is not None
                 else _empty_timeline(frame_count)
