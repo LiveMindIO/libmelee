@@ -8,6 +8,7 @@ import stat
 import struct
 from collections.abc import Mapping
 from dataclasses import dataclass
+from itertools import pairwise
 from pathlib import Path
 from types import MappingProxyType
 
@@ -27,6 +28,92 @@ class FstEntry:
     offset: int
     size: int
     parent_index: int | None
+
+
+@dataclass(frozen=True, slots=True)
+class DolSection:
+    """One initialized DOL section and its virtual-address mapping."""
+
+    file_offset: int
+    virtual_address: int
+    size: int
+    is_text: bool
+
+
+class DolImage:
+    """Bounds-checked virtual-address reads from an in-memory GameCube DOL."""
+
+    def __init__(self, data: bytes, *, context: str = "main.dol"):
+        self.context = context
+        self.data = bytes(data)
+        if len(self.data) < 0x100:
+            raise DiscImageError(f"{context} is shorter than its 0x100-byte header")
+        file_offsets = struct.unpack_from(">18I", self.data, 0x00)
+        virtual_addresses = struct.unpack_from(">18I", self.data, 0x48)
+        sizes = struct.unpack_from(">18I", self.data, 0x90)
+        sections = []
+        for index, (file_offset, virtual_address, size) in enumerate(
+            zip(file_offsets, virtual_addresses, sizes, strict=True)
+        ):
+            if not size:
+                continue
+            if file_offset < 0x100 or file_offset > len(self.data) or size > len(self.data) - file_offset:
+                raise DiscImageError(
+                    f"{context} section {index} range 0x{file_offset:X}+0x{size:X} exceeds the DOL"
+                )
+            if virtual_address > 0xFFFFFFFF or size > 0x100000000 - virtual_address:
+                raise DiscImageError(f"{context} section {index} has an overflowing virtual-address range")
+            sections.append(DolSection(file_offset, virtual_address, size, index < 7))
+        if not sections:
+            raise DiscImageError(f"{context} contains no initialized sections")
+        sections.sort(key=lambda section: section.virtual_address)
+        for previous, current in pairwise(sections):
+            if previous.virtual_address + previous.size > current.virtual_address:
+                raise DiscImageError(f"{context} contains overlapping virtual section ranges")
+        self.sections = tuple(sections)
+
+    def contains(self, virtual_address: int, size: int = 1) -> bool:
+        """Return whether a virtual range is inside one initialized section."""
+
+        if virtual_address < 0 or size < 0:
+            return False
+        return any(
+            0 <= virtual_address - section.virtual_address <= section.size
+            and size <= section.size - (virtual_address - section.virtual_address)
+            for section in self.sections
+        )
+
+    def contains_executable(self, virtual_address: int, size: int = 1) -> bool:
+        """Return whether a virtual range is inside one initialized text section."""
+
+        if virtual_address < 0 or size < 0:
+            return False
+        return any(
+            section.is_text
+            and 0 <= virtual_address - section.virtual_address <= section.size
+            and size <= section.size - (virtual_address - section.virtual_address)
+            for section in self.sections
+        )
+
+    def read(self, virtual_address: int, size: int, description: str = "DOL data") -> bytes:
+        """Read a range addressed as it is after the DOL is loaded into RAM."""
+
+        if virtual_address < 0 or size < 0:
+            raise DiscImageError(f"{self.context}: invalid {description} range")
+        for section in self.sections:
+            relative = virtual_address - section.virtual_address
+            if 0 <= relative <= section.size and size <= section.size - relative:
+                start = section.file_offset + relative
+                return self.data[start : start + size]
+        raise DiscImageError(
+            f"{self.context}: {description} range 0x{virtual_address:X}+0x{size:X} is outside initialized sections"
+        )
+
+    def u32(self, virtual_address: int, description: str = "DOL u32") -> int:
+        return struct.unpack(">I", self.read(virtual_address, 4, description))[0]
+
+    def s32(self, virtual_address: int, description: str = "DOL s32") -> int:
+        return struct.unpack(">i", self.read(virtual_address, 4, description))[0]
 
 
 class GameCubeDisc:
@@ -56,7 +143,7 @@ class GameCubeDisc:
                 raise DiscImageError(f"unsupported disc number {header[6]}; expected disc 0")
             if header[7] != 2:
                 raise DiscImageError(f"unsupported GALE01 revision {header[7]}; expected NTSC 1.02 revision 2")
-            self.fst_offset, self.fst_size, fst_max_size = struct.unpack_from(">III", header, 0x424)
+            self.dol_offset, self.fst_offset, self.fst_size, fst_max_size = struct.unpack_from(">IIII", header, 0x420)
             if self.fst_size < 12 or self.fst_offset > self.size or self.fst_size > self.size - self.fst_offset:
                 raise DiscImageError(
                     f"FST range 0x{self.fst_offset:X}+0x{self.fst_size:X} is outside the {self.size}-byte disc"
@@ -76,6 +163,7 @@ class GameCubeDisc:
             raise DiscImageError("FST contains duplicate paths")
         self.entries_by_path: Mapping[str, FstEntry] = MappingProxyType(by_path)
         self.fighter_members = self._pair_fighter_members()
+        self._dol: DolImage | None = None
 
     def _parse_fst(self, fst: bytes) -> tuple[FstEntry, ...]:
         root0, root1, count = struct.unpack_from(">III", fst)
@@ -170,5 +258,34 @@ class GameCubeDisc:
             raise DiscImageError(f"short read for disc member {entry.path!r}")
         return data
 
+    def read_dol(self) -> DolImage:
+        """Read and validate the executable addressed by the disc header."""
 
-__all__ = ["DiscImageError", "FstEntry", "GameCubeDisc"]
+        if self._dol is not None:
+            return self._dol
+        if self.dol_offset < 0x440 or self.dol_offset > self.size - 0x100:
+            raise DiscImageError(f"DOL header offset 0x{self.dol_offset:X} is outside the disc")
+        with self.path.open("rb") as stream:
+            stream.seek(self.dol_offset)
+            header = stream.read(0x100)
+            if len(header) != 0x100:
+                raise DiscImageError("could not read the complete DOL header")
+            file_offsets = struct.unpack_from(">18I", header, 0x00)
+            sizes = struct.unpack_from(">18I", header, 0x90)
+            dol_size = max(
+                (file_offset + size for file_offset, size in zip(file_offsets, sizes, strict=True) if size),
+                default=0x100,
+            )
+            if dol_size < 0x100 or dol_size > self.size - self.dol_offset:
+                raise DiscImageError(
+                    f"DOL range 0x{self.dol_offset:X}+0x{dol_size:X} is outside the {self.size}-byte disc"
+                )
+            stream.seek(self.dol_offset)
+            data = stream.read(dol_size)
+        if len(data) != dol_size:
+            raise DiscImageError("could not read the complete DOL")
+        self._dol = DolImage(data)
+        return self._dol
+
+
+__all__ = ["DiscImageError", "DolImage", "DolSection", "FstEntry", "GameCubeDisc"]

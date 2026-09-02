@@ -175,6 +175,26 @@ class ActionTimeline:
     script_loop_encountered: bool
     frame_guard_encountered: bool
 
+    @property
+    def first_frame(self) -> int:
+        """The invariant first public frame number for every action timeline."""
+
+        return 1
+
+    @property
+    def frame_count(self) -> int:
+        """Number of one-indexed frame snapshots in this timeline."""
+
+        return len(self.frames)
+
+    def frame(self, local_frame: int) -> FrameSnapshot:
+        """Return a frame by libmelee's one-based action-frame convention."""
+
+        if local_frame < 1 or local_frame > len(self.frames):
+            valid = f"1..{len(self.frames)}" if self.frames else "empty"
+            raise IndexError(f"local frames are one-indexed; valid range is {valid}, got {local_frame}")
+        return self.frames[local_frame - 1]
+
 
 # Number of 32-bit words consumed by opcodes 10 through 58 in NTSC 1.02.
 _FIGHTER_LENGTHS = (
@@ -254,7 +274,13 @@ def _fields(words: tuple[int, ...], specifications: tuple[tuple[str, int, bool],
 
 
 def _frame(time: float) -> int:
-    return max(1, math.floor(time) + 1)
+    return max(1, math.ceil(time))
+
+
+def _animation_snapshot_count(frame_count: float) -> int:
+    if frame_count <= 0:
+        return 0
+    return max(1, math.ceil(frame_count) - 1)
 
 
 def _decode_command(opcode: int, words: tuple[int, ...]) -> tuple[tuple[str, int | float | bool], ...]:
@@ -435,7 +461,7 @@ def interpret_subaction(
             if _frame(next_time) > max_frames:
                 if not truncate_at_max_frames:
                     raise SubactionParseError(f"{context}: frame guard exceeded {max_frames} frames")
-                time = float(max_frames - 1)
+                time = float(max_frames)
                 frame_guard = True
                 break
             time = next_time
@@ -446,7 +472,7 @@ def interpret_subaction(
             if _frame(next_time) > max_frames:
                 if not truncate_at_max_frames:
                     raise SubactionParseError(f"{context}: frame guard exceeded {max_frames} frames")
-                time = float(max_frames - 1)
+                time = float(max_frames)
                 frame_guard = True
                 break
             time = next_time
@@ -709,14 +735,14 @@ def _build_frames(
     final_time: float,
 ) -> tuple[FrameSnapshot, ...]:
     frame_count = (
-        max(0, math.ceil(animation_frame_count)) if animation_frame_count is not None else _frame(final_time)
+        _animation_snapshot_count(animation_frame_count) if animation_frame_count is not None else _frame(final_time)
     )
     active: dict[int, Hitbox] = {}
     event_index = 0
     result = []
     for local_frame in range(1, frame_count + 1):
         animation_time = float(local_frame - 1)
-        while event_index < len(events) and events[event_index].animation_time <= animation_time:
+        while event_index < len(events) and events[event_index].local_frame <= local_frame:
             event = events[event_index]
             if event.change is HitboxChange.CREATE and event.hitbox_id is not None and event.hitbox is not None:
                 active[event.hitbox_id] = event.hitbox
@@ -739,7 +765,7 @@ def _build_frames(
                 local_frame,
                 animation_time,
                 tuple(active[key] for key in sorted(active)),
-                iasa_time is not None and animation_time >= iasa_time,
+                iasa_time is not None and _frame(iasa_time) <= local_frame,
             )
         )
     return tuple(result)

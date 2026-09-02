@@ -6,13 +6,15 @@ and state information that would be difficult to discover on your own.
 """
 
 import csv
-import os
 import math
+import warnings
 from collections import defaultdict
 from importlib.resources import files
 from pathlib import Path
-from melee.enums import Action, Character, AttackState
+
 from melee import stages
+from melee.disc_framedata import DiscFrameData, DiscFrameDataError
+from melee.enums import Action, AttackState, Character
 
 
 def _open_package_csv(name: str):
@@ -33,13 +35,21 @@ def _open_package_csv(name: str):
 
 
 class FrameData:
-    """Set of helper functions and data structures for knowing Melee frame data
+    """Deprecated compatibility helpers for CSV or ISO-backed Melee framedata.
 
     Note:
         The frame data in libmelee is written to be useful to bots, and behave in a sane way,
         not necessarily be binary-compatible with in-game structures or values.
     """
-    def __init__(self, write=False):
+    def __init__(self, write=False, *, iso_path=None):
+        warnings.warn(
+            "FrameData is deprecated; use DiscFrameData with a legally supplied NTSC 1.02 ISO.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        if write and iso_path is not None:
+            raise ValueError("FrameData cannot record CSV data while using an ISO-backed source")
+        self._disc_framedata = DiscFrameData(iso_path) if iso_path is not None else None
         if write:
             self.csvfile = open('framedata.csv', 'a')
             fieldnames = ['character', 'action', 'frame',
@@ -63,37 +73,39 @@ class FrameData:
 
         #Read the existing framedata
         self.framedata = defaultdict(lambda: defaultdict(lambda: defaultdict(dict)))
-        with _open_package_csv("framedata.csv") as csvfile:
-            # A list of dicts containing the frame data
-            csvreader = list(csv.DictReader(csvfile))
-            # Build a series of nested dicts for faster read access
-            for frame in csvreader:
-                # Pull out the character, action, and frame
-                character = Character(int(frame["character"]))
-                action = Action(int(frame["action"]))
-                action_frame = int(frame["frame"])
-                self.framedata[character][action][action_frame] = \
-                    {"hitbox_1_status": frame["hitbox_1_status"] == "True", \
-                    "hitbox_1_size": float(frame["hitbox_1_size"]), \
-                    "hitbox_1_x": float(frame["hitbox_1_x"]), \
-                    "hitbox_1_y": float(frame["hitbox_1_y"]), \
-                    "hitbox_2_status": frame["hitbox_2_status"] == "True", \
-                    "hitbox_2_size": float(frame["hitbox_2_size"]), \
-                    "hitbox_2_x": float(frame["hitbox_2_x"]), \
-                    "hitbox_2_y": float(frame["hitbox_2_y"]), \
-                    "hitbox_3_status": frame["hitbox_3_status"] == "True", \
-                    "hitbox_3_size": float(frame["hitbox_3_size"]), \
-                    "hitbox_3_x": float(frame["hitbox_3_x"]), \
-                    "hitbox_3_y": float(frame["hitbox_3_y"]), \
-                    "hitbox_4_status": frame["hitbox_4_status"] == "True", \
-                    "hitbox_4_size": float(frame["hitbox_4_size"]), \
-                    "hitbox_4_x": float(frame["hitbox_4_x"]), \
-                    "hitbox_4_y": float(frame["hitbox_4_y"]), \
-                    "locomotion_x": float(frame["locomotion_x"]), \
-                    "locomotion_y": float(frame["locomotion_y"]), \
-                    "iasa": frame["iasa"] == "True", \
-                    "facing_changed": frame["facing_changed"] == "True", \
-                    "projectile": frame["projectile"] == "True"}
+        if self._disc_framedata is None:
+            with _open_package_csv("framedata.csv") as csvfile:
+                csvreader = list(csv.DictReader(csvfile))
+        else:
+            csvreader = ()
+        # Build a series of nested dicts for faster read access
+        for frame in csvreader:
+            # Pull out the character, action, and frame
+            character = Character(int(frame["character"]))
+            action = Action(int(frame["action"]))
+            action_frame = int(frame["frame"])
+            self.framedata[character][action][action_frame] = \
+                {"hitbox_1_status": frame["hitbox_1_status"] == "True", \
+                "hitbox_1_size": float(frame["hitbox_1_size"]), \
+                "hitbox_1_x": float(frame["hitbox_1_x"]), \
+                "hitbox_1_y": float(frame["hitbox_1_y"]), \
+                "hitbox_2_status": frame["hitbox_2_status"] == "True", \
+                "hitbox_2_size": float(frame["hitbox_2_size"]), \
+                "hitbox_2_x": float(frame["hitbox_2_x"]), \
+                "hitbox_2_y": float(frame["hitbox_2_y"]), \
+                "hitbox_3_status": frame["hitbox_3_status"] == "True", \
+                "hitbox_3_size": float(frame["hitbox_3_size"]), \
+                "hitbox_3_x": float(frame["hitbox_3_x"]), \
+                "hitbox_3_y": float(frame["hitbox_3_y"]), \
+                "hitbox_4_status": frame["hitbox_4_status"] == "True", \
+                "hitbox_4_size": float(frame["hitbox_4_size"]), \
+                "hitbox_4_x": float(frame["hitbox_4_x"]), \
+                "hitbox_4_y": float(frame["hitbox_4_y"]), \
+                "locomotion_x": float(frame["locomotion_x"]), \
+                "locomotion_y": float(frame["locomotion_y"]), \
+                "iasa": frame["iasa"] == "True", \
+                "facing_changed": frame["facing_changed"] == "True", \
+                "projectile": frame["projectile"] == "True"}
 
         #read the character data csv
         self.characterdata = dict()
@@ -105,6 +117,30 @@ class FrameData:
                 for key, value in line.items():
                     line[key] = float(value)
                 self.characterdata[Character(line["CharacterIndex"])] = line
+
+    def _disc_action(self, character, action):
+        if self._disc_framedata is None:
+            return None
+        if not isinstance(action, Action):
+            return None
+        return self._disc_framedata.action_for_state(character, action)
+
+    def _disc_hitbox_frames(self, character, action):
+        record = self._disc_action(character, action)
+        if record is None:
+            return ()
+        if not record.timeline.hitbox_generations and self.is_bmove(character, action):
+            raise DiscFrameDataError(
+                "ISO-backed hitbox timing is unavailable for special states without fighter hitboxes; "
+                "the move may create an unparsed article or projectile"
+            )
+        return tuple(frame.local_frame for frame in record.timeline.frames if frame.active_hitboxes)
+
+    def _require_csv_geometry(self, method):
+        if self._disc_framedata is not None:
+            raise DiscFrameDataError(
+                f"FrameData.{method}() requires posed geometry, which the ISO-backed parser does not yet provide"
+            )
 
     def is_grab(self, character, action):
         """For the given character, is the supplied action a grab?
@@ -205,6 +241,9 @@ class FrameData:
             character (enums.Character): The character we're interested in
             action (enums.Action): The action we're interested in
         """
+        if self._disc_framedata is not None:
+            return bool(self._disc_hitbox_frames(character, action))
+
         # For each frame...
         for _, frame in self.framedata[character][action].items():
             if frame:
@@ -272,6 +311,7 @@ class FrameData:
             action (enums.Action): The action we're interested in
             action_frame (int): The frame of the action we're interested in
         """
+        self._require_csv_geometry("range_forward")
         attackrange = 0
         lastframe = self.last_hitbox_frame(character, action)
         for i in range(action_frame+1, lastframe+1):
@@ -300,6 +340,7 @@ class FrameData:
             action (enums.Action): The action we're interested in
             action_frame (int): The frame of the action we're interested in
         """
+        self._require_csv_geometry("range_backward")
         attackrange = 0
         lastframe = self.last_hitbox_frame(character, action)
         for i in range(action_frame+1, lastframe+1):
@@ -334,6 +375,7 @@ class FrameData:
             This considers the defending character to have a single hurtbox, centered
             at the x,y coordinates of the player (adjusted up a little to be centered)
         """
+        self._require_csv_geometry("in_range")
         lastframe = self.last_hitbox_frame(attacker.character, attacker.action)
 
         # Adjust the defender's hurtbox up a little, to be more centered.
@@ -518,6 +560,7 @@ class FrameData:
 
     def _getframe(self, character, action, action_frame):
         """Returns a raw frame dict for the specified frame """
+        self._require_csv_geometry("_getframe")
         if self.framedata[character][action][action_frame]:
             return self.framedata[character][action][action_frame]
         return None
@@ -532,6 +575,8 @@ class FrameData:
          """
         if not self.is_roll(character, action):
             return -1
+        if self._disc_framedata is not None:
+            return self.frame_count(character, action)
         frames = []
         for action_frame in self.framedata[character][action]:
             frames.append(action_frame)
@@ -546,6 +591,7 @@ class FrameData:
             character_state (gamestate.PlayerState): The player we're calculating for
             stage (enums.Stage): The stage being played on
         """
+        self._require_csv_geometry("roll_end_position")
         distance = 0
         try:
             #TODO: Take current momentum into account
@@ -593,6 +639,10 @@ class FrameData:
             character (enums.Character): The character we're interested in
             action (enums.Action): The action we're interested in
         """
+        if self._disc_framedata is not None:
+            frames = self._disc_hitbox_frames(character, action)
+            return min(frames, default=-1)
+
         # Grab only the subset that have a hitbox
         hitboxes = []
         for action_frame, frame in self.framedata[character][action].items():
@@ -617,14 +667,23 @@ class FrameData:
            By this we mean is it a multihit attack? (Peach's down B?)
            or a single-hit attack? (Marth's fsmash?)
         """
-        # Grab only the subset that have a hitbox
-
-        # This math doesn't work for Samus's UP_B
-        #   Because the hitboxes are contiguous
+        # This math doesn't work for contiguous multihits.
         if character == Character.SAMUS and action in [Action.SWORD_DANCE_3_MID, Action.SWORD_DANCE_3_LOW]:
             return 7
         if character == Character.YLINK and action == Action.SWORD_DANCE_4_MID:
             return 10
+
+        if self._disc_framedata is not None:
+            frames = self._disc_hitbox_frames(character, action)
+            count = 0
+            previous = None
+            for frame in frames:
+                if previous is None or frame != previous + 1:
+                    count += 1
+                previous = frame
+            return count
+
+        # Grab only the subset that have a hitbox
 
         hitboxes = []
         for action_frame, frame in self.framedata[character][action].items():
@@ -657,6 +716,16 @@ class FrameData:
         """
         if not self.is_attack(character, action):
             return -1
+        if self._disc_framedata is not None:
+            record = self._disc_action(character, action)
+            if record is None:
+                return -1
+            iasa_frame = min(record.timeline.iasa_frame or record.timeline.frame_count, record.timeline.frame_count)
+            if character == Character.MARTH and action == Action.NEUTRAL_ATTACK_1:
+                return min(20, iasa_frame)
+            if character == Character.PIKACHU and action == Action.NEUTRAL_ATTACK_1:
+                return min(6, iasa_frame)
+            return iasa_frame
         iasaframes = []
         allframes = []
         for action_frame, frame in self.framedata[character][action].items():
@@ -679,6 +748,10 @@ class FrameData:
             action (enums.Action): The action we're interested in
 
         """
+        if self._disc_framedata is not None:
+            frames = self._disc_hitbox_frames(character, action)
+            return max(frames, default=-1)
+
         # Grab only the subset that have a hitbox
         hitboxes = []
         for action_frame, frame in self.framedata[character][action].items():
@@ -699,6 +772,12 @@ class FrameData:
             character (enums.Character): The character we're interested in
             action (enums.Action): The action we're interested in
         """
+        if self._disc_framedata is not None:
+            record = self._disc_action(character, action)
+            if record is None or not record.timeline.frames:
+                return -1
+            return record.timeline.frame_count
+
         frames = []
         for action_frame, _ in self.framedata[character][action].items():
             frames.append(action_frame)

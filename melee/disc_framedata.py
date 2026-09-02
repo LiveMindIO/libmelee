@@ -9,12 +9,23 @@ from __future__ import annotations
 import hashlib
 import math
 import os
+import struct
 import threading
 from dataclasses import dataclass
 from pathlib import Path
 
 from melee._gamecube import DiscImageError, GameCubeDisc
 from melee._hsd_dat import DatParseError, HsdDat, parse_figatree_frame_count
+from melee._ntsc102 import (
+    CHARACTER_MOTION_STATE_POINTERS,
+    COMMON_MOTION_STATE_COUNT,
+    COMMON_MOTION_STATE_TABLE,
+    DOLDECOMP_REVISION,
+    FIGHTER_ACTION_COUNTS,
+    FIGHTER_KINDS,
+    FIGHTER_KINDS_BY_CODE,
+    MOTION_STATE_SIZE,
+)
 from melee._subaction import (
     ActionTimeline,
     ExecutedCommand,
@@ -31,48 +42,13 @@ from melee._subaction import (
     ThrowEvent,
     interpret_subaction,
 )
+from melee.enums import Action, Character
 
 
 class DiscFrameDataError(ValueError):
     """Raised for an invalid public DiscFrameData query."""
 
 
-# Root symbols and action counts are build-specific executable metadata.
-_FIGHTER_METADATA = {
-    "Mr": ("ftDataMario", 303),
-    "Fx": ("ftDataFox", 327),
-    "Ca": ("ftDataCaptain", 318),
-    "Dk": ("ftDataDonkey", 337),
-    "Kb": ("ftDataKirby", 479),
-    "Kp": ("ftDataKoopa", 316),
-    "Lk": ("ftDataLink", 314),
-    "Sk": ("ftDataSeak", 317),
-    "Ns": ("ftDataNess", 326),
-    "Pe": ("ftDataPeach", 318),
-    "Pp": ("ftDataPopo", 321),
-    "Nn": ("ftDataNana", 321),
-    "Pk": ("ftDataPikachu", 320),
-    "Ss": ("ftDataSamus", 313),
-    "Ys": ("ftDataYoshi", 314),
-    "Pr": ("ftDataPurin", 327),
-    "Mt": ("ftDataMewtwo", 314),
-    "Lg": ("ftDataLuigi", 312),
-    "Ms": ("ftDataMars", 327),
-    "Zd": ("ftDataZelda", 311),
-    "Cl": ("ftDataClink", 314),
-    "Dr": ("ftDataDrmario", 303),
-    "Fc": ("ftDataFalco", 327),
-    "Pc": ("ftDataPichu", 320),
-    "Gw": ("ftDataGamewatch", 323),
-    "Gn": ("ftDataGanon", 318),
-    "Fe": ("ftDataEmblem", 327),
-    "Mh": ("ftDataMasterhand", 345),
-    "Ch": ("ftDataCrazyhand", 344),
-    "Bo": ("ftDataBoy", 295),
-    "Gl": ("ftDataGirl", 295),
-    "Gk": ("ftDataGkoopa", 316),
-    "Sb": ("ftDataSandbag", 296),
-}
 _MAX_TIMELINE_FRAMES = 10_000
 
 
@@ -86,6 +62,8 @@ class DiscBuild:
     revision: int
     region: str
     version: str
+    doldecomp_revision: str
+    dol_offset: int
     fst_offset: int
     fst_size: int
 
@@ -99,6 +77,27 @@ class FighterSource:
     animation_dat_member: str
     fighter_dat_sha256: str
     animation_dat_sha256: str
+
+
+@dataclass(frozen=True, slots=True)
+class MotionStateRecord:
+    """One executable MotionState selected by a character/runtime action pair."""
+
+    character: Character
+    action: Action
+    virtual_address: int
+    dat_action_index: int | None
+    motion_flags: int
+    raw_move_flags: int
+    move_id: int
+    state_flags: int
+    unknown_xa: int
+    unknown_xb: int
+    animation_callback: int | None
+    input_callback: int | None
+    physics_callback: int | None
+    collision_callback: int | None
+    camera_callback: int | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -119,6 +118,11 @@ class ActionRecord:
     raw_flags: int
     runtime_animation_pointer: int
     timeline: ActionTimeline
+
+    def frame(self, local_frame: int) -> FrameSnapshot:
+        """Return a frame using libmelee's one-based action-frame convention."""
+
+        return self.timeline.frame(local_frame)
 
 
 @dataclass(frozen=True, slots=True)
@@ -145,8 +149,9 @@ def _empty_timeline(frame_count: float | None) -> ActionTimeline:
     if frame_count is not None:
         if frame_count > _MAX_TIMELINE_FRAMES:
             raise SubactionParseError(f"empty subaction: frame guard exceeded {_MAX_TIMELINE_FRAMES} frames")
+        snapshot_count = 0 if frame_count <= 0 else max(1, math.ceil(frame_count) - 1)
         frames = tuple(
-            FrameSnapshot(frame, float(frame - 1), (), False) for frame in range(1, max(0, math.ceil(frame_count)) + 1)
+            FrameSnapshot(frame, float(frame - 1), (), False) for frame in range(1, snapshot_count + 1)
         )
     return ActionTimeline((), (), (), (), (), None, None, frames, False, False, False)
 
@@ -162,9 +167,10 @@ class DiscFrameData:
 
     def __init__(self, iso_path: str | os.PathLike[str]):
         self._disc = GameCubeDisc(iso_path)
-        self._codes = tuple(sorted(code for code in self._disc.fighter_members if code in _FIGHTER_METADATA))
+        self._codes = tuple(sorted(code for code in self._disc.fighter_members if code in FIGHTER_KINDS_BY_CODE))
         self._code_lookup = {code.casefold(): code for code in self._codes}
         self._cache: dict[str, FighterRecord] = {}
+        self._motion_state_cache: dict[tuple[int, int], MotionStateRecord | None] = {}
         self._lock = threading.RLock()
         self._build = DiscBuild(
             self._disc.path.resolve(),
@@ -173,6 +179,8 @@ class DiscFrameData:
             2,
             "NTSC-U",
             "1.02",
+            DOLDECOMP_REVISION,
+            self._disc.dol_offset,
             self._disc.fst_offset,
             self._disc.fst_size,
         )
@@ -219,6 +227,103 @@ class DiscFrameData:
 
         return self.fighter(code).action(dat_action_index)
 
+    def motion_state(self, character: Character, action: Action) -> MotionStateRecord | None:
+        """Return the executable MotionState for a character/runtime action pair."""
+
+        kind = character.value
+        runtime_action = action.value
+        if kind < 0 or kind >= len(FIGHTER_KINDS):
+            raise DiscFrameDataError(f"unsupported runtime character {character!r}")
+        if runtime_action < 0:
+            raise DiscFrameDataError(f"invalid runtime action ID {runtime_action}")
+        metadata = FIGHTER_KINDS[kind]
+        if metadata.code not in self._disc.fighter_members:
+            raise DiscFrameDataError(f"fighter DAT pair for runtime character {character.name} is unavailable")
+
+        key = (kind, runtime_action)
+        with self._lock:
+            if key in self._motion_state_cache:
+                return self._motion_state_cache[key]
+            dol = self._disc.read_dol()
+            executable_count = dol.u32(
+                FIGHTER_ACTION_COUNTS + kind * 8 + 4,
+                f"{character.name} fighter action count",
+            )
+            if executable_count != metadata.action_count:
+                raise DiscFrameDataError(
+                    f"{character.name} executable action count {executable_count} does not match "
+                    f"expected NTSC 1.02 count {metadata.action_count}"
+                )
+
+            if runtime_action < COMMON_MOTION_STATE_COUNT:
+                state_address = COMMON_MOTION_STATE_TABLE + runtime_action * MOTION_STATE_SIZE
+            else:
+                special_index = runtime_action - COMMON_MOTION_STATE_COUNT
+                if special_index >= metadata.special_state_count:
+                    self._motion_state_cache[key] = None
+                    return None
+                table_address = dol.u32(
+                    CHARACTER_MOTION_STATE_POINTERS + kind * 4,
+                    f"{character.name} motion-state table pointer",
+                )
+                if not table_address:
+                    raise DiscFrameDataError(f"{character.name} has no character-specific motion-state table")
+                state_address = table_address + special_index * MOTION_STATE_SIZE
+
+            values = struct.unpack(
+                ">i7I",
+                dol.read(state_address, MOTION_STATE_SIZE, f"{character.name} action {runtime_action} MotionState"),
+            )
+            dat_index, motion_flags, raw_move_flags, *callbacks = values
+            callback_names = ("animation", "input", "physics", "collision", "camera")
+            for callback_name, callback in zip(callback_names, callbacks, strict=True):
+                if callback and (callback % 4 or not dol.contains_executable(callback, 4)):
+                    raise DiscFrameDataError(
+                        f"{character.name} action {runtime_action} has {callback_name} callback "
+                        f"0x{callback:X} outside an aligned executable DOL range"
+                    )
+            if dat_index == -1:
+                mapped_index = None
+            elif dat_index < 0 or dat_index >= metadata.action_count:
+                raise DiscFrameDataError(
+                    f"{character.name} action {runtime_action} maps to invalid DAT action index {dat_index}"
+                )
+            else:
+                mapped_index = dat_index
+            result = MotionStateRecord(
+                character=character,
+                action=action,
+                virtual_address=state_address,
+                dat_action_index=mapped_index,
+                motion_flags=motion_flags,
+                raw_move_flags=raw_move_flags,
+                move_id=raw_move_flags >> 24,
+                state_flags=(raw_move_flags >> 16) & 0xFF,
+                unknown_xa=(raw_move_flags >> 8) & 0xFF,
+                unknown_xb=raw_move_flags & 0xFF,
+                animation_callback=callbacks[0] or None,
+                input_callback=callbacks[1] or None,
+                physics_callback=callbacks[2] or None,
+                collision_callback=callbacks[3] or None,
+                camera_callback=callbacks[4] or None,
+            )
+            self._motion_state_cache[key] = result
+            return result
+
+    def dat_action_index(self, character: Character, action: Action) -> int | None:
+        """Map a runtime action-state ID to its fighter DAT action-table index."""
+
+        state = self.motion_state(character, action)
+        return None if state is None else state.dat_action_index
+
+    def action_for_state(self, character: Character, action: Action) -> ActionRecord | None:
+        """Return the DAT action selected by a public runtime character/action pair."""
+
+        dat_index = self.dat_action_index(character, action)
+        if dat_index is None:
+            return None
+        return self.action(FIGHTER_KINDS[character.value].code, dat_index)
+
     def _parse_fighter(self, code: str) -> FighterRecord:
         dat_member, aj_member = self._disc.fighter_members[code]
         fighter_bytes = self._disc.read_member(dat_member)
@@ -233,8 +338,8 @@ class DiscFrameData:
         dat = HsdDat(fighter_bytes, context=dat_member.path)
         actions = []
         animation_frame_counts: dict[tuple[int, int, str], float] = {}
-        root_name, action_count = _FIGHTER_METADATA[code]
-        for raw in dat.fighter_actions(expected_root=root_name, expected_count=action_count):
+        metadata = FIGHTER_KINDS_BY_CODE[code]
+        for raw in dat.fighter_actions(expected_root=metadata.root_symbol, expected_count=metadata.action_count):
             frame_count = None
             if raw.animation_size:
                 if raw.symbol is None:
@@ -306,6 +411,7 @@ __all__ = [
     "HurtScope",
     "HurtState",
     "HurtStateEvent",
+    "MotionStateRecord",
     "RawCommand",
     "SubactionParseError",
     "ThrowEvent",

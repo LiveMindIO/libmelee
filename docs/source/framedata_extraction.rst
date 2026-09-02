@@ -208,6 +208,16 @@ The action-table index is not by itself a complete semantic name. Common and
 fighter-specific motion-state tables in the game executable map action-state
 IDs to callbacks, while the DAT supplies an animation symbol. Store all three:
 action-table index, runtime motion-state ID where known, and original symbol.
+For NTSC 1.02, ``MotionState.anim_id`` is the authoritative DAT action-table
+index. ``main.dol`` begins at the disc-header offset stored at ``0x420`` and its
+section table must be used to translate executable virtual addresses into
+bounded file reads; it is not an FST member.
+
+The implemented NTSC 1.02 addresses, fighter-kind ordering, table counts, and
+``MotionState`` layout were audited against doldecomp/melee revision
+``d15c9cffe939611627b3a7a77a446705d2998f5f``. Keep that revision with exported
+build provenance. Callback pointers identify behavior for later analysis, but a
+pointer alone does not reproduce the callback's runtime semantics.
 
 Subaction command timeline
 --------------------------
@@ -640,7 +650,11 @@ artifact for package distribution. At minimum:
 
 Keep the existing one-indexed libmelee API as a presentation layer if desired,
 but retain source animation time and raw timer values so zero/one-index conversion
-is explicit and reversible.
+is explicit and reversible. The presentation conversion is
+``max(1, ceil(source_time))``: source times zero and one are both public frame
+one, while a source time of two is public frame two. A FigaTree frame count is
+an exclusive source-time endpoint; for a positive count ``N``, snapshot count is
+``max(1, ceil(N) - 1)``.
 
 Suggested implementation sequence
 ---------------------------------

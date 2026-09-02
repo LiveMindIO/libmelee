@@ -19,12 +19,50 @@ runtime and does not extract or write Nintendo data::
 
    data = melee.DiscFrameData("/path/to/melee.iso")
    print(data.available_fighter_codes)
-   action = data.action("Fx", 44)
+   action = data.action_for_state(melee.Character.FOX, melee.Action.NEUTRAL_ATTACK_1)
+   assert action is not None
    print(action.symbol, action.animation_frame_count, action.timeline.iasa_frame)
 
-The integer passed to ``action`` is the fighter DAT action-table index. It is
-not always the same as ``PlayerState.action`` because runtime motion-state
-tables and callbacks live in the game executable.
+``action_for_state`` maps a public ``Character`` and runtime ``Action`` through
+the NTSC 1.02 executable's common and character-specific ``MotionState`` tables.
+It returns ``None`` when the state has no animation or is not present in that
+character's table. ``dat_action_index`` exposes the mapped index directly. The
+integer passed to the lower-level ``action`` method is instead a fighter DAT
+action-table index and is not generally equal to ``PlayerState.action``.
+
+``motion_state(character, action)`` exposes the complete immutable executable
+record used for that mapping: its virtual address, DAT action index, motion and
+move flags, move ID, and animation/input/physics/collision/camera callback
+pointers. Null callbacks are represented as ``None``. These pointers are
+provenance for auditing behavior against doldecomp; libmelee does not execute or
+claim to reproduce their PowerPC code. ``DiscBuild.doldecomp_revision`` records
+the exact doldecomp revision used to audit the NTSC 1.02 layouts and addresses.
+
+``FrameData`` is deprecated. Existing code can opt into the ISO-backed timing
+facade while retaining its query method signatures::
+
+   data = melee.FrameData(iso_path="/path/to/melee.iso")
+   print(data.first_hitbox_frame(melee.Character.FOX, melee.Action.NEUTRAL_ATTACK_1))
+
+The facade supports ``is_attack``, ``attack_state``, ``first_hitbox_frame``,
+``last_hitbox_frame``, ``hitbox_count``, ``iasa``, ``frame_count``, and
+``last_roll_frame`` from the ISO. Geometry-dependent methods such as
+``range_forward``, ``range_backward``, ``in_range``, and ``roll_end_position``
+raise ``DiscFrameDataError`` in this mode rather than misrepresenting bone-local
+DAT coordinates as posed fighter-relative geometry. Construction without
+``iso_path`` temporarily retains the historical CSV-backed behavior. Article
+and projectile attacks are not yet included; a special state without fighter
+hitboxes raises ``DiscFrameDataError`` from ISO-backed hitbox-related queries
+rather than being reported as a non-attack. ``frame_count`` remains available
+because it does not require article data.
+
+As with ``PlayerState.action_frame``, every exported ``local_frame`` and
+``FrameSnapshot.local_frame`` is one-indexed. ``ActionRecord.frame(1)`` always
+addresses the initial snapshot. Raw/effective script timing remains available
+separately as ``animation_time``; timer times zero and one both map to public
+frame one, and later fractional times round up. FigaTree frame counts are
+exclusive source-time endpoints, so an animation ending at source time 18 has
+public snapshots ``1..17`` while retaining ``animation_frame_count == 18``.
 
 This phase parses action symbols, raw flags, FigaTree frame counts, guarded
 subaction control flow, local-frame snapshots, hitbox generations and

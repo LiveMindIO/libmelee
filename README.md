@@ -84,6 +84,10 @@ Libmelee tries to create a sensible and intuitive API for Melee. So it may break
 - Melee is wildly inconsistent with whether animations start at 0 or 1. For some animations, the first frame is 0, for others the first frame is 1. This is very annoying when trying to program a bot. So libmelee re-indexes all animations to start at 1. This way the math is always simple and consistent. IE: If grab comes out on "frame 7", you can reliably check `character.animation_frame == 7`.
 - Libmelee treats Sheik and Zelda as one character that transforms back and forth. This is actually not how the game stores the characters internally, though. Internally to Melee, Sheik and Zelda are the same as Ice Climbers: there's always two of them. One just happens to be invisible and intangible at a time. But dealing with that would be a pain.
 
+## FrameData
+
+`FrameData` is deprecated in favor of the read-only `DiscFrameData` API, which reads fighter data directly from a legally supplied NTSC 1.02 Melee ISO without extracting files. Use `DiscFrameData.action_for_state(character, action)` for runtime action IDs. Existing timing-query callers can migrate incrementally with `FrameData(iso_path="/path/to/melee.iso")`; geometry-dependent methods are unavailable in that mode until skeleton and animation-pose evaluation is implemented.
+
 ### Some Values are Unintuitive but Unavoidable
 Other values in Melee are unintuitive, but are a core aspect of how the game works so we can't abstract it away.
 - Melee doesn't have just two velocity values (X, Y) it has five! In particular, the game tracks separately your speed "due to being hit" versus "self-induced" speed. This is why after an Amsah tech, you can still go flying off stage. Because your "attack based speed" was high despite not moving anywhere for a while. Libmelee *could* produce a single X,Y speed pair but this would not accurately represent the game state. (For example, SmashBot fails at tech chasing without these 5 speed values)

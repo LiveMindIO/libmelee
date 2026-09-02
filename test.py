@@ -13,7 +13,7 @@ from uuid import UUID
 from typing_extensions import get_overloads
 
 import melee
-from melee._gamecube import GameCubeDisc
+from melee._gamecube import DolImage, GameCubeDisc
 from melee._hsd_dat import HsdDat, parse_figatree_frame_count
 from melee._subaction import interpret_subaction
 from melee.bot import (
@@ -128,6 +128,8 @@ def _synthetic_fighter_dat(animation_size):
     action_symbol = b"Attack11_figatree\0"
     data[symbol : symbol + len(action_symbol)] = action_symbol
     struct.pack_into(">IIIIII", data, actions, symbol, 0, animation_size, script, 0xA0000042, 0x12345678)
+    jab_action = actions + 46 * 0x18
+    struct.pack_into(">IIIIII", data, jab_action, symbol, 0, animation_size, script, 0xA0000042, 0x12345678)
 
     hitbox_fields = (
         (1, 3), (2, 3), (1, 1), (5, 8), (0, 1), (10, 10),
@@ -177,7 +179,16 @@ def _synthetic_fighter_dat(animation_size):
     )
     data[target : target + len(target_script)] = target_script
 
-    relocations = (0x0C, 0x10, actions, actions + 0x0C, script + 0x28, script + 0x40)
+    relocations = (
+        0x0C,
+        0x10,
+        actions,
+        actions + 0x0C,
+        jab_action,
+        jab_action + 0x0C,
+        script + 0x28,
+        script + 0x40,
+    )
     reloc = b"".join(struct.pack(">I", offset) for offset in relocations)
     roots = struct.pack(">II", fighter, 0)
     strings = b"ftDataFox\0"
@@ -186,7 +197,53 @@ def _synthetic_fighter_dat(animation_size):
     return header + data + reloc + roots + strings
 
 
+def _synthetic_dol():
+    text_address = 0x80000000
+    text_size = 0x1000
+    text_file_offset = 0x100
+    data_address = 0x803C0000
+    data_size = 0x6000
+    data_file_offset = 0x1200
+    data = bytearray(data_file_offset + data_size)
+    struct.pack_into(">I", data, 0x00, text_file_offset)
+    struct.pack_into(">I", data, 0x48, text_address)
+    struct.pack_into(">I", data, 0x90, text_size)
+    struct.pack_into(">I", data, 0x1C, data_file_offset)
+    struct.pack_into(">I", data, 0x64, data_address)
+    struct.pack_into(">I", data, 0xAC, data_size)
+
+    def pack_virtual(address, value, *, signed=False):
+        format_string = ">i" if signed else ">I"
+        struct.pack_into(format_string, data, data_file_offset + address - data_address, value)
+
+    def pack_motion_state(address, animation_id, motion_flags=0, raw_move_flags=0, callbacks=(0, 0, 0, 0, 0)):
+        struct.pack_into(
+            ">i7I",
+            data,
+            data_file_offset + address - data_address,
+            animation_id,
+            motion_flags,
+            raw_move_flags,
+            *callbacks,
+        )
+
+    pack_virtual(0x803C0FC8 + melee.Character.FOX.value * 8 + 4, 327)
+    pack_motion_state(
+        0x803C2800 + melee.Action.NEUTRAL_ATTACK_1.value * 0x20,
+        46,
+        0xA0000042,
+        0x12034567,
+        (0x80000100, 0x80000200, 0x80000300, 0x80000400, 0),
+    )
+    pack_motion_state(0x803C2800 + melee.Action.FALLING_FORWARD.value * 0x20, -1)
+    pack_virtual(0x803C12E0 + melee.Character.FOX.value * 4, 0x803C5800)
+    pack_motion_state(0x803C5800, 295)
+    return bytes(data)
+
+
 def _synthetic_iso(members):
+    dol = _synthetic_dol()
+    dol_offset = 0x1000
     names = ["fighter", *members]
     string_offsets = {}
     strings = bytearray()
@@ -196,17 +253,18 @@ def _synthetic_iso(members):
     count = len(members) + 2
     fst_entries = [struct.pack(">III", 0x01000000, 0, count)]
     fst_entries.append(struct.pack(">III", 0x01000000 | string_offsets["fighter"], 0, count))
-    file_offset = 0x1000
+    file_offset = (dol_offset + len(dol) + 0x1F) & ~0x1F
     file_layout = []
     for name, contents in members.items():
         fst_entries.append(struct.pack(">III", string_offsets[name], file_offset, len(contents)))
         file_layout.append((file_offset, contents))
         file_offset += (len(contents) + 0x1F) & ~0x1F
     fst = b"".join(fst_entries) + strings
-    image = bytearray(max(file_offset, 0x500 + len(fst)))
+    image = bytearray(max(file_offset, dol_offset + len(dol), 0x500 + len(fst)))
     image[0:8] = b"GALE01\0\2"
-    struct.pack_into(">III", image, 0x424, 0x500, len(fst), len(fst))
+    struct.pack_into(">IIII", image, 0x420, dol_offset, 0x500, len(fst), len(fst))
     image[0x500 : 0x500 + len(fst)] = fst
+    image[dol_offset : dol_offset + len(dol)] = dol
     for offset, contents in file_layout:
         image[offset : offset + len(contents)] = contents
     return bytes(image)
@@ -265,6 +323,23 @@ class DiscFrameDataTests(unittest.TestCase):
         self.assertEqual(animations.name, "PlFxAJ.dat")
         self.assertEqual(disc.read_member(base), self.fighter)
         self.assertNotIn("Co", disc.fighter_members)
+        dol = disc.read_dol()
+        self.assertEqual(dol.u32(0x803C0FD4), 327)
+        self.assertEqual(dol.s32(0x803C2D80), 46)
+        self.assertTrue(dol.contains(0x803C2D80, 0x20))
+        self.assertFalse(dol.contains_executable(0x803C2D80, 0x20))
+        self.assertTrue(dol.contains_executable(0x80000000, 4))
+        self.assertFalse(dol.contains_executable(0x80001000, 4))
+        with self.assertRaisesRegex(melee.DiscImageError, "outside initialized sections"):
+            dol.u32(0x90000000)
+        with self.assertRaisesRegex(melee.DiscImageError, "no initialized sections"):
+            DolImage(bytes(0x100))
+        overlapping_dol = bytearray(_synthetic_dol())
+        struct.pack_into(">I", overlapping_dol, 0x20, 0x200)
+        struct.pack_into(">I", overlapping_dol, 0x68, 0x803C0100)
+        struct.pack_into(">I", overlapping_dol, 0xB0, 0x200)
+        with self.assertRaisesRegex(melee.DiscImageError, "overlapping virtual section"):
+            DolImage(bytes(overlapping_dol))
 
         bad_revision = bytearray(self.iso_path.read_bytes())
         bad_revision[7] = 1
@@ -318,14 +393,76 @@ class DiscFrameDataTests(unittest.TestCase):
         self.assertEqual(data.available_fighter_codes, ("Fx",))
         self.assertEqual(data.build.game_id, "GALE01")
         self.assertEqual(data.build.version, "1.02")
+        self.assertEqual(data.build.doldecomp_revision, "d15c9cffe939611627b3a7a77a446705d2998f5f")
+        self.assertEqual(data.build.dol_offset, 0x1000)
+        state = data.motion_state(melee.Character.FOX, melee.Action.NEUTRAL_ATTACK_1)
+        self.assertIsNotNone(state)
+        assert state is not None
+        self.assertEqual(state.virtual_address, 0x803C2D80)
+        self.assertEqual(state.dat_action_index, 46)
+        self.assertEqual(state.motion_flags, 0xA0000042)
+        self.assertEqual(state.raw_move_flags, 0x12034567)
+        self.assertEqual(
+            (state.move_id, state.state_flags, state.unknown_xa, state.unknown_xb),
+            (0x12, 3, 0x45, 0x67),
+        )
+        self.assertEqual(state.animation_callback, 0x80000100)
+        self.assertEqual(state.input_callback, 0x80000200)
+        self.assertEqual(state.physics_callback, 0x80000300)
+        self.assertEqual(state.collision_callback, 0x80000400)
+        self.assertIsNone(state.camera_callback)
+        self.assertIs(state, data.motion_state(melee.Character.FOX, melee.Action.NEUTRAL_ATTACK_1))
+        with self.assertRaises(AttributeError):
+            state.input_callback = 0
+        self.assertEqual(data.dat_action_index(melee.Character.FOX, melee.Action.NEUTRAL_ATTACK_1), 46)
+        runtime_action = data.action_for_state(melee.Character.FOX, melee.Action.NEUTRAL_ATTACK_1)
+        self.assertIsNotNone(runtime_action)
+        assert runtime_action is not None
+        self.assertEqual(runtime_action.dat_action_index, 46)
+        self.assertEqual(data.dat_action_index(melee.Character.FOX, melee.Action.LASER_GUN_PULL), 295)
+        animationless = data.motion_state(melee.Character.FOX, melee.Action.FALLING_FORWARD)
+        self.assertIsNotNone(animationless)
+        assert animationless is not None
+        self.assertIsNone(animationless.dat_action_index)
+        self.assertIsNone(data.action_for_state(melee.Character.FOX, melee.Action.FALLING_FORWARD))
+        self.assertIsNone(
+            data.action_for_state(melee.Character.FOX, melee.Action.KIRBY_GIGA_BOWSER_FIRE_BREATH_AIR_END)
+        )
+
+        state_file_offset = 0x1000 + 0x1200 + (0x803C2D80 - 0x803C0000)
+        invalid_callbacks = (
+            ("data", 0x803C0100, None),
+            ("unaligned", 0x80000101, None),
+            ("truncated", 0x80001000, 0x1002),
+            ("outside", 0x90000000, None),
+        )
+        for name, pointer, text_size in invalid_callbacks:
+            with self.subTest(invalid_callback=name):
+                invalid_callback = bytearray(self.iso_path.read_bytes())
+                if text_size is not None:
+                    struct.pack_into(">I", invalid_callback, 0x1000 + 0x90, text_size)
+                struct.pack_into(">I", invalid_callback, state_file_offset + 0x0C, pointer)
+                invalid_callback_path = Path(self.temporary_directory.name) / f"invalid-callback-{name}.iso"
+                invalid_callback_path.write_bytes(invalid_callback)
+                with self.assertRaisesRegex(melee.DiscFrameDataError, "animation callback.*executable"):
+                    melee.DiscFrameData(invalid_callback_path).motion_state(
+                        melee.Character.FOX,
+                        melee.Action.NEUTRAL_ATTACK_1,
+                    )
+
         self.assertIs(data.fighter("fx"), data.fighter("Fx"))
         action = data.action("Fx", 0)
         script_data_offset = HsdDat(self.fighter).fighter_actions()[0].script_data_offset
         assert script_data_offset is not None
         self.assertEqual(action.animation_frame_count, 8.0)
         self.assertEqual(action.script_dat_offset, script_data_offset + 0x20)
-        self.assertEqual(action.timeline.iasa_frame, 6)
-        self.assertEqual(len(action.timeline.frames), 8)
+        self.assertEqual(action.timeline.iasa_frame, 5)
+        self.assertEqual(len(action.timeline.frames), 7)
+        self.assertEqual(action.timeline.first_frame, 1)
+        self.assertEqual(action.timeline.frame_count, 7)
+        self.assertIs(action.frame(1), action.timeline.frames[0])
+        with self.assertRaisesRegex(IndexError, "one-indexed"):
+            action.frame(0)
 
         first = action.timeline.hitbox_generations[0]
         self.assertEqual(first.initial_hitbox.damage, 10)
@@ -355,13 +492,34 @@ class DiscFrameDataTests(unittest.TestCase):
             [melee.HurtScope.ALL_BONES, melee.HurtScope.BONE],
         )
         self.assertEqual(action.timeline.hurt_state_events[-1].bone_id, 5)
-        self.assertEqual([event.local_frame for event in action.timeline.hurt_state_events[:2]], [5, 6])
+        self.assertEqual([event.local_frame for event in action.timeline.hurt_state_events[:2]], [4, 5])
         self.assertTrue(action.timeline.frames[0].active_hitboxes)
-        self.assertTrue(action.timeline.frames[5].interrupt_allowed)
+        self.assertTrue(action.timeline.frames[4].interrupt_allowed)
         with self.assertRaises(AttributeError):
             action.raw_flags = 0
         with self.assertRaisesRegex(melee.DiscFrameDataError, "DAT action index 327"):
             data.action("Fx", 327)
+
+    def test_deprecated_framedata_iso_timing_facade(self):
+        with self.assertWarnsRegex(DeprecationWarning, "FrameData is deprecated"):
+            data = melee.FrameData(iso_path=self.iso_path)
+
+        character = melee.Character.FOX
+        action = melee.Action.NEUTRAL_ATTACK_1
+        self.assertTrue(data.is_attack(character, action))
+        self.assertEqual(data.attack_state(character, action, 1), melee.AttackState.ATTACKING)
+        self.assertEqual(data.first_hitbox_frame(character, action), 1)
+        self.assertEqual(data.last_hitbox_frame(character, action), 5)
+        self.assertEqual(data.hitbox_count(character, action), 1)
+        self.assertEqual(data.iasa(character, action), 5)
+        self.assertEqual(data.frame_count(character, action), 7)
+        self.assertFalse(data.is_attack(character, melee.UnknownAnimation(600)))
+        with self.assertRaisesRegex(melee.DiscFrameDataError, "unparsed article or projectile"):
+            data.is_attack(character, melee.Action.LASER_GUN_PULL)
+        self.assertEqual(data.hitbox_count(melee.Character.SAMUS, melee.Action.SWORD_DANCE_3_MID), 7)
+        self.assertEqual(data.hitbox_count(melee.Character.YLINK, melee.Action.SWORD_DANCE_4_MID), 10)
+        with self.assertRaisesRegex(melee.DiscFrameDataError, "requires posed geometry"):
+            data.range_forward(character, action, 1)
 
     def test_control_flow_and_lossless_command_lengths(self):
         dat = HsdDat(self.fighter)
@@ -453,9 +611,9 @@ class DiscFrameDataTests(unittest.TestCase):
         with self.assertRaisesRegex(melee.SubactionParseError, "frame guard"):
             interpret_subaction(_subaction_command(1, ((1 << 26) - 1, 26)), 0)
         with self.assertRaisesRegex(melee.SubactionParseError, "frame guard"):
-            interpret_subaction(_subaction_command(1, (10_000, 26)), 0, max_frames=10_000)
+            interpret_subaction(_subaction_command(1, (10_001, 26)), 0, max_frames=10_000)
         truncated_timeline = interpret_subaction(
-            _subaction_command(1, (3, 26)),
+            _subaction_command(1, (4, 26)),
             0,
             max_frames=3,
             truncate_at_max_frames=True,
@@ -473,8 +631,19 @@ class DiscFrameDataTests(unittest.TestCase):
 
         timer_then_event = _subaction_command(1, (2, 26)) + _subaction_command(23) + _subaction_command(0)
         no_animation = interpret_subaction(timer_then_event, 0)
-        self.assertEqual(len(no_animation.frames), 3)
+        self.assertEqual(len(no_animation.frames), 2)
         self.assertTrue(no_animation.frames[-1].interrupt_allowed)
+
+        for source_time, public_frame in ((0, 1), (1, 1), (2, 2)):
+            with self.subTest(source_time=source_time):
+                indexed = interpret_subaction(
+                    _subaction_command(1, (source_time, 26))
+                    + _subaction_command(23)
+                    + _subaction_command(0),
+                    0,
+                )
+                self.assertEqual(indexed.iasa_time, source_time)
+                self.assertEqual(indexed.iasa_frame, public_frame)
 
         with self.assertRaisesRegex(melee.SubactionParseError, "invalid animation frame count"):
             interpret_subaction(struct.pack(">I", 0), 0, animation_frame_count=10_001)
