@@ -11,6 +11,8 @@ CHARACTER_MOTION_STATE_POINTERS = 0x803C12E0
 FIGHTER_ACTION_COUNTS = 0x803C0FC8
 COMMON_MOTION_STATE_COUNT = 0x155
 MOTION_STATE_SIZE = 0x20
+# FtMoveId_SpecialN through the final Kirby copied-neutral-special move ID.
+SPECIAL_MOVE_IDS = frozenset(range(18, 48))
 
 
 @dataclass(frozen=True, slots=True)
@@ -72,5 +74,6 @@ __all__ = [
     "FIGHTER_KINDS",
     "FIGHTER_KINDS_BY_CODE",
     "MOTION_STATE_SIZE",
+    "SPECIAL_MOVE_IDS",
     "FighterKindMetadata",
 ]

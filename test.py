@@ -254,6 +254,7 @@ def _synthetic_dol():
         )
 
     pack_virtual(0x803C0FC8 + melee.Character.FOX.value * 8 + 4, 327)
+    pack_virtual(0x803C0FC8 + melee.Character.DK.value * 8 + 4, 337)
     pack_virtual(0x803C0FC8 + melee.Character.POPO.value * 8 + 4, 321)
     pack_virtual(0x803C0FC8 + melee.Character.NANA.value * 8 + 4, 321)
     pack_motion_state(
@@ -267,7 +268,10 @@ def _synthetic_dol():
     pack_motion_state(0x803C2800 + melee.Action.FALLING_FORWARD.value * 0x20, -1)
     pack_motion_state(0x803C2800 + melee.Action.DAMAGE_FLY_HIGH.value * 0x20, 1)
     pack_virtual(0x803C12E0 + melee.Character.FOX.value * 4, 0x803C5800)
-    pack_motion_state(0x803C5800, 295)
+    pack_motion_state(0x803C5800, 295, raw_move_flags=18 << 24)
+    donkey_motion_states = 0x803C5900
+    pack_virtual(0x803C12E0 + melee.Character.DK.value * 4, donkey_motion_states)
+    pack_motion_state(donkey_motion_states, 295, raw_move_flags=53 << 24)
     popo_motion_states = 0x803C5C00
     pack_virtual(0x803C12E0 + melee.Character.POPO.value * 4, popo_motion_states)
     pack_motion_state(
@@ -710,6 +714,44 @@ class DiscFrameDataTests(unittest.TestCase):
         assert isinstance(result, AttackFrameData)
         self.assertIs(result.action, melee.Action.LASER_GUN_PULL)
         self.assertIs(result.frame_data, frame_data)
+
+    def test_iso_article_uncertainty_uses_motion_move_id(self):
+        donkey = _synthetic_fighter_dat(
+            len(self.animation),
+            action_count=337,
+            root_symbol="ftDataDonkey",
+        )
+        iso_path = Path(self.temporary_directory.name) / "donkey-heavy-wait.iso"
+        iso_path.write_bytes(
+            _synthetic_iso(
+                {
+                    "PlDk.dat": donkey,
+                    "PlDkAJ.dat": self.animation,
+                }
+            )
+        )
+        with self.assertWarnsRegex(DeprecationWarning, "FrameData is deprecated"):
+            frame_data = melee.FrameData(iso_path=iso_path)
+        action = melee.Action.LASER_GUN_PULL
+        disc_framedata = frame_data._disc_framedata
+        assert disc_framedata is not None
+        state = disc_framedata.motion_state(melee.Character.DK, action)
+        self.assertIsNotNone(state)
+        assert state is not None
+        self.assertEqual(state.move_id, 53)
+        self.assertTrue(frame_data.is_bmove(melee.Character.DK, action))
+        self.assertFalse(frame_data.is_attack(melee.Character.DK, action))
+        player = melee.PlayerState(
+            character=melee.Character.DK,
+            action=action,
+            on_ground=True,
+        )
+        character_state = CharacterState(
+            melee.GameState(players={1: player}),
+            1,
+            frame_data=frame_data,
+        )
+        self.assertIs(character_state.get_state(), CharacterStatus.Standing)
 
     def test_control_flow_and_lossless_command_lengths(self):
         dat = HsdDat(self.fighter)

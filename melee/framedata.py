@@ -13,6 +13,7 @@ from importlib.resources import files
 from pathlib import Path
 
 from melee import stages
+from melee._ntsc102 import SPECIAL_MOVE_IDS
 from melee.disc_framedata import DiscFrameData, DiscFrameDataError
 from melee.enums import Action, AttackState, Character
 
@@ -130,7 +131,14 @@ class FrameData:
         record = self._disc_action(character, action)
         if record is None:
             return ()
-        if not record.timeline.hitbox_generations and self.is_bmove(character, action):
+        disc_framedata = self._disc_framedata
+        assert disc_framedata is not None
+        state = disc_framedata.motion_state(character, action)
+        if (
+            not record.timeline.hitbox_generations
+            and state is not None
+            and state.move_id in SPECIAL_MOVE_IDS
+        ):
             raise DiscFrameDataError(
                 "ISO-backed hitbox timing is unavailable for special states without fighter hitboxes; "
                 "the move may create an unparsed article or projectile"
