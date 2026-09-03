@@ -15,6 +15,7 @@ from typing_extensions import get_overloads
 import melee
 from melee._gamecube import DolImage, GameCubeDisc
 from melee._hsd_dat import HsdDat, parse_figatree_frame_count
+from melee._ntsc102 import COMMON_MOTION_STATE_COUNT
 from melee._subaction import interpret_subaction
 from melee.bot import (
     MIN_SHIELD,
@@ -140,6 +141,8 @@ def _synthetic_fighter_dat(
         struct.pack_into(">IIIIII", data, jab_action, symbol, 0, animation_size, script, 0xA0000042, 0x12345678)
     article_action = actions + 295 * 0x18
     struct.pack_into(">IIIIII", data, article_action, symbol, 0, animation_size, 0, 0xA0000042, 0)
+    script_only_action = actions + 314 * 0x18
+    struct.pack_into(">IIIIII", data, script_only_action, 0, 0, 0, script, 0xA0000042, 0)
 
     hitbox_fields = (
         (1, 3), (2, 3), (1, 1), (5, 8), (0, 1), (10, 10),
@@ -197,6 +200,7 @@ def _synthetic_fighter_dat(
         jab_action,
         jab_action + 0x0C,
         article_action,
+        script_only_action + 0x0C,
         script + 0x28,
         script + 0x40,
     )
@@ -252,6 +256,12 @@ def _synthetic_dol():
     pack_motion_state(0x803C2800 + melee.Action.FALLING_FORWARD.value * 0x20, -1)
     pack_virtual(0x803C12E0 + melee.Character.FOX.value * 4, 0x803C5800)
     pack_motion_state(0x803C5800, 295)
+    popo_motion_states = 0x803C5C00
+    pack_virtual(0x803C12E0 + melee.Character.POPO.value * 4, popo_motion_states)
+    pack_motion_state(
+        popo_motion_states + (melee.Action.POPO_SPECIAL_S_1.value - COMMON_MOTION_STATE_COUNT) * 0x20,
+        314,
+    )
     return bytes(data)
 
 
@@ -547,6 +557,15 @@ class DiscFrameDataTests(unittest.TestCase):
         assert inherited is not None
         self.assertEqual(inherited.animation_frame_count, 8.0)
         self.assertEqual(inherited.timeline.frame_count, 7)
+
+        script_only = data.action_for_state(melee.Character.POPO, melee.Action.POPO_SPECIAL_S_1)
+        self.assertIs(script_only, data.action("Pp", 314))
+        assert script_only is not None
+        self.assertEqual(script_only.animation_size, 0)
+        self.assertIsNone(script_only.animation_frame_count)
+        self.assertIsNotNone(script_only.script_data_offset)
+        self.assertTrue(script_only.timeline.commands)
+        self.assertTrue(script_only.timeline.hitbox_events)
 
     def test_deprecated_framedata_iso_timing_facade(self):
         with self.assertWarnsRegex(DeprecationWarning, "FrameData is deprecated"):
