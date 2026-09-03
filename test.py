@@ -114,8 +114,13 @@ def _synthetic_animation_dat(frame_count=8.0):
     return header + data + roots + strings
 
 
-def _synthetic_fighter_dat(animation_size):
-    action_count = 327
+def _synthetic_fighter_dat(
+    animation_size,
+    *,
+    action_count=327,
+    root_symbol="ftDataFox",
+    jab_inherits_from_popo=False,
+):
     fighter, dynamic = 0x00, 0x60
     actions = (dynamic + action_count * 2 + 3) & ~3
     symbol = actions + action_count * 0x18
@@ -129,7 +134,10 @@ def _synthetic_fighter_dat(animation_size):
     data[symbol : symbol + len(action_symbol)] = action_symbol
     struct.pack_into(">IIIIII", data, actions, symbol, 0, animation_size, script, 0xA0000042, 0x12345678)
     jab_action = actions + 46 * 0x18
-    struct.pack_into(">IIIIII", data, jab_action, symbol, 0, animation_size, script, 0xA0000042, 0x12345678)
+    if jab_inherits_from_popo:
+        struct.pack_into(">IIIIII", data, jab_action, 0, 0, 0, script, 0xA0000042, 0)
+    else:
+        struct.pack_into(">IIIIII", data, jab_action, symbol, 0, animation_size, script, 0xA0000042, 0x12345678)
 
     hitbox_fields = (
         (1, 3), (2, 3), (1, 1), (5, 8), (0, 1), (10, 10),
@@ -191,7 +199,7 @@ def _synthetic_fighter_dat(animation_size):
     )
     reloc = b"".join(struct.pack(">I", offset) for offset in relocations)
     roots = struct.pack(">II", fighter, 0)
-    strings = b"ftDataFox\0"
+    strings = root_symbol.encode("ascii") + b"\0"
     total = 0x20 + len(data) + len(reloc) + len(roots) + len(strings)
     header = struct.pack(">IIIII4s8x", total, len(data), len(relocations), 1, 0, b"HSD0")
     return header + data + reloc + roots + strings
@@ -228,6 +236,8 @@ def _synthetic_dol():
         )
 
     pack_virtual(0x803C0FC8 + melee.Character.FOX.value * 8 + 4, 327)
+    pack_virtual(0x803C0FC8 + melee.Character.POPO.value * 8 + 4, 321)
+    pack_virtual(0x803C0FC8 + melee.Character.NANA.value * 8 + 4, 321)
     pack_motion_state(
         0x803C2800 + melee.Action.NEUTRAL_ATTACK_1.value * 0x20,
         46,
@@ -235,6 +245,7 @@ def _synthetic_dol():
         0x12034567,
         (0x80000100, 0x80000200, 0x80000300, 0x80000400, 0),
     )
+    pack_motion_state(0x803C2800 + melee.Action.NEUTRAL_ATTACK_3.value * 0x20, 48)
     pack_motion_state(0x803C2800 + melee.Action.FALLING_FORWARD.value * 0x20, -1)
     pack_virtual(0x803C12E0 + melee.Character.FOX.value * 4, 0x803C5800)
     pack_motion_state(0x803C5800, 295)
@@ -419,6 +430,7 @@ class DiscFrameDataTests(unittest.TestCase):
         self.assertIsNotNone(runtime_action)
         assert runtime_action is not None
         self.assertEqual(runtime_action.dat_action_index, 46)
+        self.assertIsNone(data.action_for_state(melee.Character.FOX, melee.Action.NEUTRAL_ATTACK_3))
         self.assertEqual(data.dat_action_index(melee.Character.FOX, melee.Action.LASER_GUN_PULL), 295)
         animationless = data.motion_state(melee.Character.FOX, melee.Action.FALLING_FORWARD)
         self.assertIsNotNone(animationless)
@@ -499,6 +511,39 @@ class DiscFrameDataTests(unittest.TestCase):
             action.raw_flags = 0
         with self.assertRaisesRegex(melee.DiscFrameDataError, "DAT action index 327"):
             data.action("Fx", 327)
+
+    def test_nana_runtime_actions_inherit_missing_popo_animations(self):
+        popo = _synthetic_fighter_dat(
+            len(self.animation),
+            action_count=321,
+            root_symbol="ftDataPopo",
+        )
+        nana = _synthetic_fighter_dat(
+            len(self.animation),
+            action_count=321,
+            root_symbol="ftDataNana",
+            jab_inherits_from_popo=True,
+        )
+        iso_path = Path(self.temporary_directory.name) / "nana-fallback.iso"
+        iso_path.write_bytes(
+            _synthetic_iso(
+                {
+                    "PlPp.dat": popo,
+                    "PlPpAJ.dat": self.animation,
+                    "PlNn.dat": nana,
+                    "PlNnAJ.dat": self.animation,
+                }
+            )
+        )
+        data = melee.DiscFrameData(iso_path)
+
+        self.assertIsNone(data.action("Nn", 46).animation_frame_count)
+        inherited = data.action_for_state(melee.Character.NANA, melee.Action.NEUTRAL_ATTACK_1)
+        popo_action = data.action_for_state(melee.Character.POPO, melee.Action.NEUTRAL_ATTACK_1)
+        self.assertIs(inherited, popo_action)
+        assert inherited is not None
+        self.assertEqual(inherited.animation_frame_count, 8.0)
+        self.assertEqual(inherited.timeline.frame_count, 7)
 
     def test_deprecated_framedata_iso_timing_facade(self):
         with self.assertWarnsRegex(DeprecationWarning, "FrameData is deprecated"):

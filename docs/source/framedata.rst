@@ -26,7 +26,9 @@ runtime and does not extract or write Nintendo data::
 ``action_for_state`` maps a public ``Character`` and runtime ``Action`` through
 the NTSC 1.02 executable's common and character-specific ``MotionState`` tables.
 It returns ``None`` when the state has no animation or is not present in that
-character's table. ``dat_action_index`` exposes the mapped index directly. The
+character's table. Nana states with no local animation use the corresponding
+Popo record, matching the executable's non-demo runtime fallback.
+``dat_action_index`` exposes the mapped index directly. The
 integer passed to the lower-level ``action`` method is instead a fighter DAT
 action-table index and is not generally equal to ``PlayerState.action``.
 

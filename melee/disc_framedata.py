@@ -322,7 +322,10 @@ class DiscFrameData:
         dat_index = self.dat_action_index(character, action)
         if dat_index is None:
             return None
-        return self.action(FIGHTER_KINDS[character.value].code, dat_index)
+        record = self.action(FIGHTER_KINDS[character.value].code, dat_index)
+        if character is Character.NANA and not record.animation_size:
+            record = self.action(FIGHTER_KINDS[Character.POPO.value].code, dat_index)
+        return record if record.animation_size else None
 
     def _parse_fighter(self, code: str) -> FighterRecord:
         dat_member, aj_member = self._disc.fighter_members[code]
