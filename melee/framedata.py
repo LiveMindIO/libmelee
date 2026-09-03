@@ -134,7 +134,11 @@ class FrameData:
                 "ISO-backed hitbox timing is unavailable for special states without fighter hitboxes; "
                 "the move may create an unparsed article or projectile"
             )
-        return tuple(frame.local_frame for frame in record.timeline.frames if frame.active_hitboxes)
+        return tuple(
+            frame.local_frame
+            for frame in record.timeline.frames
+            if any(not hitbox.requires_thrown_hitbox_owner for hitbox in frame.active_hitboxes)
+        )
 
     def _require_csv_geometry(self, method):
         if self._disc_framedata is not None:

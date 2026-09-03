@@ -128,6 +128,7 @@ def _synthetic_fighter_dat(
     script = (symbol + 0x3F) & ~0x1F
     subroutine_offset = script + 0xC0
     target = script + 0x100
+    conditional_script = target + 0x80
     data = bytearray(target + 0xC0)
     struct.pack_into(">I", data, fighter + 0x0C, actions)
     struct.pack_into(">I", data, fighter + 0x10, dynamic)
@@ -143,14 +144,18 @@ def _synthetic_fighter_dat(
     struct.pack_into(">IIIIII", data, article_action, symbol, 0, animation_size, 0, 0xA0000042, 0)
     script_only_action = actions + 314 * 0x18
     struct.pack_into(">IIIIII", data, script_only_action, 0, 0, 0, script, 0xA0000042, 0)
+    conditional_action = actions + 1 * 0x18
+    struct.pack_into(">IIIIII", data, conditional_action, 0, 0, 0, conditional_script, 0xA0000042, 0)
 
     hitbox_fields = (
         (1, 3), (2, 3), (1, 1), (5, 8), (0, 1), (10, 10),
         (384, 16), (-256, 16), (128, 16), (-384, 16),
-        (361, 9), (90, 9), (20, 9), (1, 1), (1, 1), (1, 1), (1, 1), (0, 1),
+        (361, 9), (90, 9), (20, 9), (1, 1), (0, 1), (1, 1), (1, 1), (0, 1),
         (30, 9), (3, 5), (-4, 8), (2, 3), (7, 5), (1, 1), (1, 1),
     )
     create = _subaction_command(11, *hitbox_fields)
+    conditional_hitbox_fields = (*hitbox_fields[:14], (1, 1), *hitbox_fields[15:])
+    conditional_create = _subaction_command(11, *conditional_hitbox_fields)
     damage = _subaction_command(12, (1, 3), (17, 23))
     size = _subaction_command(13, (1, 3), (640, 23))
     interaction = _subaction_command(14, (1, 24), (0, 1), (0, 1))
@@ -191,6 +196,8 @@ def _synthetic_fighter_dat(
         )
     )
     data[target : target + len(target_script)] = target_script
+    conditional = conditional_create + _subaction_command(1, (5, 26)) + _subaction_command(16) + _subaction_command(0)
+    data[conditional_script : conditional_script + len(conditional)] = conditional
 
     relocations = (
         0x0C,
@@ -201,6 +208,7 @@ def _synthetic_fighter_dat(
         jab_action + 0x0C,
         article_action,
         script_only_action + 0x0C,
+        conditional_action + 0x0C,
         script + 0x28,
         script + 0x40,
     )
@@ -254,6 +262,7 @@ def _synthetic_dol():
     )
     pack_motion_state(0x803C2800 + melee.Action.NEUTRAL_ATTACK_3.value * 0x20, 48)
     pack_motion_state(0x803C2800 + melee.Action.FALLING_FORWARD.value * 0x20, -1)
+    pack_motion_state(0x803C2800 + melee.Action.DAMAGE_FLY_HIGH.value * 0x20, 1)
     pack_virtual(0x803C12E0 + melee.Character.FOX.value * 4, 0x803C5800)
     pack_motion_state(0x803C5800, 295)
     popo_motion_states = 0x803C5C00
@@ -495,7 +504,7 @@ class DiscFrameDataTests(unittest.TestCase):
         self.assertEqual(first.initial_hitbox.bone_local_x, -1.0)
         self.assertEqual(first.initial_hitbox.bone_local_y, 0.5)
         self.assertEqual(first.initial_hitbox.bone_local_z, -1.5)
-        self.assertTrue(first.initial_hitbox.requires_thrown_hitbox_owner)
+        self.assertFalse(first.initial_hitbox.requires_thrown_hitbox_owner)
         self.assertEqual(first.initial_hitbox.shield_damage, -4)
         self.assertEqual(first.final_hitbox.damage, 17)
         self.assertEqual(first.final_hitbox.size, 2.5)
@@ -580,6 +589,18 @@ class DiscFrameDataTests(unittest.TestCase):
         self.assertEqual(data.hitbox_count(character, action), 1)
         self.assertEqual(data.iasa(character, action), 5)
         self.assertEqual(data.frame_count(character, action), 7)
+        conditional_action = melee.Action.DAMAGE_FLY_HIGH
+        conditional = melee.DiscFrameData(self.iso_path).action_for_state(character, conditional_action)
+        self.assertIsNotNone(conditional)
+        assert conditional is not None
+        self.assertTrue(conditional.frame(1).active_hitboxes[0].requires_thrown_hitbox_owner)
+        self.assertFalse(data.is_attack(character, conditional_action))
+        self.assertEqual(data.attack_state(character, conditional_action, 1), melee.AttackState.NOT_ATTACKING)
+        self.assertEqual(data.first_hitbox_frame(character, conditional_action), -1)
+        self.assertEqual(data.last_hitbox_frame(character, conditional_action), -1)
+        self.assertEqual(data.hitbox_count(character, conditional_action), 0)
+        self.assertEqual(data.iasa(character, conditional_action), -1)
+        self.assertEqual(data.frame_count(character, conditional_action), 5)
         self.assertFalse(data.is_attack(character, melee.UnknownAnimation(600)))
         with self.assertRaisesRegex(melee.DiscFrameDataError, "unparsed article or projectile"):
             data.is_attack(character, melee.Action.LASER_GUN_PULL)

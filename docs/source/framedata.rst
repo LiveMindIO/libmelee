@@ -57,7 +57,9 @@ DAT coordinates as posed fighter-relative geometry. Construction without
 and projectile attacks are not yet included; a special state without fighter
 hitboxes raises ``DiscFrameDataError`` from ISO-backed hitbox-related queries
 rather than being reported as a non-attack. ``frame_count`` remains available
-because it does not require article data.
+because it does not require article data. The context-free facade omits hitboxes
+whose creation requires a runtime thrown-hitbox owner; the lower-level timeline
+retains those script-declared candidates and their condition flag.
 
 As with ``PlayerState.action_frame``, every exported ``local_frame`` and
 ``FrameSnapshot.local_frame`` is one-indexed. ``ActionRecord.frame(1)`` always
