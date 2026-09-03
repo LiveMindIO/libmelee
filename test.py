@@ -467,9 +467,9 @@ class DiscFrameDataTests(unittest.TestCase):
         first = action.timeline.hitbox_generations[0]
         self.assertEqual(first.initial_hitbox.damage, 10)
         self.assertEqual(first.initial_hitbox.size, 1.5)
-        self.assertEqual(first.initial_hitbox.bone_local_x, -1.5)
+        self.assertEqual(first.initial_hitbox.bone_local_x, -1.0)
         self.assertEqual(first.initial_hitbox.bone_local_y, 0.5)
-        self.assertEqual(first.initial_hitbox.bone_local_z, -1.0)
+        self.assertEqual(first.initial_hitbox.bone_local_z, -1.5)
         self.assertTrue(first.initial_hitbox.requires_thrown_hitbox_owner)
         self.assertEqual(first.initial_hitbox.shield_damage, -4)
         self.assertEqual(first.final_hitbox.damage, 17)
@@ -608,6 +608,16 @@ class DiscFrameDataTests(unittest.TestCase):
         )
         self.assertTrue(looping_timeline.script_loop_encountered)
         self.assertEqual([item.command.opcode for item in looping_timeline.commands], [2, 7])
+        shared_routine = _subaction_command(2, (5, 26)) + _subaction_command(0)
+        backward_tail_jump = shared_routine + _subaction_command(7, (0, 26), (0, 32))
+        backward_timeline = interpret_subaction(
+            backward_tail_jump,
+            len(shared_routine),
+            pointer_locations=frozenset({len(shared_routine) + 4}),
+        )
+        self.assertFalse(backward_timeline.script_loop_encountered)
+        self.assertEqual([item.command.opcode for item in backward_timeline.commands], [7, 2, 0])
+        self.assertEqual(backward_timeline.frame_count, 5)
         with self.assertRaisesRegex(melee.SubactionParseError, "frame guard"):
             interpret_subaction(_subaction_command(1, ((1 << 26) - 1, 26)), 0)
         with self.assertRaisesRegex(melee.SubactionParseError, "frame guard"):

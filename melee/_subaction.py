@@ -350,9 +350,9 @@ def _decode_command(opcode: int, words: tuple[int, ...]) -> tuple[tuple[str, int
         values.update(_fields(words, specs))
     if opcode == 11:
         values["size"] = values["size_raw"] / 256.0
-        values["bone_local_x"] = values["bone_local_x_raw"] / 256.0
+        values["bone_local_x"] = values["bone_local_z_raw"] / 256.0
         values["bone_local_y"] = values["bone_local_y_raw"] / 256.0
-        values["bone_local_z"] = values["bone_local_z_raw"] / 256.0
+        values["bone_local_z"] = values["bone_local_x_raw"] / 256.0
     elif opcode == 13:
         values["size"] = values["value"] / 256.0
     return tuple(values.items())
@@ -428,6 +428,7 @@ def interpret_subaction(
     script_loop = False
     frame_guard = False
     seen: set[tuple[int, float, tuple[int, ...], tuple[tuple[int, int], ...]]] = set()
+    seen_control_flow: set[tuple[int, tuple[int, ...], tuple[tuple[int, int], ...]]] = set()
 
     while True:
         if len(executed) >= max_commands:
@@ -436,6 +437,7 @@ def interpret_subaction(
         if state in seen:
             raise SubactionParseError(f"{context}: control-flow cycle at data offset 0x{pc:X}, time {time:g}")
         seen.add(state)
+        seen_control_flow.add((pc, tuple(calls), tuple((loop[0], loop[1]) for loop in loops)))
         if pc % 4 or pc < 0 or pc > len(data) - 4:
             raise SubactionParseError(f"{context}: command at data offset 0x{pc:X} is outside DAT data")
         first = struct.unpack_from(">I", data, pc)[0]
@@ -505,7 +507,8 @@ def interpret_subaction(
             target = int(command.parameter("target"))
             if target % 4 or target < 0 or target >= len(data):
                 raise SubactionParseError(f"{context}: opcode {opcode} targets invalid data offset 0x{target:X}")
-            if opcode == 7 and target <= pc:
+            target_state = (target, tuple(calls), tuple((loop[0], loop[1]) for loop in loops))
+            if opcode == 7 and target_state in seen_control_flow:
                 script_loop = True
                 break
             if opcode == 5:
