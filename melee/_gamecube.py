@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import os
 import re
 import stat
@@ -120,6 +121,7 @@ class GameCubeDisc:
     """Validate and provide bounded reads from an NTSC 1.02 Melee ISO."""
 
     _FIGHTER_RE = re.compile(r"^Pl([A-Za-z0-9]{2})\.dat$")
+    _EXPECTED_DOL_SHA1 = "08e0bf20134dfcb260699671004527b2d6bb1a45"
 
     def __init__(self, path: str | os.PathLike[str]):
         self.path = Path(path)
@@ -284,6 +286,11 @@ class GameCubeDisc:
             data = stream.read(dol_size)
         if len(data) != dol_size:
             raise DiscImageError("could not read the complete DOL")
+        digest = hashlib.sha1(data).hexdigest()
+        if digest != self._EXPECTED_DOL_SHA1:
+            raise DiscImageError(
+                f"main.dol SHA-1 {digest} does not match the canonical NTSC 1.02 executable"
+            )
         self._dol = DolImage(data)
         return self._dol
 

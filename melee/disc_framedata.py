@@ -167,6 +167,7 @@ class DiscFrameData:
 
     def __init__(self, iso_path: str | os.PathLike[str]):
         self._disc = GameCubeDisc(iso_path)
+        self._disc.read_dol()
         self._codes = tuple(sorted(code for code in self._disc.fighter_members if code in FIGHTER_KINDS_BY_CODE))
         self._code_lookup = {code.casefold(): code for code in self._codes}
         self._cache: dict[str, FighterRecord] = {}

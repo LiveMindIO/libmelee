@@ -9,6 +9,7 @@ import unittest
 import warnings
 from pathlib import Path
 from typing import get_args, get_type_hints
+from unittest.mock import patch
 from uuid import UUID
 
 from typing_extensions import get_overloads
@@ -333,6 +334,13 @@ def _synthetic_split_pair_iso(base, animation):
 
 class DiscFrameDataTests(unittest.TestCase):
     def setUp(self):
+        dol_patcher = patch.object(
+            GameCubeDisc,
+            "_EXPECTED_DOL_SHA1",
+            hashlib.sha1(_synthetic_dol()).hexdigest(),
+        )
+        dol_patcher.start()
+        self.addCleanup(dol_patcher.stop)
         self.animation = _synthetic_animation_dat()
         self.fighter = _synthetic_fighter_dat(len(self.animation))
         self.members = {
@@ -349,6 +357,18 @@ class DiscFrameDataTests(unittest.TestCase):
 
     def tearDown(self):
         self.temporary_directory.cleanup()
+
+    def test_modified_dol_is_rejected_before_build_provenance(self):
+        modified = bytearray(self.iso_path.read_bytes())
+        modified[0x1000 + 0x100] ^= 1
+        modified_path = Path(self.temporary_directory.name) / "modified-dol.iso"
+        modified_path.write_bytes(modified)
+
+        self.assertEqual(modified[:8], b"GALE01\0\2")
+        with self.assertRaisesRegex(melee.DiscImageError, "main.dol SHA-1.*canonical NTSC 1.02"):
+            GameCubeDisc(modified_path).read_dol()
+        with self.assertRaisesRegex(melee.DiscImageError, "main.dol SHA-1.*canonical NTSC 1.02"):
+            melee.DiscFrameData(modified_path)
 
     def test_iso_validation_fst_bounded_read_and_exact_pairing(self):
         disc = GameCubeDisc(self.iso_path)
@@ -480,11 +500,13 @@ class DiscFrameDataTests(unittest.TestCase):
                 struct.pack_into(">I", invalid_callback, state_file_offset + 0x0C, pointer)
                 invalid_callback_path = Path(self.temporary_directory.name) / f"invalid-callback-{name}.iso"
                 invalid_callback_path.write_bytes(invalid_callback)
-                with self.assertRaisesRegex(melee.DiscFrameDataError, "animation callback.*executable"):
-                    melee.DiscFrameData(invalid_callback_path).motion_state(
-                        melee.Character.FOX,
-                        melee.Action.NEUTRAL_ATTACK_1,
-                    )
+                invalid_dol = invalid_callback[0x1000 : 0x1000 + len(_synthetic_dol())]
+                with patch.object(GameCubeDisc, "_EXPECTED_DOL_SHA1", hashlib.sha1(invalid_dol).hexdigest()):
+                    with self.assertRaisesRegex(melee.DiscFrameDataError, "animation callback.*executable"):
+                        melee.DiscFrameData(invalid_callback_path).motion_state(
+                            melee.Character.FOX,
+                            melee.Action.NEUTRAL_ATTACK_1,
+                        )
 
         self.assertIs(data.fighter("fx"), data.fighter("Fx"))
         action = data.action("Fx", 0)
