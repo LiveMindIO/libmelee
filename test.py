@@ -138,6 +138,8 @@ def _synthetic_fighter_dat(
         struct.pack_into(">IIIIII", data, jab_action, 0, 0, 0, script, 0xA0000042, 0)
     else:
         struct.pack_into(">IIIIII", data, jab_action, symbol, 0, animation_size, script, 0xA0000042, 0x12345678)
+    article_action = actions + 295 * 0x18
+    struct.pack_into(">IIIIII", data, article_action, symbol, 0, animation_size, 0, 0xA0000042, 0)
 
     hitbox_fields = (
         (1, 3), (2, 3), (1, 1), (5, 8), (0, 1), (10, 10),
@@ -194,6 +196,7 @@ def _synthetic_fighter_dat(
         actions + 0x0C,
         jab_action,
         jab_action + 0x0C,
+        article_action,
         script + 0x28,
         script + 0x40,
     )
