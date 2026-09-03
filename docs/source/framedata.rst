@@ -62,12 +62,16 @@ whose creation requires a runtime thrown-hitbox owner; the lower-level timeline
 retains those script-declared candidates and their condition flag.
 
 As with ``PlayerState.action_frame``, every exported ``local_frame`` and
-``FrameSnapshot.local_frame`` is one-indexed. ``ActionRecord.frame(1)`` always
-addresses the initial snapshot. Raw/effective script timing remains available
-separately as ``animation_time``; timer times zero and one both map to public
-frame one, and later fractional times round up. FigaTree frame counts are
-exclusive source-time endpoints, so an animation ending at source time 18 has
-public snapshots ``1..17`` while retaining ``animation_frame_count == 18``.
+``FrameSnapshot.local_frame`` is one-indexed. For a record with a non-empty
+timeline, ``ActionRecord.frame(1)`` addresses the initial snapshot. Lower-level
+``DiscFrameData.action`` queries may expose empty DAT-table records; these have
+``timeline.frame_count == 0``, and ``frame(1)`` raises ``IndexError``.
+Raw/effective script timing remains available separately as ``animation_time``;
+timer times zero and one both map to public frame one, and later fractional
+times round up. FigaTree frame counts are exclusive source-time endpoints, so
+an animation ending at source time 18 normally has public snapshots ``1..17``
+while retaining ``animation_frame_count == 18``. A reached state-changing event
+at that endpoint adds the required final snapshot rather than being discarded.
 
 This phase parses action symbols, raw flags, FigaTree frame counts, guarded
 subaction control flow, local-frame snapshots, hitbox generations and

@@ -474,6 +474,12 @@ class DiscFrameDataTests(unittest.TestCase):
         self.assertIsNotNone(runtime_action)
         assert runtime_action is not None
         self.assertEqual(runtime_action.dat_action_index, 46)
+        empty = data.action("Fx", 48)
+        self.assertEqual(empty.animation_size, 0)
+        self.assertIsNone(empty.script_data_offset)
+        self.assertEqual(empty.timeline.frame_count, 0)
+        with self.assertRaisesRegex(IndexError, "valid range is empty"):
+            empty.frame(1)
         self.assertIsNone(data.action_for_state(melee.Character.FOX, melee.Action.NEUTRAL_ATTACK_3))
         self.assertEqual(data.dat_action_index(melee.Character.FOX, melee.Action.LASER_GUN_PULL), 295)
         animationless = data.motion_state(melee.Character.FOX, melee.Action.FALLING_FORWARD)
@@ -673,6 +679,25 @@ class DiscFrameDataTests(unittest.TestCase):
                 parsed = interpret_subaction(command + struct.pack(">I", 0), 0, animation_frame_count=1)
                 self.assertEqual(len(parsed.commands[0].command.raw_words), length)
                 self.assertEqual(parsed.commands[-1].command.opcode, 0)
+
+    def test_reached_state_changes_extend_exclusive_animation_endpoint(self):
+        timer = _subaction_command(1, (8, 26))
+        end = _subaction_command(0)
+        ordinary = interpret_subaction(timer + end, 0, animation_frame_count=8)
+        self.assertEqual(ordinary.frame_count, 7)
+
+        create = struct.pack(">5I", 11 << 26, 0, 0, 0, 0)
+        endpoint = interpret_subaction(
+            timer + create + _subaction_command(23) + end,
+            0,
+            animation_frame_count=8,
+        )
+        self.assertEqual(endpoint.frame_count, 8)
+        self.assertEqual(endpoint.hitbox_events[0].local_frame, 8)
+        self.assertEqual(endpoint.iasa_frame, 8)
+        self.assertEqual(endpoint.frame(7).active_hitboxes, ())
+        self.assertEqual(tuple(hitbox.hitbox_id for hitbox in endpoint.frame(8).active_hitboxes), (0,))
+        self.assertTrue(endpoint.frame(8).interrupt_allowed)
 
     def test_malformed_iso_dat_and_subactions_fail_with_context(self):
         bad_fst = bytearray(self.iso_path.read_bytes())

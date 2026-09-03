@@ -734,6 +734,12 @@ def _build_frames(
     frame_count = (
         _animation_snapshot_count(animation_frame_count) if animation_frame_count is not None else _frame(final_time)
     )
+    if animation_frame_count is not None:
+        frame_count = max(
+            frame_count,
+            max((event.local_frame for event in events), default=0),
+            _frame(iasa_time) if iasa_time is not None else 0,
+        )
     active: dict[int, Hitbox] = {}
     event_index = 0
     result = []
