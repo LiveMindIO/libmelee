@@ -417,6 +417,7 @@ def interpret_subaction(
 
     pc = script_data_offset
     time = 0.0
+    timer = 0.0
     calls: list[int] = []
     loops: list[list[int]] = []
     executed: list[ExecutedCommand] = []
@@ -427,13 +428,13 @@ def interpret_subaction(
     animation_timer = False
     script_loop = False
     frame_guard = False
-    seen: set[tuple[int, float, tuple[int, ...], tuple[tuple[int, int], ...]]] = set()
+    seen: set[tuple[int, float, float, tuple[int, ...], tuple[tuple[int, int], ...]]] = set()
     seen_control_flow: set[tuple[int, tuple[int, ...], tuple[tuple[int, int], ...]]] = set()
 
     while True:
         if len(executed) >= max_commands:
             raise SubactionParseError(f"{context}: command guard exceeded {max_commands} executions")
-        state = (pc, time, tuple(calls), tuple((loop[0], loop[1]) for loop in loops))
+        state = (pc, time, timer, tuple(calls), tuple((loop[0], loop[1]) for loop in loops))
         if state in seen:
             raise SubactionParseError(f"{context}: control-flow cycle at data offset 0x{pc:X}, time {time:g}")
         seen.add(state)
@@ -458,26 +459,19 @@ def interpret_subaction(
 
         if opcode == 0:
             break
-        if opcode == 1:
-            next_time = time + int(command.parameter("frame"))
-            if _frame(next_time) > max_frames:
-                if not truncate_at_max_frames:
-                    raise SubactionParseError(f"{context}: frame guard exceeded {max_frames} frames")
-                time = float(max_frames)
-                frame_guard = True
-                break
-            time = next_time
-            pc += 4
-            continue
-        if opcode == 2:
-            next_time = max(time, float(command.parameter("frame")))
-            if _frame(next_time) > max_frames:
-                if not truncate_at_max_frames:
-                    raise SubactionParseError(f"{context}: frame guard exceeded {max_frames} frames")
-                time = float(max_frames)
-                frame_guard = True
-                break
-            time = next_time
+        if opcode in (1, 2):
+            frame = float(command.parameter("frame"))
+            timer = timer + frame if opcode == 1 else frame - time
+            if timer > 0:
+                next_time = time + timer
+                if _frame(next_time) > max_frames:
+                    if not truncate_at_max_frames:
+                        raise SubactionParseError(f"{context}: frame guard exceeded {max_frames} frames")
+                    time = float(max_frames)
+                    frame_guard = True
+                    break
+                time = next_time
+                timer = 0.0
             pc += 4
             continue
         if opcode == 3:

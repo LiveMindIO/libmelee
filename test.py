@@ -666,6 +666,19 @@ class DiscFrameDataTests(unittest.TestCase):
         self.assertFalse(backward_timeline.script_loop_encountered)
         self.assertEqual([item.command.opcode for item in backward_timeline.commands], [7, 2, 0])
         self.assertEqual(backward_timeline.frame_count, 5)
+        past_async_timer = b"".join(
+            (
+                _subaction_command(1, (10, 26)),
+                _subaction_command(2, (5, 26)),
+                _subaction_command(1, (3, 26)),
+                _subaction_command(1, (4, 26)),
+                _subaction_command(23),
+                _subaction_command(0),
+            )
+        )
+        past_async_timeline = interpret_subaction(past_async_timer, 0)
+        self.assertEqual(past_async_timeline.iasa_time, 12)
+        self.assertEqual(past_async_timeline.iasa_frame, 12)
         with self.assertRaisesRegex(melee.SubactionParseError, "frame guard"):
             interpret_subaction(_subaction_command(1, ((1 << 26) - 1, 26)), 0)
         with self.assertRaisesRegex(melee.SubactionParseError, "frame guard"):
