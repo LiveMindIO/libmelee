@@ -98,6 +98,8 @@ class HsdDat:
                 self._fail(f"reference {index} has a cycle at data offset 0x{offset:X}")
             seen.add(offset)
             offset = self.u32(offset)
+            if offset == 0:
+                break
 
     def _fail(self, message: str) -> NoReturn:
         raise DatParseError(f"{self.context}: {message}")

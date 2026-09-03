@@ -896,8 +896,11 @@ class DiscFrameDataTests(unittest.TestCase):
         parsed_reference = HsdDat(reference_dat)
         self.assertEqual(parsed_reference.references[0].name, "external")
         self.assertEqual(parsed_reference.object_offsets, (len(reference_data),))
+        zero_terminated_reference = bytearray(reference_dat)
+        struct.pack_into(">I", zero_terminated_reference, 0x20, 0)
+        self.assertEqual(HsdDat(bytes(zero_terminated_reference)).references, parsed_reference.references)
         cyclic_reference = bytearray(reference_dat)
-        struct.pack_into(">I", cyclic_reference, 0x20, 0)
+        struct.pack_into(">II", cyclic_reference, 0x20, 4, 4)
         with self.assertRaisesRegex(melee.DatParseError, "reference 0 has a cycle"):
             HsdDat(bytes(cyclic_reference))
 
