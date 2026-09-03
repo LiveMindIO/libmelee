@@ -6,6 +6,7 @@ import struct
 import sys
 import tempfile
 import unittest
+import warnings
 from pathlib import Path
 from typing import get_args, get_type_hints
 from uuid import UUID
@@ -13,6 +14,7 @@ from uuid import UUID
 from typing_extensions import get_overloads
 
 import melee
+from melee.bot import framedata_query
 from melee._gamecube import DolImage, GameCubeDisc
 from melee._hsd_dat import HsdDat, parse_figatree_frame_count
 from melee._ntsc102 import COMMON_MOTION_STATE_COUNT
@@ -1529,6 +1531,16 @@ class SLPFile(unittest.TestCase):
                 melee.UnknownAnimation(0x777),
             )
         )
+
+    def test_internal_framedata_construction_does_not_warn(self):
+        framedata_query.get_framedata.cache_clear()
+        framedata_query._frame_data.cache_clear()
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", DeprecationWarning)
+            get_framedata("fox", "nair")
+            CharacterState(melee.GameState(), 1)
+            SimpleControls(melee.GameState(), 1, RecordingSimpleController())
 
     def test_special_slot_table_covers_framedata_roster(self) -> None:
         framedata = melee.FrameData()

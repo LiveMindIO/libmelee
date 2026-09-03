@@ -1081,7 +1081,7 @@ class CharacterState:
         """
         self._game_state = game_state
         self._port = port
-        self._frame_data = frame_data or FrameData()
+        self._frame_data = frame_data or FrameData(_warn_deprecated=False)
 
     @property
     def game_state(self) -> GameState:

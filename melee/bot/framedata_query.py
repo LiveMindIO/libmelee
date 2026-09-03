@@ -529,7 +529,7 @@ def _frame_data() -> FrameData:
     Built once per process (``lru_cache(maxsize=1)``); shared by all framedata
     query helpers so the CSV is parsed at most once.
     """
-    return FrameData()
+    return FrameData(_warn_deprecated=False)
 
 
 def _open_framedata_csv() -> TextIO:

@@ -458,7 +458,7 @@ class SimpleControls:
         self._game_state = game_state
         self._port = port
         self._controller = controller
-        self._frame_data = frame_data or FrameData()
+        self._frame_data = frame_data or FrameData(_warn_deprecated=False)
         self._character_state = CharacterState(
             game_state,
             port,

@@ -41,12 +41,13 @@ class FrameData:
         The frame data in libmelee is written to be useful to bots, and behave in a sane way,
         not necessarily be binary-compatible with in-game structures or values.
     """
-    def __init__(self, write=False, *, iso_path=None):
-        warnings.warn(
-            "FrameData is deprecated; use DiscFrameData with a legally supplied NTSC 1.02 ISO.",
-            DeprecationWarning,
-            stacklevel=2,
-        )
+    def __init__(self, write=False, *, iso_path=None, _warn_deprecated=True):
+        if _warn_deprecated:
+            warnings.warn(
+                "FrameData is deprecated; use DiscFrameData with a legally supplied NTSC 1.02 ISO.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
         if write and iso_path is not None:
             raise ValueError("FrameData cannot record CSV data while using an ISO-backed source")
         self._disc_framedata = DiscFrameData(iso_path) if iso_path is not None else None
