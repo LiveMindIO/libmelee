@@ -1332,13 +1332,11 @@ class SimpleControls:
             return player.action
         if player.action in _CHARACTER_ALL_NORMAL_ACTIONS.get(player.character, ()):
             return player.action
+        if attack_type in _SPECIAL_ATTACKS and _is_special_action(player.action):
+            return player.action
         if not self._frame_data.is_attack(player.character, player.action):
             if attack_type in {AttackType.GRAB, AttackType.Z_AIR} and self._frame_data.is_grab(
                 player.character,
-                player.action,
-            ):
-                return player.action
-            if attack_type in _SPECIAL_ATTACKS and _is_special_action(
                 player.action,
             ):
                 return player.action

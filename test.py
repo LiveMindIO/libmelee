@@ -639,6 +639,44 @@ class DiscFrameDataTests(unittest.TestCase):
         with self.assertRaisesRegex(melee.DiscFrameDataError, "requires posed geometry"):
             data.range_forward(character, action, 1)
 
+    def test_iso_framedata_simple_controls_continues_article_special(self):
+        with self.assertWarnsRegex(DeprecationWarning, "FrameData is deprecated"):
+            frame_data = melee.FrameData(iso_path=self.iso_path)
+        standing = melee.PlayerState(
+            character=melee.Character.FOX,
+            action=melee.Action.STANDING,
+            on_ground=True,
+        )
+        controls = SimpleControls(
+            melee.GameState(frame=0, players={1: standing}),
+            1,
+            RecordingSimpleController(),
+            frame_data=frame_data,
+        )
+        hold = controls.attack(AttackType.NEUTRAL_B)
+        self.assertIsInstance(hold, Hold)
+        assert isinstance(hold, Hold)
+
+        with self.assertRaisesRegex(melee.DiscFrameDataError, "unparsed article or projectile"):
+            frame_data.is_attack(melee.Character.FOX, melee.Action.LASER_GUN_PULL)
+
+        laser_pull = melee.PlayerState(
+            character=melee.Character.FOX,
+            action=melee.Action.LASER_GUN_PULL,
+            on_ground=True,
+        )
+        controls = SimpleControls(
+            melee.GameState(frame=1, players={1: laser_pull}),
+            1,
+            RecordingSimpleController(),
+            frame_data=frame_data,
+        )
+        result = controls.attack(AttackType.NEUTRAL_B, hold=hold)
+        self.assertIsInstance(result, AttackFrameData)
+        assert isinstance(result, AttackFrameData)
+        self.assertIs(result.action, melee.Action.LASER_GUN_PULL)
+        self.assertIs(result.frame_data, frame_data)
+
     def test_control_flow_and_lossless_command_lengths(self):
         dat = HsdDat(self.fighter)
         script_data_offset = dat.fighter_actions()[0].script_data_offset
