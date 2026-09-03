@@ -422,6 +422,40 @@ class DiscFrameDataTests(unittest.TestCase):
         with self.assertRaisesRegex(melee.DiscImageError, "header maximum"):
             GameCubeDisc(bad_maximum_path)
 
+        oversized_fst_path = Path(self.temporary_directory.name) / "oversized-fst.iso"
+        oversized_fst = bytearray(0x430)
+        oversized_fst[0:8] = b"GALE01\0\2"
+        oversized_fst_size = GameCubeDisc._MAX_FST_SIZE + 1
+        struct.pack_into(">IIII", oversized_fst, 0x420, 0x1000, 0x500, oversized_fst_size, oversized_fst_size)
+        oversized_fst_path.write_bytes(oversized_fst)
+        with oversized_fst_path.open("r+b") as stream:
+            stream.truncate(0x500 + oversized_fst_size)
+        with self.assertRaisesRegex(melee.DiscImageError, "FST size.*supported maximum"):
+            GameCubeDisc(oversized_fst_path)
+
+        oversized_dol_path = Path(self.temporary_directory.name) / "oversized-dol.iso"
+        oversized_dol = bytearray(self.iso_path.read_bytes())
+        oversized_dol_size = GameCubeDisc._MAX_DOL_SIZE + 1
+        struct.pack_into(">I", oversized_dol, 0x1000, 0x100)
+        struct.pack_into(">I", oversized_dol, 0x1000 + 0x90, oversized_dol_size - 0x100)
+        oversized_dol_path.write_bytes(oversized_dol)
+        with oversized_dol_path.open("r+b") as stream:
+            stream.truncate(0x1000 + oversized_dol_size)
+        with self.assertRaisesRegex(melee.DiscImageError, "DOL size.*supported maximum"):
+            GameCubeDisc(oversized_dol_path).read_dol()
+
+        oversized_member_path = Path(self.temporary_directory.name) / "oversized-member.iso"
+        oversized_member = bytearray(self.iso_path.read_bytes())
+        oversized_member_size = GameCubeDisc._MAX_MEMBER_SIZE + 1
+        struct.pack_into(">I", oversized_member, 0x500 + 2 * 12 + 8, oversized_member_size)
+        oversized_member_path.write_bytes(oversized_member)
+        member_offset = struct.unpack_from(">I", oversized_member, 0x500 + 2 * 12 + 4)[0]
+        with oversized_member_path.open("r+b") as stream:
+            stream.truncate(member_offset + oversized_member_size)
+        oversized_disc = GameCubeDisc(oversized_member_path)
+        with self.assertRaisesRegex(melee.DiscImageError, "disc member.*supported maximum"):
+            oversized_disc.read_member("fighter/PlFx.dat")
+
         split_path = Path(self.temporary_directory.name) / "split-pair.iso"
         split_path.write_bytes(_synthetic_split_pair_iso(self.fighter, self.animation))
         self.assertEqual(dict(GameCubeDisc(split_path).fighter_members), {})

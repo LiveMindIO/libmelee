@@ -122,6 +122,10 @@ class GameCubeDisc:
 
     _FIGHTER_RE = re.compile(r"^Pl([A-Za-z0-9]{2})\.dat$")
     _EXPECTED_DOL_SHA1 = "08e0bf20134dfcb260699671004527b2d6bb1a45"
+    # Exact maxima audited from the canonical NTSC 1.02 image.
+    _MAX_FST_SIZE = 0x7529
+    _MAX_DOL_SIZE = 0x4385E0
+    _MAX_MEMBER_SIZE = 0x214D00
 
     def __init__(self, path: str | os.PathLike[str]):
         self.path = Path(path)
@@ -153,6 +157,10 @@ class GameCubeDisc:
             if self.fst_size > fst_max_size:
                 raise DiscImageError(
                     f"FST size 0x{self.fst_size:X} exceeds the header maximum 0x{fst_max_size:X}"
+                )
+            if self.fst_size > self._MAX_FST_SIZE:
+                raise DiscImageError(
+                    f"FST size 0x{self.fst_size:X} exceeds the supported maximum 0x{self._MAX_FST_SIZE:X}"
                 )
             stream.seek(self.fst_offset)
             fst = stream.read(self.fst_size)
@@ -253,6 +261,11 @@ class GameCubeDisc:
         entry = self.entries_by_path.get(member) if isinstance(member, str) else member
         if entry is None or entry.is_directory or entry not in self.entries:
             raise DiscImageError(f"not a file member of this disc: {member!r}")
+        if entry.size > self._MAX_MEMBER_SIZE:
+            raise DiscImageError(
+                f"disc member {entry.path!r} size 0x{entry.size:X} exceeds the supported maximum "
+                f"0x{self._MAX_MEMBER_SIZE:X}"
+            )
         with self.path.open("rb") as stream:
             stream.seek(entry.offset)
             data = stream.read(entry.size)
@@ -281,6 +294,10 @@ class GameCubeDisc:
             if dol_size < 0x100 or dol_size > self.size - self.dol_offset:
                 raise DiscImageError(
                     f"DOL range 0x{self.dol_offset:X}+0x{dol_size:X} is outside the {self.size}-byte disc"
+                )
+            if dol_size > self._MAX_DOL_SIZE:
+                raise DiscImageError(
+                    f"DOL size 0x{dol_size:X} exceeds the supported maximum 0x{self._MAX_DOL_SIZE:X}"
                 )
             stream.seek(self.dol_offset)
             data = stream.read(dol_size)
