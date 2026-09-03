@@ -7,6 +7,7 @@ import sys
 import tempfile
 import unittest
 import warnings
+from dataclasses import replace
 from pathlib import Path
 from typing import get_args, get_type_hints
 from unittest.mock import patch
@@ -654,7 +655,7 @@ class DiscFrameDataTests(unittest.TestCase):
         self.assertEqual(data.attack_state(character, action, 1), melee.AttackState.ATTACKING)
         self.assertEqual(data.first_hitbox_frame(character, action), 1)
         self.assertEqual(data.last_hitbox_frame(character, action), 5)
-        self.assertEqual(data.hitbox_count(character, action), 1)
+        self.assertEqual(data.hitbox_count(character, action), 2)
         self.assertEqual(data.iasa(character, action), 5)
         self.assertEqual(data.frame_count(character, action), 7)
         conditional_action = melee.Action.DAMAGE_FLY_HIGH
@@ -752,6 +753,30 @@ class DiscFrameDataTests(unittest.TestCase):
             frame_data=frame_data,
         )
         self.assertIs(character_state.get_state(), CharacterStatus.Standing)
+
+    def test_iso_hitbox_count_groups_generation_start_frames(self):
+        with self.assertWarnsRegex(DeprecationWarning, "FrameData is deprecated"):
+            frame_data = melee.FrameData(iso_path=self.iso_path)
+        disc_framedata = frame_data._disc_framedata
+        assert disc_framedata is not None
+        script = [_subaction_command(1, (16, 26))]
+        for generation in range(6):
+            if generation:
+                script.append(_subaction_command(1, (3, 26)))
+            script.extend(
+                struct.pack(">5I", (11 << 26) | (hitbox_id << 23), 0, 0, 0, 0)
+                for hitbox_id in range(3)
+            )
+        script.extend((_subaction_command(1, (3, 26)), _subaction_command(16), _subaction_command(0)))
+        timeline = interpret_subaction(b"".join(script), 0)
+        self.assertEqual(
+            sorted({generation.start_frame for generation in timeline.hitbox_generations}),
+            [16, 19, 22, 25, 28, 31],
+        )
+        self.assertTrue(all(timeline.frame(frame).active_hitboxes for frame in range(16, 34)))
+        record = replace(disc_framedata.action("Fx", 0), timeline=timeline)
+        with patch.object(frame_data, "_disc_action", return_value=record):
+            self.assertEqual(frame_data.hitbox_count(melee.Character.PICHU, melee.Action.FSMASH_MID), 6)
 
     def test_control_flow_and_lossless_command_lengths(self):
         dat = HsdDat(self.fighter)

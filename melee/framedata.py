@@ -687,14 +687,19 @@ class FrameData:
             return 10
 
         if self._disc_framedata is not None:
-            frames = self._disc_hitbox_frames(character, action)
-            count = 0
-            previous = None
-            for frame in frames:
-                if previous is None or frame != previous + 1:
-                    count += 1
-                previous = frame
-            return count
+            record = self._disc_action(character, action)
+            if record is None:
+                return 0
+            if not record.timeline.hitbox_generations:
+                self._disc_hitbox_frames(character, action)
+                return 0
+            return len(
+                {
+                    generation.start_frame
+                    for generation in record.timeline.hitbox_generations
+                    if not generation.initial_hitbox.requires_thrown_hitbox_owner
+                }
+            )
 
         # Grab only the subset that have a hitbox
 
