@@ -738,8 +738,9 @@ def _build_frames(
         frame_count = max(
             frame_count,
             max((event.local_frame for event in events), default=0),
-            _frame(iasa_time) if iasa_time is not None else 0,
         )
+        if iasa_time is not None and iasa_time <= animation_frame_count:
+            frame_count = max(frame_count, _frame(iasa_time))
     active: dict[int, Hitbox] = {}
     event_index = 0
     result = []

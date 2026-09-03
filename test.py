@@ -771,6 +771,19 @@ class DiscFrameDataTests(unittest.TestCase):
         self.assertEqual(tuple(hitbox.hitbox_id for hitbox in endpoint.frame(8).active_hitboxes), (0,))
         self.assertTrue(endpoint.frame(8).interrupt_allowed)
 
+        post_endpoint = interpret_subaction(
+            _subaction_command(1, (14, 26)) + _subaction_command(23) + end,
+            0,
+            animation_frame_count=8,
+        )
+        self.assertEqual(post_endpoint.frame_count, 7)
+        self.assertEqual(post_endpoint.iasa_time, 14)
+        self.assertEqual(post_endpoint.iasa_frame, 14)
+        self.assertEqual([item.command.opcode for item in post_endpoint.commands], [1, 23, 0])
+        self.assertFalse(post_endpoint.frame(7).interrupt_allowed)
+        with self.assertRaises(IndexError):
+            post_endpoint.frame(8)
+
     def test_malformed_iso_dat_and_subactions_fail_with_context(self):
         bad_fst = bytearray(self.iso_path.read_bytes())
         struct.pack_into(">I", bad_fst, 0x428, len(bad_fst))
