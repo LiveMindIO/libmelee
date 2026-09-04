@@ -633,9 +633,13 @@ class DiscFrameDataTests(unittest.TestCase):
         assert runtime_action is not None
         self.assertEqual(runtime_action.dat_action_index, 46)
         empty = data.action("Fx", 48)
+        self.assertIs(runtime_action.timeline, data.action("Fx", 0).timeline)
         self.assertEqual(empty.animation_size, 0)
         self.assertIsNone(empty.script_data_offset)
         self.assertEqual(empty.timeline.frame_count, 0)
+        self.assertIs(empty.timeline, data.action("Fx", 49).timeline)
+        self.assertIsNot(empty.timeline, data.action("Fx", 295).timeline)
+        self.assertIsNot(runtime_action.timeline, data.action("Fx", 314).timeline)
         with self.assertRaisesRegex(IndexError, "valid range is empty"):
             empty.frame(1)
         self.assertIsNone(data.action_for_state(melee.Character.FOX, melee.Action.NEUTRAL_ATTACK_3))
@@ -718,6 +722,13 @@ class DiscFrameDataTests(unittest.TestCase):
         self.assertEqual([event.local_frame for event in action.timeline.hurt_state_events[:2]], [4, 5])
         self.assertTrue(action.timeline.frames[0].active_hitboxes)
         self.assertTrue(action.timeline.frames[4].interrupt_allowed)
+        timeline_items = len(action.timeline.commands) + len(action.timeline.frames)
+        with patch("melee.disc_framedata._MAX_FIGHTER_TIMELINE_ITEMS", timeline_items):
+            with self.assertRaisesRegex(
+                melee.SubactionParseError,
+                "action 1: aggregate fighter timeline guard exceeded",
+            ):
+                melee.DiscFrameData(self.iso_path).fighter("Fx")
         with self.assertRaises(AttributeError):
             action.raw_flags = 0
         with self.assertRaisesRegex(melee.DiscFrameDataError, "DAT action index 327"):

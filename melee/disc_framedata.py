@@ -49,7 +49,9 @@ class DiscFrameDataError(ValueError):
     """Raised for an invalid public DiscFrameData query."""
 
 
+_MAX_TIMELINE_COMMANDS = 100_000
 _MAX_TIMELINE_FRAMES = 10_000
+_MAX_FIGHTER_TIMELINE_ITEMS = _MAX_TIMELINE_COMMANDS + _MAX_TIMELINE_FRAMES
 _ANIMATION_LOOP_FLAG = 0x40000000
 _ANIMATION_FRAME_ACCUMULATION_FLAG = 0x20000000
 
@@ -350,6 +352,8 @@ class DiscFrameData:
         dat = HsdDat(fighter_bytes, context=dat_member.path)
         actions = []
         animation_frame_counts: dict[tuple[int, int, str], float] = {}
+        timeline_cache: dict[tuple[int | None, float | None, bool, bool], ActionTimeline] = {}
+        retained_timeline_items = 0
         metadata = FIGHTER_KINDS_BY_CODE[code]
         for raw in dat.fighter_actions(expected_root=metadata.root_symbol, expected_count=metadata.action_count):
             frame_count = None
@@ -374,21 +378,36 @@ class DiscFrameData:
                         context=f"{aj_member.path} action {raw.index} at 0x{raw.animation_offset:X}",
                     )
                     animation_frame_counts[animation_key] = frame_count
-            timeline = (
-                interpret_subaction(
-                    dat.data,
-                    raw.script_data_offset,
-                    pointer_locations=dat.pointer_locations,
-                    animation_frame_count=frame_count,
-                    animation_loops=bool(raw.flags & _ANIMATION_LOOP_FLAG),
-                    animation_frame_accumulates=bool(raw.flags & _ANIMATION_FRAME_ACCUMULATION_FLAG),
-                    context=f"{dat_member.path} action {raw.index}",
-                    max_frames=_MAX_TIMELINE_FRAMES,
-                    truncate_at_max_frames=True,
+            animation_loops = bool(raw.flags & _ANIMATION_LOOP_FLAG)
+            animation_frame_accumulates = bool(raw.flags & _ANIMATION_FRAME_ACCUMULATION_FLAG)
+            timeline_key = (raw.script_data_offset, frame_count, animation_loops, animation_frame_accumulates)
+            timeline = timeline_cache.get(timeline_key)
+            if timeline is None:
+                context = f"{dat_member.path} action {raw.index}"
+                timeline = (
+                    interpret_subaction(
+                        dat.data,
+                        raw.script_data_offset,
+                        pointer_locations=dat.pointer_locations,
+                        animation_frame_count=frame_count,
+                        animation_loops=animation_loops,
+                        animation_frame_accumulates=animation_frame_accumulates,
+                        context=context,
+                        max_commands=_MAX_TIMELINE_COMMANDS,
+                        max_frames=_MAX_TIMELINE_FRAMES,
+                        truncate_at_max_frames=True,
+                    )
+                    if raw.script_data_offset is not None
+                    else _empty_timeline(frame_count)
                 )
-                if raw.script_data_offset is not None
-                else _empty_timeline(frame_count)
-            )
+                timeline_items = len(timeline.commands) + len(timeline.frames)
+                if timeline_items > _MAX_FIGHTER_TIMELINE_ITEMS - retained_timeline_items:
+                    raise SubactionParseError(
+                        f"{context}: aggregate fighter timeline guard exceeded "
+                        f"{_MAX_FIGHTER_TIMELINE_ITEMS} retained commands and frames"
+                    )
+                retained_timeline_items += timeline_items
+                timeline_cache[timeline_key] = timeline
             actions.append(
                 ActionRecord(
                     raw.index,
