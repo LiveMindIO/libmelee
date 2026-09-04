@@ -874,7 +874,7 @@ class DiscFrameDataTests(unittest.TestCase):
         )
         self.assertIs(character_state.get_state(), CharacterStatus.Standing)
 
-    def test_iso_hitbox_count_groups_generation_start_frames(self):
+    def test_iso_hitbox_count_tracks_group_victim_history_epochs(self):
         with self.assertWarnsRegex(DeprecationWarning, "FrameData is deprecated"):
             frame_data = melee.FrameData(iso_path=self.iso_path)
         disc_framedata = frame_data._disc_framedata
@@ -882,7 +882,7 @@ class DiscFrameDataTests(unittest.TestCase):
         script = [_subaction_command(1, (16, 26))]
         for generation in range(6):
             if generation:
-                script.append(_subaction_command(1, (3, 26)))
+                script.extend((_subaction_command(1, (3, 26)), _subaction_command(16)))
             script.extend(
                 struct.pack(">5I", (11 << 26) | (hitbox_id << 23), 0, 0, 0, 0)
                 for hitbox_id in range(3)
@@ -897,6 +897,40 @@ class DiscFrameDataTests(unittest.TestCase):
         record = replace(disc_framedata.action("Fx", 0), animation_frame_count=None, timeline=timeline)
         with patch.object(frame_data, "_disc_action", return_value=record):
             self.assertEqual(frame_data.hitbox_count(melee.Character.PICHU, melee.Action.FSMASH_MID), 6)
+
+        mario_script = [_subaction_command(1, (3, 26))]
+        mario_script.extend(
+            struct.pack(">5I", (11 << 26) | (hitbox_id << 23), 0, 0, 0, 0)
+            for hitbox_id in range(2)
+        )
+        mario_script.append(_subaction_command(1, (4, 26)))
+        mario_script.extend(
+            struct.pack(">5I", (11 << 26) | (hitbox_id << 23), 0, 0, 0, 0)
+            for hitbox_id in range(2)
+        )
+        mario_script.extend((_subaction_command(1, (26, 26)), _subaction_command(16), _subaction_command(0)))
+        mario_timeline = interpret_subaction(b"".join(mario_script), 0)
+        self.assertEqual(
+            [generation.start_frame for generation in mario_timeline.hitbox_generations],
+            [3, 3, 7, 7],
+        )
+        with patch.object(frame_data, "_disc_action", return_value=replace(record, timeline=mario_timeline)):
+            self.assertEqual(frame_data.hitbox_count(melee.Character.MARIO, melee.Action.NAIR), 1)
+
+        group_events = (
+            struct.pack(">5I", (11 << 26) | (0 << 23) | (0 << 20), 0, 0, 0, 0)
+            + struct.pack(">5I", (11 << 26) | (1 << 23) | (0 << 20), 0, 0, 0, 0)
+            + _subaction_command(15, (0, 26))
+            + struct.pack(">5I", (11 << 26) | (0 << 23) | (0 << 20), 0, 0, 0, 0)
+            + struct.pack(">5I", (11 << 26) | (2 << 23) | (1 << 20), 0, 0, 0, 0)
+            + struct.pack(">5I", (11 << 26) | (1 << 23) | (1 << 20), 0, 0, 0, 0)
+            + _subaction_command(15, (0, 26))
+            + struct.pack(">5I", (11 << 26) | (3 << 23) | (0 << 20), 0, 0, 0, 0)
+            + _subaction_command(0)
+        )
+        group_timeline = interpret_subaction(group_events, 0)
+        with patch.object(frame_data, "_disc_action", return_value=replace(record, timeline=group_timeline)):
+            self.assertEqual(frame_data.hitbox_count(melee.Character.MARIO, melee.Action.NAIR), 3)
 
         post_endpoint_script = _subaction_command(1, (14, 26)) + struct.pack(">5I", 11 << 26, 0, 0, 0, 0)
         post_endpoint = interpret_subaction(post_endpoint_script + _subaction_command(0), 0, animation_frame_count=8)
