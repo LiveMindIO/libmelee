@@ -1040,6 +1040,51 @@ class DiscFrameDataTests(unittest.TestCase):
         self.assertEqual(tuple(hitbox.hitbox_id for hitbox in looping.frame(14).active_hitboxes), (0,))
         self.assertTrue(looping.frame(14).interrupt_allowed)
 
+    def test_wrapped_animation_frame_drives_async_timers(self):
+        prefix = b"".join(
+            (
+                _subaction_command(2, (2, 26)),
+                _subaction_command(2, (12, 26)),
+                _subaction_command(2, (21, 26)),
+                _subaction_command(2, (33, 26)),
+                struct.pack(">3I", 54 << 26, 0, 0),
+                _subaction_command(43),
+            )
+        )
+        goto_offset = len(prefix)
+        script = prefix + _subaction_command(7, (0, 26), (0, 32))
+        pointer_locations = frozenset({goto_offset + 4})
+        wrapped = interpret_subaction(
+            script,
+            0,
+            pointer_locations=pointer_locations,
+            animation_frame_count=20,
+            animation_loops=True,
+        )
+        self.assertEqual(
+            [(item.command.opcode, item.animation_time) for item in wrapped.commands[-3:]],
+            [(54, 53), (43, 53), (7, 53)],
+        )
+        self.assertTrue(wrapped.script_loop_encountered)
+
+        accumulating = interpret_subaction(
+            script,
+            0,
+            pointer_locations=pointer_locations,
+            animation_frame_count=20,
+            animation_loops=True,
+            animation_frame_accumulates=True,
+        )
+        self.assertEqual(
+            [(item.command.opcode, item.animation_time) for item in accumulating.commands[-3:]],
+            [(54, 33), (43, 33), (7, 33)],
+        )
+
+        with patch("melee.disc_framedata.interpret_subaction", wraps=interpret_subaction) as interpreter:
+            melee.DiscFrameData(self.iso_path).fighter("Fx")
+        self.assertTrue(interpreter.call_args_list)
+        self.assertTrue(all(call.kwargs["animation_frame_accumulates"] for call in interpreter.call_args_list))
+
     def test_malformed_iso_dat_and_subactions_fail_with_context(self):
         bad_fst = bytearray(self.iso_path.read_bytes())
         struct.pack_into(">I", bad_fst, 0x428, len(bad_fst))

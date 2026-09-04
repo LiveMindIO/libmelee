@@ -51,6 +51,7 @@ class DiscFrameDataError(ValueError):
 
 _MAX_TIMELINE_FRAMES = 10_000
 _ANIMATION_LOOP_FLAG = 0x40000000
+_ANIMATION_FRAME_ACCUMULATION_FLAG = 0x20000000
 
 
 @dataclass(frozen=True, slots=True)
@@ -380,6 +381,7 @@ class DiscFrameData:
                     pointer_locations=dat.pointer_locations,
                     animation_frame_count=frame_count,
                     animation_loops=bool(raw.flags & _ANIMATION_LOOP_FLAG),
+                    animation_frame_accumulates=bool(raw.flags & _ANIMATION_FRAME_ACCUMULATION_FLAG),
                     context=f"{dat_member.path} action {raw.index}",
                     max_frames=_MAX_TIMELINE_FRAMES,
                     truncate_at_max_frames=True,

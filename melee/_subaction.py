@@ -398,6 +398,7 @@ def interpret_subaction(
     pointer_locations: frozenset[int] = frozenset(),
     animation_frame_count: float | None = None,
     animation_loops: bool = False,
+    animation_frame_accumulates: bool = False,
     context: str = "subaction",
     max_commands: int = 100_000,
     max_call_depth: int = 64,
@@ -419,6 +420,8 @@ def interpret_subaction(
     pc = script_data_offset
     time = 0.0
     timer = 0.0
+    animation_frame = 0.0
+    animation_frame_carry = 0.0
     calls: list[int] = []
     loops: list[list[int]] = []
     executed: list[ExecutedCommand] = []
@@ -462,9 +465,13 @@ def interpret_subaction(
             break
         if opcode in (1, 2):
             frame = float(command.parameter("frame"))
-            timer = timer + frame if opcode == 1 else frame - time
+            if opcode == 1:
+                timer += frame
+            else:
+                timer = frame - (animation_frame + animation_frame_carry)
             if timer > 0:
-                next_time = time + timer
+                elapsed = timer
+                next_time = time + elapsed
                 if _frame(next_time) > max_frames:
                     if not truncate_at_max_frames:
                         raise SubactionParseError(f"{context}: frame guard exceeded {max_frames} frames")
@@ -473,6 +480,14 @@ def interpret_subaction(
                     break
                 time = next_time
                 timer = 0.0
+                animation_frame += elapsed
+                if animation_loops and animation_frame_count:
+                    wraps = math.floor(animation_frame / animation_frame_count)
+                    if wraps:
+                        wrapped_frames = wraps * animation_frame_count
+                        animation_frame -= wrapped_frames
+                        if animation_frame_accumulates:
+                            animation_frame_carry += wrapped_frames
             pc += 4
             continue
         if opcode == 3:
