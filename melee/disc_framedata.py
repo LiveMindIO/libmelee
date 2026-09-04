@@ -50,6 +50,7 @@ class DiscFrameDataError(ValueError):
 
 
 _MAX_TIMELINE_FRAMES = 10_000
+_ANIMATION_LOOP_FLAG = 0x40000000
 
 
 @dataclass(frozen=True, slots=True)
@@ -123,6 +124,12 @@ class ActionRecord:
         """Return a frame using libmelee's one-based action-frame convention."""
 
         return self.timeline.frame(local_frame)
+
+    @property
+    def animation_loops(self) -> bool:
+        """Whether the DAT record allows animation time to wrap at its endpoint."""
+
+        return bool(self.raw_flags & _ANIMATION_LOOP_FLAG)
 
 
 @dataclass(frozen=True, slots=True)
@@ -372,6 +379,7 @@ class DiscFrameData:
                     raw.script_data_offset,
                     pointer_locations=dat.pointer_locations,
                     animation_frame_count=frame_count,
+                    animation_loops=bool(raw.flags & _ANIMATION_LOOP_FLAG),
                     context=f"{dat_member.path} action {raw.index}",
                     max_frames=_MAX_TIMELINE_FRAMES,
                     truncate_at_max_frames=True,

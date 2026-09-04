@@ -606,6 +606,7 @@ class DiscFrameDataTests(unittest.TestCase):
         script_data_offset = HsdDat(self.fighter).fighter_actions()[0].script_data_offset
         assert script_data_offset is not None
         self.assertEqual(action.animation_frame_count, 8.0)
+        self.assertFalse(action.animation_loops)
         self.assertEqual(action.script_dat_offset, script_data_offset + 0x20)
         self.assertEqual(action.timeline.iasa_frame, 5)
         self.assertEqual(len(action.timeline.frames), 7)
@@ -822,9 +823,32 @@ class DiscFrameDataTests(unittest.TestCase):
             [16, 19, 22, 25, 28, 31],
         )
         self.assertTrue(all(timeline.frame(frame).active_hitboxes for frame in range(16, 34)))
-        record = replace(disc_framedata.action("Fx", 0), timeline=timeline)
+        record = replace(disc_framedata.action("Fx", 0), animation_frame_count=None, timeline=timeline)
         with patch.object(frame_data, "_disc_action", return_value=record):
             self.assertEqual(frame_data.hitbox_count(melee.Character.PICHU, melee.Action.FSMASH_MID), 6)
+
+        post_endpoint_script = _subaction_command(1, (14, 26)) + struct.pack(">5I", 11 << 26, 0, 0, 0, 0)
+        post_endpoint = interpret_subaction(post_endpoint_script + _subaction_command(0), 0, animation_frame_count=8)
+        non_looping_record = replace(
+            record,
+            animation_frame_count=8,
+            raw_flags=0,
+            timeline=post_endpoint,
+        )
+        self.assertEqual(len(post_endpoint.hitbox_generations), 1)
+        with patch.object(frame_data, "_disc_action", return_value=non_looping_record):
+            self.assertEqual(frame_data.hitbox_count(melee.Character.PICHU, melee.Action.FSMASH_MID), 0)
+
+        looping = interpret_subaction(
+            post_endpoint_script + _subaction_command(0),
+            0,
+            animation_frame_count=8,
+            animation_loops=True,
+        )
+        looping_record = replace(non_looping_record, raw_flags=0x40000000, timeline=looping)
+        self.assertTrue(looping_record.animation_loops)
+        with patch.object(frame_data, "_disc_action", return_value=looping_record):
+            self.assertEqual(frame_data.hitbox_count(melee.Character.PICHU, melee.Action.FSMASH_MID), 1)
 
     def test_control_flow_and_lossless_command_lengths(self):
         dat = HsdDat(self.fighter)
@@ -887,17 +911,29 @@ class DiscFrameDataTests(unittest.TestCase):
         self.assertTrue(endpoint.frame(8).interrupt_allowed)
 
         post_endpoint = interpret_subaction(
-            _subaction_command(1, (14, 26)) + _subaction_command(23) + end,
+            _subaction_command(1, (14, 26)) + create + _subaction_command(23) + end,
             0,
             animation_frame_count=8,
         )
         self.assertEqual(post_endpoint.frame_count, 7)
         self.assertEqual(post_endpoint.iasa_time, 14)
         self.assertEqual(post_endpoint.iasa_frame, 14)
-        self.assertEqual([item.command.opcode for item in post_endpoint.commands], [1, 23, 0])
+        self.assertEqual([item.command.opcode for item in post_endpoint.commands], [1, 11, 23, 0])
+        self.assertEqual(post_endpoint.hitbox_events[0].local_frame, 14)
+        self.assertEqual(post_endpoint.hitbox_generations[0].start_frame, 14)
         self.assertFalse(post_endpoint.frame(7).interrupt_allowed)
         with self.assertRaises(IndexError):
             post_endpoint.frame(8)
+
+        looping = interpret_subaction(
+            _subaction_command(1, (14, 26)) + create + _subaction_command(23) + end,
+            0,
+            animation_frame_count=8,
+            animation_loops=True,
+        )
+        self.assertEqual(looping.frame_count, 14)
+        self.assertEqual(tuple(hitbox.hitbox_id for hitbox in looping.frame(14).active_hitboxes), (0,))
+        self.assertTrue(looping.frame(14).interrupt_allowed)
 
     def test_malformed_iso_dat_and_subactions_fail_with_context(self):
         bad_fst = bytearray(self.iso_path.read_bytes())

@@ -397,6 +397,7 @@ def interpret_subaction(
     *,
     pointer_locations: frozenset[int] = frozenset(),
     animation_frame_count: float | None = None,
+    animation_loops: bool = False,
     context: str = "subaction",
     max_commands: int = 100_000,
     max_call_depth: int = 64,
@@ -528,7 +529,7 @@ def interpret_subaction(
         pc += byte_length
 
     generations = _build_generations(hitbox_events, max(time, animation_frame_count or 0.0))
-    frames = _build_frames(hitbox_events, iasa_time, animation_frame_count, time)
+    frames = _build_frames(hitbox_events, iasa_time, animation_frame_count, animation_loops, time)
     return ActionTimeline(
         tuple(executed),
         tuple(hitbox_events),
@@ -729,6 +730,7 @@ def _build_frames(
     events: list[HitboxEvent],
     iasa_time: float | None,
     animation_frame_count: float | None,
+    animation_loops: bool,
     final_time: float,
 ) -> tuple[FrameSnapshot, ...]:
     frame_count = (
@@ -737,9 +739,16 @@ def _build_frames(
     if animation_frame_count is not None:
         frame_count = max(
             frame_count,
-            max((event.local_frame for event in events), default=0),
+            max(
+                (
+                    event.local_frame
+                    for event in events
+                    if animation_loops or event.animation_time <= animation_frame_count
+                ),
+                default=0,
+            ),
         )
-        if iasa_time is not None and iasa_time <= animation_frame_count:
+        if iasa_time is not None and (animation_loops or iasa_time <= animation_frame_count):
             frame_count = max(frame_count, _frame(iasa_time))
     active: dict[int, Hitbox] = {}
     event_index = 0

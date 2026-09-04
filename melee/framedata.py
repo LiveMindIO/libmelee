@@ -698,6 +698,11 @@ class FrameData:
                     generation.start_frame
                     for generation in record.timeline.hitbox_generations
                     if not generation.initial_hitbox.requires_thrown_hitbox_owner
+                    and (
+                        record.animation_frame_count is None
+                        or record.animation_loops
+                        or generation.start_time <= record.animation_frame_count
+                    )
                 }
             )
 
