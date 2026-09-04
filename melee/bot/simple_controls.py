@@ -365,14 +365,9 @@ def _warn_state_deprecated(name: str, replacement: str | None = None) -> None:
 def _toward_stage_stick(player: LibPlayerState) -> float:
     """Return main-stick X that drifts toward stage while ledge hanging.
 
-    Ledge hang faces away from stage, so toward-stage is opposite ``facing``.
-    When ``facing`` is neutral, fall back to blast-zone side from ``position.x``.
+    Ledge hang faces away from stage, so toward-stage is opposite its facing direction.
     """
-    if player.facing is True:
-        return 0.0
-    if player.facing is False:
-        return 1.0
-    return 1.0 if float(player.position.x) < 0 else 0.0
+    return 0.0 if player.facing_right() else 1.0
 
 
 def _primary_action(
@@ -1350,13 +1345,13 @@ class SimpleControls:
         player: LibPlayerState,
         attack_type: AttackType,
     ) -> tuple[float, float]:
-        """Return main-stick ``(x, y)`` for ``attack_type`` using ``player.facing``."""
-        toward = 1.0 if player.facing else 0.0
-        away = 0.0 if player.facing else 1.0
+        """Return main-stick ``(x, y)`` for ``attack_type`` using the player's facing direction."""
+        toward = 1.0 if player.facing_right() else 0.0
+        away = 0.0 if player.facing_right() else 1.0
         tilt_offset = _TILT_ATTACK_MAGNITUDE / 2.0
         tilt_low = 0.5 - tilt_offset
         tilt_high = 0.5 + tilt_offset
-        tilt_toward = tilt_high if player.facing else tilt_low
+        tilt_toward = tilt_high if player.facing_right() else tilt_low
 
         # DESNOTE(jbarber, 2026-08-22): Standing IASA checks smashes before tilts.
         # NTSC 1.02 PlCo.dat uses +/-0.25 tilt thresholds, +/-0.8 horizontal

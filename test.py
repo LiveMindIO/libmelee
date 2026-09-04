@@ -7,6 +7,7 @@ import unittest
 from typing import get_args, get_type_hints
 from uuid import UUID
 
+import numpy as np
 from typing_extensions import get_overloads
 
 import melee
@@ -101,6 +102,42 @@ class RecordingStrategy(Strategy[object]):
 
     def tick(self, *args, **kwargs):
         return self.result
+
+
+class PlayerFacingTests(unittest.TestCase):
+    def test_absolute_facing_methods_return_builtin_booleans(self):
+        right = melee.PlayerState(facing=True)
+        left = melee.PlayerState(facing=False)
+        right.facing = np.bool_(True)  # type: ignore[assignment]
+
+        self.assertIs(right.facing_right(), True)
+        self.assertIs(right.facing_left(), False)
+        self.assertIs(left.facing_right(), False)
+        self.assertIs(left.facing_left(), True)
+
+    def test_facing_opponent_uses_world_x_direction(self):
+        opponent_left = melee.PlayerState(position=melee.Position(x=np.float32(-5.0)))
+        opponent_right = melee.PlayerState(position=melee.Position(x=np.float32(5.0)))
+
+        self.assertTrue(melee.PlayerState(facing=True).facing_opponent(opponent_right))
+        self.assertFalse(melee.PlayerState(facing=True).facing_opponent(opponent_left))
+        self.assertTrue(melee.PlayerState(facing=False).facing_opponent(opponent_left))
+        self.assertFalse(melee.PlayerState(facing=False).facing_opponent(opponent_right))
+
+    def test_facing_opponent_is_false_at_the_same_x_position(self):
+        player = melee.PlayerState(facing=True, position=melee.Position(x=np.float32(2.0)))
+        opponent = melee.PlayerState(position=melee.Position(x=np.float32(2.0)))
+
+        self.assertFalse(player.facing_opponent(opponent))
+
+    def test_facing_attribute_remains_mutable_but_is_deprecated(self):
+        player = melee.PlayerState(facing=False)
+
+        with self.assertWarnsRegex(DeprecationWarning, "PlayerState.facing is deprecated"):
+            self.assertFalse(player.facing)
+
+        player.facing = True
+        self.assertTrue(player.facing_right())
 
 
 class StageGeometryTests(unittest.TestCase):

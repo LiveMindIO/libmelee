@@ -412,7 +412,7 @@ class FrameData:
                 hitbox_4_y = float(attackingframe["hitbox_4_y"]) + attacker_y
 
                 # Flip the horizontal hitboxes around if we're facing left
-                if not attacker.facing:
+                if attacker.facing_left():
                     hitbox_1_x *= -1
                     hitbox_2_x *= -1
                     hitbox_3_x *= -1
@@ -562,7 +562,7 @@ class FrameData:
             facingchanged = self.framedata[character_state.character][character_state.action][character_state.action_frame]["facing_changed"]
             backroll = character_state.action in [Action.ROLL_BACKWARD, Action.GROUND_ROLL_BACKWARD_UP, \
                 Action.GROUND_ROLL_BACKWARD_DOWN, Action.BACKWARD_TECH]
-            if not (character_state.facing ^ facingchanged ^ backroll):
+            if not (character_state.facing_right() ^ facingchanged ^ backroll):
                 distance = -distance
 
             position = character_state.position.x + distance
@@ -803,10 +803,10 @@ class FrameData:
                     row["facing_changed"] = True
         # If the facing changed from last frame, set the facing changed bool
         oldfacing = self.prevfacing.get(gamestate.opponent_state.action)
-        if (oldfacing is not None) and (oldfacing != gamestate.opponent_state.facing):
+        if (oldfacing is not None) and (oldfacing != gamestate.opponent_state.facing_right()):
             row["facing_changed"] = True
 
-        if gamestate.opponent_state.facing == row["facing_changed"]:
+        if gamestate.opponent_state.facing_right() == row["facing_changed"]:
             row["locomotion_x"] = -row["locomotion_x"]
         # If this is a backwards roll, flip it again
         if gamestate.opponent_state.action in [Action.ROLL_BACKWARD, Action.GROUND_ROLL_BACKWARD_UP, \
@@ -860,7 +860,7 @@ class FrameData:
         if not alreadythere:
             self.rows.append(row)
 
-        self.prevfacing[gamestate.opponent_state.action] = gamestate.opponent_state.facing
+        self.prevfacing[gamestate.opponent_state.action] = gamestate.opponent_state.facing_right()
         self.prevprojectilecount[gamestate.opponent_state.action] = len(gamestate.projectiles)
 
     def save_recording(self):

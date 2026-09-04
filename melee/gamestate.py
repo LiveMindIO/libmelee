@@ -1,6 +1,7 @@
 """ Gamestate is a single snapshot in time of the game that represents all necessary information
         to make gameplay decisions
 """
+import warnings
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Optional
@@ -9,6 +10,7 @@ import numpy as np
 
 import melee
 from melee import enums
+
 
 @dataclass(slots=True, unsafe_hash=True)
 class Position:
@@ -221,6 +223,29 @@ class GameState:
 class UnknownAnimation:
     value: int = -1
 
+
+class _DeprecatedFacing:
+    def __init__(self, slot):
+        self._slot = slot
+
+    def __get__(self, instance, owner):
+        if instance is None:
+            return self
+        warnings.warn(
+            "PlayerState.facing is deprecated; use facing_left(), facing_right(), "
+            "or facing_opponent() instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return self._slot.__get__(instance, owner)
+
+    def __set__(self, instance, value):
+        self._slot.__set__(instance, value)
+
+    def value(self, instance) -> bool:
+        return bool(self._slot.__get__(instance, type(instance)))
+
+
 @dataclass(slots=True)
 class PlayerState:
     """ Represents the state of a single player """
@@ -246,7 +271,7 @@ class PlayerState:
     stock: int = 0
     """(int): The player's remaining stock count"""
     facing: bool = True
-    """(bool): Is the character facing right? (left is False). Characters in Melee must always be facing left or right"""
+    """Deprecated. Use ``facing_left()``, ``facing_right()``, or ``facing_opponent()``."""
     action: enums.Action | UnknownAnimation = field(default_factory=UnknownAnimation)
     """(enum.Action): The current action (or animation) the character is in"""
     action_frame: int = 0
@@ -316,6 +341,31 @@ class PlayerState:
     """(string): The Slippi Online display name for the play. Might be blank"""
     team_id: int = 0
     """(int): The team ID of the player. This is different than costume, and only relevant during teams."""
+
+    def facing_left(self) -> bool:
+        """Return whether the character faces left, toward negative world X."""
+        return not _DEPRECATED_FACING.value(self)
+
+    def facing_right(self) -> bool:
+        """Return whether the character faces right, toward positive world X."""
+        return _DEPRECATED_FACING.value(self)
+
+    def facing_opponent(self, opponent: 'PlayerState') -> bool:
+        """Return whether the character faces the opponent's horizontal position.
+
+        Players at the same X coordinate have no horizontal direction between
+        them, so this returns ``False`` in that case.
+        """
+        if self.position.x < opponent.position.x:
+            return self.facing_right()
+        if self.position.x > opponent.position.x:
+            return self.facing_left()
+        return False
+
+
+_DEPRECATED_FACING = _DeprecatedFacing(PlayerState.facing)
+PlayerState.facing = _DEPRECATED_FACING  # type: ignore[assignment]
+
 
 @dataclass(slots=True)
 class UnknownProjectileType:
