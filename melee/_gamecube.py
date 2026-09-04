@@ -124,6 +124,7 @@ class GameCubeDisc:
     _EXPECTED_DOL_SHA1 = "08e0bf20134dfcb260699671004527b2d6bb1a45"
     # Exact maxima audited from the canonical NTSC 1.02 image.
     _MAX_FST_SIZE = 0x7529
+    _MAX_FST_PATH_CHARS = 0x3D38
     _MAX_DOL_SIZE = 0x4385E0
     _MAX_MEMBER_SIZE = 0x214D00
 
@@ -185,6 +186,8 @@ class GameCubeDisc:
         entries = [FstEntry(0, "", "", True, 0, count, None)]
         # Stack items are (directory index, exclusive ending entry, path).
         stack: list[tuple[int, int, str]] = [(0, count, "")]
+        names_by_offset: dict[int, str] = {}
+        path_chars = 0
 
         for index in range(1, count):
             while stack and index >= stack[-1][1]:
@@ -196,10 +199,19 @@ class GameCubeDisc:
             if word0 >> 24 not in (0, 1):
                 raise DiscImageError(f"FST entry {index} has invalid directory marker 0x{word0 >> 24:02X}")
             name_offset = word0 & 0xFFFFFF
-            name = self._fst_string(fst, strings_start, name_offset, index)
+            name = names_by_offset.get(name_offset)
+            if name is None:
+                name = self._fst_string(fst, strings_start, name_offset, index)
+                names_by_offset[name_offset] = name
             if not name or not name.isprintable() or "/" in name or "\\" in name or name in (".", ".."):
                 raise DiscImageError(f"FST entry {index} has unsafe name {name!r}")
             parent_index, parent_end, parent_path = stack[-1]
+            path_length = len(name) + (len(parent_path) + 1 if parent_path else 0)
+            if path_length > self._MAX_FST_PATH_CHARS - path_chars:
+                raise DiscImageError(
+                    f"FST paths exceed the supported aggregate maximum of {self._MAX_FST_PATH_CHARS} characters"
+                )
+            path_chars += path_length
             path = f"{parent_path}/{name}" if parent_path else name
 
             if is_directory:

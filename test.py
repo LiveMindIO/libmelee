@@ -482,6 +482,30 @@ class DiscFrameDataTests(unittest.TestCase):
         with self.assertRaisesRegex(melee.DatParseError, "'Wrong_figatree'"):
             parse_figatree_frame_count(self.animation, expected_root="Wrong_figatree")
 
+    def test_fst_name_and_path_materialization_is_bounded(self):
+        depth = 100
+        name = b"A" * 5_000 + b"\0"
+        entry_count = depth + 1
+        entries = [struct.pack(">III", 0x01000000, 0, entry_count)]
+        entries.extend(
+            struct.pack(">III", 0x01000000, index - 1, entry_count)
+            for index in range(1, entry_count)
+        )
+        fst = b"".join(entries) + name
+        self.assertLess(len(fst), GameCubeDisc._MAX_FST_SIZE)
+
+        image = bytearray(0x500 + len(fst))
+        image[0:8] = b"GALE01\0\2"
+        struct.pack_into(">IIII", image, 0x420, 0x1000, 0x500, len(fst), len(fst))
+        image[0x500:] = fst
+        hostile_path = Path(self.temporary_directory.name) / "nested-fst.iso"
+        hostile_path.write_bytes(image)
+
+        with patch.object(GameCubeDisc, "_fst_string", wraps=GameCubeDisc._fst_string) as decode_name:
+            with self.assertRaisesRegex(melee.DiscImageError, "FST paths.*aggregate maximum"):
+                GameCubeDisc(hostile_path)
+        self.assertEqual(decode_name.call_count, 1)
+
     def test_dat_metadata_resource_guards(self):
         relocation_count = 40_000
         relocation_data = bytes(relocation_count * 4)
