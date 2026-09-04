@@ -52,7 +52,7 @@ class HsdDat:
         if tables_size > total_size - reloc_start:
             self._fail("relocation/root tables exceed the file")
 
-        locations: list[int] = []
+        locations: set[int] = set()
         targets: set[int] = set()
         for index in range(reloc_count):
             location = struct.unpack_from(">I", self._file, reloc_start + index * 4)[0]
@@ -63,12 +63,14 @@ class HsdDat:
             target = self.u32(location)
             if target >= self.data_size:
                 self._fail(f"relocation at 0x{location:X} targets 0x{target:X} outside data")
-            locations.append(location)
+            locations.add(location)
             targets.add(target)
         self.pointer_locations = frozenset(locations)
 
         roots_start = reloc_start + reloc_count * 4
         strings_start = roots_start + (root_count + ref_count) * 8
+        self._name_cache: dict[int, str] = {}
+        self._name_bytes = 0
         roots: list[DatRoot] = []
         for index in range(root_count):
             target, string_offset = struct.unpack_from(">II", self._file, roots_start + index * 8)
@@ -140,13 +142,21 @@ class HsdDat:
     def _file_c_string(self, offset: int, lower_bound: int, description: str) -> str:
         if offset < lower_bound or offset >= len(self._file):
             self._fail(f"{description} string offset is outside the string table")
+        if offset in self._name_cache:
+            return self._name_cache[offset]
         end = self._file.find(b"\0", offset)
         if end < 0:
             self._fail(f"{description} string is not NUL-terminated")
+        byte_length = end - offset
+        if byte_length > len(self._file) - self._name_bytes:
+            self._fail("aggregate root/reference name bytes exceed the DAT size")
         try:
-            return self._file[offset:end].decode("ascii")
+            name = self._file[offset:end].decode("ascii")
         except UnicodeDecodeError as exc:
             raise DatParseError(f"{self.context}: {description} string is not ASCII") from exc
+        self._name_bytes += byte_length
+        self._name_cache[offset] = name
+        return name
 
     def next_object_offset(self, offset: int) -> int:
         for boundary in self.object_offsets:

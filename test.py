@@ -482,6 +482,54 @@ class DiscFrameDataTests(unittest.TestCase):
         with self.assertRaisesRegex(melee.DatParseError, "'Wrong_figatree'"):
             parse_figatree_frame_count(self.animation, expected_root="Wrong_figatree")
 
+    def test_dat_metadata_resource_guards(self):
+        relocation_count = 40_000
+        relocation_data = bytes(relocation_count * 4)
+        relocations = struct.pack(f">{relocation_count}I", *range(0, len(relocation_data), 4))
+        relocation_total = 0x20 + len(relocation_data) + len(relocations)
+        relocation_header = struct.pack(
+            ">IIIII4s8x",
+            relocation_total,
+            len(relocation_data),
+            relocation_count,
+            0,
+            0,
+            b"HSD0",
+        )
+        parsed_relocations = HsdDat(relocation_header + relocation_data + relocations)
+        self.assertEqual(len(parsed_relocations.pointer_locations), relocation_count)
+
+        root_count = 1_000
+        root_data = bytes(4)
+        suffix_roots = b"".join(struct.pack(">II", 0, offset) for offset in range(root_count))
+        long_name = b"A" * 65_535 + b"\0"
+        suffix_total = 0x20 + len(root_data) + len(suffix_roots) + len(long_name)
+        suffix_header = struct.pack(
+            ">IIIII4s8x",
+            suffix_total,
+            len(root_data),
+            0,
+            root_count,
+            0,
+            b"HSD0",
+        )
+        with self.assertRaisesRegex(melee.DatParseError, "aggregate root/reference name bytes"):
+            HsdDat(suffix_header + root_data + suffix_roots + long_name)
+
+        shared_roots = struct.pack(">II", 0, 0) * root_count
+        shared_total = 0x20 + len(root_data) + len(shared_roots) + len(long_name)
+        shared_header = struct.pack(
+            ">IIIII4s8x",
+            shared_total,
+            len(root_data),
+            0,
+            root_count,
+            0,
+            b"HSD0",
+        )
+        parsed_shared = HsdDat(shared_header + root_data + shared_roots + long_name)
+        self.assertIs(parsed_shared.roots[0].name, parsed_shared.roots[-1].name)
+
     def test_public_api_combat_timeline_and_local_geometry(self):
         data = melee.DiscFrameData(self.iso_path)
         self.assertEqual(data.available_fighter_codes, ("Fx",))
