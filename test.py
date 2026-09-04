@@ -1165,6 +1165,17 @@ class DiscFrameDataTests(unittest.TestCase):
         self.assertFalse(backward_timeline.script_loop_encountered)
         self.assertEqual([item.command.opcode for item in backward_timeline.commands], [7, 2, 0])
         self.assertEqual(backward_timeline.frame_count, 5)
+        deep_finite_loop = (
+            b"".join(_subaction_command(3, (1, 26)) for _ in range(63))
+            + _subaction_command(3, (5_000, 26))
+            + _subaction_command(4) * 64
+            + _subaction_command(0)
+        )
+        with self.assertRaisesRegex(
+            melee.SubactionParseError,
+            "control-flow state guard exceeded 100000 retained stack values",
+        ):
+            interpret_subaction(deep_finite_loop, 0)
         past_async_timer = b"".join(
             (
                 _subaction_command(1, (10, 26)),

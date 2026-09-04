@@ -434,15 +434,24 @@ def interpret_subaction(
     frame_guard = False
     seen: set[tuple[int, float, float, tuple[int, ...], tuple[tuple[int, int], ...]]] = set()
     seen_control_flow: set[tuple[int, tuple[int, ...], tuple[tuple[int, int], ...]]] = set()
+    retained_stack_values = 0
 
     while True:
         if len(executed) >= max_commands:
             raise SubactionParseError(f"{context}: command guard exceeded {max_commands} executions")
-        state = (pc, time, timer, tuple(calls), tuple((loop[0], loop[1]) for loop in loops))
+        calls_snapshot = tuple(calls)
+        loops_snapshot = tuple((loop[0], loop[1]) for loop in loops)
+        state = (pc, time, timer, calls_snapshot, loops_snapshot)
         if state in seen:
             raise SubactionParseError(f"{context}: control-flow cycle at data offset 0x{pc:X}, time {time:g}")
+        snapshot_values = len(calls_snapshot) + 2 * len(loops_snapshot)
+        if snapshot_values > max_commands - retained_stack_values:
+            raise SubactionParseError(
+                f"{context}: control-flow state guard exceeded {max_commands} retained stack values"
+            )
+        retained_stack_values += snapshot_values
         seen.add(state)
-        seen_control_flow.add((pc, tuple(calls), tuple((loop[0], loop[1]) for loop in loops)))
+        seen_control_flow.add((pc, calls_snapshot, loops_snapshot))
         if pc % 4 or pc < 0 or pc > len(data) - 4:
             raise SubactionParseError(f"{context}: command at data offset 0x{pc:X} is outside DAT data")
         first = struct.unpack_from(">I", data, pc)[0]
@@ -517,7 +526,7 @@ def interpret_subaction(
             target = int(command.parameter("target"))
             if target % 4 or target < 0 or target >= len(data):
                 raise SubactionParseError(f"{context}: opcode {opcode} targets invalid data offset 0x{target:X}")
-            target_state = (target, tuple(calls), tuple((loop[0], loop[1]) for loop in loops))
+            target_state = (target, calls_snapshot, loops_snapshot)
             if opcode == 7 and target_state in seen_control_flow:
                 script_loop = True
                 break
