@@ -256,6 +256,7 @@ def _synthetic_dol():
 
     pack_virtual(0x803C0FC8 + melee.Character.FOX.value * 8 + 4, 327)
     pack_virtual(0x803C0FC8 + melee.Character.DK.value * 8 + 4, 337)
+    pack_virtual(0x803C0FC8 + melee.Character.PEACH.value * 8 + 4, 318)
     pack_virtual(0x803C0FC8 + melee.Character.POPO.value * 8 + 4, 321)
     pack_virtual(0x803C0FC8 + melee.Character.NANA.value * 8 + 4, 321)
     pack_motion_state(
@@ -273,6 +274,13 @@ def _synthetic_dol():
     donkey_motion_states = 0x803C5900
     pack_virtual(0x803C12E0 + melee.Character.DK.value * 4, donkey_motion_states)
     pack_motion_state(donkey_motion_states, 295, raw_move_flags=53 << 24)
+    peach_motion_states = 0x803C5000
+    pack_virtual(0x803C12E0 + melee.Character.PEACH.value * 4, peach_motion_states)
+    pack_motion_state(
+        peach_motion_states + (melee.Action.PARASOL_FALLING.value - COMMON_MOTION_STATE_COUNT) * 0x20,
+        295,
+        raw_move_flags=87 << 24,
+    )
     popo_motion_states = 0x803C5C00
     pack_virtual(0x803C12E0 + melee.Character.POPO.value * 4, popo_motion_states)
     pack_motion_state(
@@ -908,6 +916,50 @@ class DiscFrameDataTests(unittest.TestCase):
             frame_data=frame_data,
         )
         self.assertIs(character_state.get_state(), CharacterStatus.Standing)
+
+    def test_iso_article_uncertainty_includes_character_owned_attack_states(self):
+        peach = _synthetic_fighter_dat(
+            len(self.animation),
+            action_count=318,
+            root_symbol="ftDataPeach",
+        )
+        iso_path = Path(self.temporary_directory.name) / "peach-parasol.iso"
+        iso_path.write_bytes(
+            _synthetic_iso(
+                {
+                    "PlPe.dat": peach,
+                    "PlPeAJ.dat": self.animation,
+                }
+            )
+        )
+        with self.assertWarnsRegex(DeprecationWarning, "FrameData is deprecated"):
+            frame_data = melee.FrameData(iso_path=iso_path)
+        character = melee.Character.PEACH
+        action = melee.Action.PARASOL_FALLING
+        disc_framedata = frame_data._disc_framedata
+        assert disc_framedata is not None
+        state = disc_framedata.motion_state(character, action)
+        self.assertIsNotNone(state)
+        assert state is not None
+        self.assertEqual(state.move_id, 87)
+        self.assertEqual(frame_data.frame_count(character, action), 7)
+        for query in (
+            frame_data.is_attack,
+            frame_data.first_hitbox_frame,
+            frame_data.last_hitbox_frame,
+            frame_data.hitbox_count,
+        ):
+            with self.assertRaisesRegex(melee.DiscFrameDataError, "unparsed article or projectile"):
+                query(character, action)
+
+        player = melee.PlayerState(character=character, action=action, on_ground=False)
+        character_state = CharacterState(
+            melee.GameState(players={1: player}),
+            1,
+            frame_data=frame_data,
+        )
+        with self.assertRaisesRegex(melee.DiscFrameDataError, "unparsed article or projectile"):
+            character_state.get_state()
 
     def test_iso_hitbox_count_tracks_group_victim_history_epochs(self):
         with self.assertWarnsRegex(DeprecationWarning, "FrameData is deprecated"):

@@ -29,6 +29,10 @@ _ISO_COMPATIBILITY_FRAME_OFFSETS = {
     (Character.ZELDA, Action.NEUTRAL_B_CHARGING),
 }
 
+_ISO_UNPARSED_ARTICLE_ATTACK_STATES = frozenset({
+    (Character.PEACH, Action.PARASOL_FALLING),
+})
+
 
 def _open_package_csv(name: str):
     # DESNOTE(jbarber, 2026-06-28): setuptools editable installs map Python modules to
@@ -152,11 +156,14 @@ class FrameData:
         if (
             not record.timeline.hitbox_generations
             and state is not None
-            and state.move_id in SPECIAL_MOVE_IDS
+            and (
+                state.move_id in SPECIAL_MOVE_IDS
+                or (character, action) in _ISO_UNPARSED_ARTICLE_ATTACK_STATES
+            )
         ):
             raise DiscFrameDataError(
-                "ISO-backed hitbox timing is unavailable for special states without fighter hitboxes; "
-                "the move may create an unparsed article or projectile"
+                "ISO-backed hitbox timing is unavailable for special or article attack states without fighter "
+                "hitboxes; the move may create an unparsed article or projectile"
             )
         offset = self._disc_frame_offset(character, action)
         return tuple(
