@@ -1,6 +1,7 @@
 """ Gamestate is a single snapshot in time of the game that represents all necessary information
         to make gameplay decisions
 """
+import sys
 import warnings
 from dataclasses import dataclass, field
 from enum import Enum
@@ -231,18 +232,44 @@ class _DeprecatedFacing:
     def __get__(self, instance, owner):
         if instance is None:
             return self
-        warnings.warn(
-            "PlayerState.facing is deprecated; use facing_left(), facing_right(), "
-            "or facing_opponent() instead.",
-            DeprecationWarning,
-            stacklevel=2,
+        caller = sys._getframe(1)
+        dataclass_helper = (
+            caller.f_globals.get("__name__") == "dataclasses"
+            and caller.f_code.co_name in {"_asdict_inner", "_astuple_inner", "_replace", "replace"}
         )
+        if not (dataclass_helper or self._is_generated_dataclass_reader(instance, caller)):
+            warnings.warn(
+                "PlayerState.facing is deprecated; use facing_left(), facing_right(), "
+                "or facing_opponent() instead.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
         return self._slot.__get__(instance, owner)
 
     def __set__(self, instance, value):
         self._slot.__set__(instance, value)
 
+    @staticmethod
+    def _is_generated_dataclass_reader(instance, caller) -> bool:
+        name = caller.f_code.co_name
+        if name not in {"__eq__", "__ge__", "__gt__", "__hash__", "__le__", "__lt__", "__repr__"}:
+            return False
+        if caller.f_code.co_qualname != f"__create_fn__.<locals>.{name}":
+            return False
+        for owner in type(instance).__mro__:
+            reader = owner.__dict__.get(name)
+            reader = getattr(reader, "__wrapped__", reader)
+            if getattr(reader, "__code__", None) is caller.f_code:
+                return True
+        return False
+
     def value(self, instance) -> bool:
+        for owner in type(instance).__mro__:
+            if "facing" not in owner.__dict__:
+                continue
+            if owner.__dict__["facing"] is not self:
+                return bool(instance.facing)
+            break
         return bool(self._slot.__get__(instance, type(instance)))
 
 
@@ -361,6 +388,34 @@ class PlayerState:
         if self.position.x > opponent.position.x:
             return self.facing_left()
         return False
+
+    def __getstate__(self):
+        """Serialize slots without reading the deprecated public descriptor."""
+        instance_dict = getattr(self, "__dict__", None)
+        slot_state = {}
+        for owner in type(self).__mro__:
+            slots = owner.__dict__.get("__slots__", ())
+            if isinstance(slots, str):
+                slots = (slots,)
+            for slot_name in slots:
+                if slot_name in {"__dict__", "__weakref__"}:
+                    continue
+                name = slot_name
+                if slot_name.startswith("__") and not slot_name.endswith("__"):
+                    name = f"_{owner.__name__.lstrip('_')}{slot_name}"
+                if name in slot_state:
+                    continue
+                try:
+                    descriptor = (
+                        _DEPRECATED_FACING._slot
+                        if owner is PlayerState and name == "facing"
+                        else owner.__dict__[name]
+                    )
+                    value = descriptor.__get__(self, type(self))  # type: ignore[attr-defined]
+                except AttributeError:
+                    continue
+                slot_state[name] = value
+        return instance_dict, slot_state
 
 
 _DEPRECATED_FACING = _DeprecatedFacing(PlayerState.facing)

@@ -1,9 +1,14 @@
 #!/usr/bin/python3
+import copy
+import dataclasses
 import hashlib
 import inspect
 import math
+import pickle
 import sys
 import unittest
+import warnings
+from dataclasses import dataclass
 from typing import get_args, get_type_hints
 from uuid import UUID
 
@@ -37,6 +42,7 @@ from melee.bot import (
     InputMontage,
     JigglypuffRolloutMontage,
     LedgedashMontage,
+    LedgeRecoveryOption,
     LinkBowMontage,
     LinkForwardSmashMontage,
     Listener,
@@ -138,6 +144,73 @@ class PlayerFacingTests(unittest.TestCase):
 
         player.facing = True
         self.assertTrue(player.facing_right())
+
+    def test_implicit_dataclass_operations_do_not_warn(self):
+        player = melee.PlayerState(facing=False)
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", DeprecationWarning)
+            self.assertIn("facing=False", repr(player))
+            self.assertEqual(player, melee.PlayerState(facing=False))
+            self.assertFalse(dataclasses.asdict(player)["facing"])
+            dataclasses.astuple(player)
+            self.assertEqual(dataclasses.replace(player), player)
+            self.assertEqual(copy.copy(player), player)
+            self.assertEqual(copy.deepcopy(player), player)
+            self.assertEqual(pickle.loads(pickle.dumps(player)), player)
+
+    def test_facing_methods_honor_subclass_field_override(self):
+        @dataclass
+        class DerivedPlayerState(melee.PlayerState):
+            facing: bool = False
+
+        player = DerivedPlayerState()
+
+        self.assertIs(player.facing_left(), True)
+        self.assertIs(player.facing_right(), False)
+
+    def test_generated_subclass_comparisons_do_not_warn(self):
+        @dataclass(order=True, unsafe_hash=True)
+        class OrderedPlayerState(melee.PlayerState):
+            pass
+
+        left = OrderedPlayerState(facing=False)
+        right = OrderedPlayerState(facing=True)
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", DeprecationWarning)
+            self.assertTrue(left < right)
+            with self.assertRaises(TypeError):
+                hash(left)
+
+    def test_delegated_generated_subclass_repr_does_not_warn(self):
+        @dataclass
+        class DelegatingPlayerState(melee.PlayerState):
+            def __repr__(self):
+                return super().__repr__()
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", DeprecationWarning)
+            self.assertIn("facing=True", repr(DelegatingPlayerState()))
+
+    def test_copy_preserves_subclass_slots(self):
+        class SlottedPlayerState(melee.PlayerState):
+            __slots__ = ("__marker", "facing")
+
+            def __init__(self):
+                super().__init__(facing=False)
+                self.__marker = "preserved"
+
+            def marker(self):
+                return self.__marker
+
+        player = SlottedPlayerState()
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", DeprecationWarning)
+            for copied in (copy.copy(player), copy.deepcopy(player)):
+                self.assertIs(copied.facing_left(), True)
+                self.assertEqual(copied.marker(), "preserved")
 
 
 class StageGeometryTests(unittest.TestCase):
@@ -1648,6 +1721,27 @@ class SimpleControlsInputTests(unittest.TestCase):
 
         self.assertIs(character_state.forward_axis(), StickReferenceAxis.RIGHT)
         self.assertIs(character_state.backward_axis(), StickReferenceAxis.LEFT)
+
+    def test_ledge_recovery_holds_toward_stage_for_replay_facing_values(self) -> None:
+        for x, facing, expected_x in (
+            (-68.4, np.bool_(True), 1.0),
+            (68.4, np.bool_(False), 0.0),
+        ):
+            for option in (
+                LedgeRecoveryOption.DODGE_GETUP,
+                LedgeRecoveryOption.ATTACK_GETUP,
+                LedgeRecoveryOption.JUMP_RECOVERY,
+            ):
+                with self.subTest(x=x, option=option):
+                    player = melee.PlayerState(
+                        action=melee.Action.EDGE_HANGING,
+                        facing=facing,
+                        position=melee.Position(x=np.float32(x)),
+                    )
+                    controls, controller = self.controls(player)
+
+                    self.assertTrue(controls.ledge_recovery(option))
+                    self.assertEqual(controller.main_stick[0], expected_x)
 
     def test_turn_helpers_request_weak_and_full_backward_inputs(self) -> None:
         for facing, tilt_coordinates, smash_coordinates in (

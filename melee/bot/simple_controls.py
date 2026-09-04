@@ -363,11 +363,8 @@ def _warn_state_deprecated(name: str, replacement: str | None = None) -> None:
 
 
 def _toward_stage_stick(player: LibPlayerState) -> float:
-    """Return main-stick X that drifts toward stage while ledge hanging.
-
-    Ledge hang faces away from stage, so toward-stage is opposite its facing direction.
-    """
-    return 0.0 if player.facing_right() else 1.0
+    """Return main-stick X that drifts toward stage while ledge hanging."""
+    return 1.0 if float(player.position.x) < 0 else 0.0
 
 
 def _primary_action(
