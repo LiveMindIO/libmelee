@@ -774,6 +774,30 @@ class DiscFrameDataTests(unittest.TestCase):
         with self.assertRaisesRegex(melee.DiscFrameDataError, "requires posed geometry"):
             data.range_forward(character, action, 1)
 
+        disc_framedata = data._disc_framedata
+        assert disc_framedata is not None
+        record = disc_framedata.action("Fx", 0)
+        shifted = (
+            (melee.Character.PEACH, melee.Action.NEUTRAL_ATTACK_2),
+            (melee.Character.PEACH, melee.Action.GRAB),
+            (melee.Character.PEACH, melee.Action.GRAB_RUNNING),
+            (melee.Character.PIKACHU, melee.Action.SWORD_DANCE_3_LOW),
+            (melee.Character.PIKACHU, melee.Action.SWORD_DANCE_4_LOW),
+            (melee.Character.ZELDA, melee.Action.GRAB),
+            (melee.Character.ZELDA, melee.Action.GRAB_RUNNING),
+            (melee.Character.ZELDA, melee.Action.NEUTRAL_B_CHARGING),
+        )
+        self.assertTrue(all(data._disc_frame_offset(*key) == 1 for key in shifted))
+        with (
+            patch.object(data, "_disc_action", return_value=record),
+            patch.object(disc_framedata, "motion_state", return_value=None),
+        ):
+            shifted_character, shifted_action = shifted[0]
+            self.assertEqual(data.first_hitbox_frame(shifted_character, shifted_action), 2)
+            self.assertEqual(data.last_hitbox_frame(shifted_character, shifted_action), 6)
+            self.assertEqual(data.iasa(shifted_character, shifted_action), 6)
+            self.assertEqual(data.frame_count(shifted_character, shifted_action), 8)
+
     def test_iso_framedata_simple_controls_continues_article_special(self):
         with self.assertWarnsRegex(DeprecationWarning, "FrameData is deprecated"):
             frame_data = melee.FrameData(iso_path=self.iso_path)

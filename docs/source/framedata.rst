@@ -61,9 +61,11 @@ because it does not require article data. The context-free facade omits hitboxes
 whose creation requires a runtime thrown-hitbox owner; the lower-level timeline
 retains those script-declared candidates and their condition flag.
 
-As with ``PlayerState.action_frame``, every exported ``local_frame`` and
-``FrameSnapshot.local_frame`` is one-indexed. For a record with a non-empty
-timeline, ``ActionRecord.frame(1)`` addresses the initial snapshot. Lower-level
+Every exported ``local_frame`` and ``FrameSnapshot.local_frame`` is one-indexed
+script time. For a record with a non-empty timeline, ``ActionRecord.frame(1)``
+addresses the initial snapshot. The ISO-backed ``FrameData`` compatibility
+methods additionally apply audited action-specific offsets where runtime state
+entry makes normalized ``PlayerState.action_frame`` one frame later. Lower-level
 ``DiscFrameData.action`` queries may expose empty DAT-table records; these have
 ``timeline.frame_count == 0``, and ``frame(1)`` raises ``IndexError``.
 Raw/effective script timing remains available separately as ``animation_time``;

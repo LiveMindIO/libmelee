@@ -18,6 +18,18 @@ from melee.disc_framedata import DiscFrameData, DiscFrameDataError
 from melee.enums import Action, AttackState, Character
 
 
+_ISO_COMPATIBILITY_FRAME_OFFSETS = {
+    (Character.PEACH, Action.NEUTRAL_ATTACK_2),
+    (Character.PEACH, Action.GRAB),
+    (Character.PEACH, Action.GRAB_RUNNING),
+    (Character.PIKACHU, Action.SWORD_DANCE_3_LOW),
+    (Character.PIKACHU, Action.SWORD_DANCE_4_LOW),
+    (Character.ZELDA, Action.GRAB),
+    (Character.ZELDA, Action.GRAB_RUNNING),
+    (Character.ZELDA, Action.NEUTRAL_B_CHARGING),
+}
+
+
 def _open_package_csv(name: str):
     # DESNOTE(jbarber, 2026-06-28): setuptools editable installs map Python modules to
     # vendor/libmelee/melee while a stale wheel can leave site-packages/melee/*.py
@@ -127,6 +139,9 @@ class FrameData:
             return None
         return self._disc_framedata.action_for_state(character, action)
 
+    def _disc_frame_offset(self, character, action):
+        return int((character, action) in _ISO_COMPATIBILITY_FRAME_OFFSETS)
+
     def _disc_hitbox_frames(self, character, action):
         record = self._disc_action(character, action)
         if record is None:
@@ -143,8 +158,9 @@ class FrameData:
                 "ISO-backed hitbox timing is unavailable for special states without fighter hitboxes; "
                 "the move may create an unparsed article or projectile"
             )
+        offset = self._disc_frame_offset(character, action)
         return tuple(
-            frame.local_frame
+            frame.local_frame + offset
             for frame in record.timeline.frames
             if any(not hitbox.requires_thrown_hitbox_owner for hitbox in frame.active_hitboxes)
         )
@@ -743,7 +759,9 @@ class FrameData:
             record = self._disc_action(character, action)
             if record is None:
                 return -1
-            iasa_frame = min(record.timeline.iasa_frame or record.timeline.frame_count, record.timeline.frame_count)
+            offset = self._disc_frame_offset(character, action)
+            frame_count = record.timeline.frame_count + offset
+            iasa_frame = min((record.timeline.iasa_frame or record.timeline.frame_count) + offset, frame_count)
             if character == Character.MARTH and action == Action.NEUTRAL_ATTACK_1:
                 return min(20, iasa_frame)
             if character == Character.PIKACHU and action == Action.NEUTRAL_ATTACK_1:
@@ -799,7 +817,7 @@ class FrameData:
             record = self._disc_action(character, action)
             if record is None or not record.timeline.frames:
                 return -1
-            return record.timeline.frame_count
+            return record.timeline.frame_count + self._disc_frame_offset(character, action)
 
         frames = []
         for action_frame, _ in self.framedata[character][action].items():
