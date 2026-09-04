@@ -10,6 +10,7 @@ import math
 import warnings
 from collections import defaultdict
 from importlib.resources import files
+from itertools import groupby
 from pathlib import Path
 
 from melee import stages
@@ -718,24 +719,30 @@ class FrameData:
                 return 0
             active_groups: list[int | None] = [None] * 4
             count = 0
-            for event in record.timeline.hitbox_events:
+            for animation_time, events in groupby(
+                record.timeline.hitbox_events,
+                key=lambda event: event.animation_time,
+            ):
                 if (
                     record.animation_frame_count is not None
                     and not record.animation_loops
-                    and event.animation_time > record.animation_frame_count
+                    and animation_time > record.animation_frame_count
                 ):
                     continue
-                if event.change is HitboxChange.CREATE and event.hitbox_id is not None and event.hitbox is not None:
-                    if event.hitbox.requires_thrown_hitbox_owner:
-                        continue
-                    group = event.hitbox.hit_group
-                    if group not in active_groups:
-                        count += 1
-                    active_groups[event.hitbox_id] = group
-                elif event.change is HitboxChange.REMOVE and event.hitbox_id is not None:
-                    active_groups[event.hitbox_id] = None
-                elif event.change is HitboxChange.CLEAR:
-                    active_groups = [None] * 4
+                started_groups: set[int] = set()
+                for event in events:
+                    if event.change is HitboxChange.CREATE and event.hitbox_id is not None and event.hitbox is not None:
+                        if event.hitbox.requires_thrown_hitbox_owner:
+                            continue
+                        group = event.hitbox.hit_group
+                        if group not in active_groups:
+                            started_groups.add(group)
+                        active_groups[event.hitbox_id] = group
+                    elif event.change is HitboxChange.REMOVE and event.hitbox_id is not None:
+                        active_groups[event.hitbox_id] = None
+                    elif event.change is HitboxChange.CLEAR:
+                        active_groups = [None] * 4
+                count += len(started_groups.intersection(active_groups))
             return count
 
         # Grab only the subset that have a hitbox

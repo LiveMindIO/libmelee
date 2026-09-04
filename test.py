@@ -794,7 +794,7 @@ class DiscFrameDataTests(unittest.TestCase):
         self.assertEqual(data.attack_state(character, action, 1), melee.AttackState.ATTACKING)
         self.assertEqual(data.first_hitbox_frame(character, action), 1)
         self.assertEqual(data.last_hitbox_frame(character, action), 5)
-        self.assertEqual(data.hitbox_count(character, action), 2)
+        self.assertEqual(data.hitbox_count(character, action), 1)
         self.assertEqual(data.iasa(character, action), 5)
         self.assertEqual(data.frame_count(character, action), 7)
         conditional_action = melee.Action.DAMAGE_FLY_HIGH
@@ -1004,13 +1004,26 @@ class DiscFrameDataTests(unittest.TestCase):
         with patch.object(frame_data, "_disc_action", return_value=replace(record, timeline=mario_timeline)):
             self.assertEqual(frame_data.hitbox_count(melee.Character.MARIO, melee.Action.NAIR), 1)
 
+        ephemeral_events = (
+            struct.pack(">5I", (11 << 26) | (0 << 23), 0, 0, 0, 0)
+            + struct.pack(">5I", (11 << 26) | (1 << 23), 0, 0, 0, 0)
+            + _subaction_command(16)
+            + _subaction_command(0)
+        )
+        ephemeral_timeline = interpret_subaction(ephemeral_events, 0)
+        self.assertFalse(ephemeral_timeline.frame(1).active_hitboxes)
+        with patch.object(frame_data, "_disc_action", return_value=replace(record, timeline=ephemeral_timeline)):
+            self.assertEqual(frame_data.hitbox_count(melee.Character.YOSHI, melee.Action.DAIR), 0)
+
         group_events = (
             struct.pack(">5I", (11 << 26) | (0 << 23) | (0 << 20), 0, 0, 0, 0)
             + struct.pack(">5I", (11 << 26) | (1 << 23) | (0 << 20), 0, 0, 0, 0)
+            + _subaction_command(1, (1, 26))
             + _subaction_command(15, (0, 26))
             + struct.pack(">5I", (11 << 26) | (0 << 23) | (0 << 20), 0, 0, 0, 0)
             + struct.pack(">5I", (11 << 26) | (2 << 23) | (1 << 20), 0, 0, 0, 0)
             + struct.pack(">5I", (11 << 26) | (1 << 23) | (1 << 20), 0, 0, 0, 0)
+            + _subaction_command(1, (1, 26))
             + _subaction_command(15, (0, 26))
             + struct.pack(">5I", (11 << 26) | (3 << 23) | (0 << 20), 0, 0, 0, 0)
             + _subaction_command(0)
