@@ -530,6 +530,53 @@ class DiscFrameDataTests(unittest.TestCase):
         parsed_shared = HsdDat(shared_header + root_data + shared_roots + long_name)
         self.assertIs(parsed_shared.roots[0].name, parsed_shared.roots[-1].name)
 
+        reference_count = 4_000
+        reference_data = b"".join(
+            struct.pack(">I", offset) for offset in range(4, reference_count * 4, 4)
+        ) + struct.pack(">I", 0xFFFFFFFF)
+        references = struct.pack(">II", 0, 0) * reference_count
+        reference_name = b"external\0"
+        reference_total = 0x20 + len(reference_data) + len(references) + len(reference_name)
+        reference_header = struct.pack(
+            ">IIIII4s8x",
+            reference_total,
+            len(reference_data),
+            0,
+            0,
+            reference_count,
+            b"HSD0",
+        )
+        with self.assertRaisesRegex(melee.DatParseError, "reference 1 reuses link offset"):
+            HsdDat(reference_header + reference_data + references + reference_name)
+
+        action_count = 479
+        fighter, dynamic = 0, 0x60
+        actions = (dynamic + action_count * 2 + 3) & ~3
+        symbol = actions + action_count * 0x18
+        symbol_size = 128 * 1024
+        action_data = bytearray((symbol + symbol_size + 4) & ~3)
+        struct.pack_into(">II", action_data, fighter + 0x0C, actions, dynamic)
+        for index in range(action_count):
+            struct.pack_into(">I", action_data, actions + index * 0x18, symbol)
+        action_data[symbol : symbol + symbol_size] = b"A" * symbol_size
+        action_relocations = (0x0C, 0x10, *(actions + index * 0x18 for index in range(action_count)))
+        action_reloc = struct.pack(f">{len(action_relocations)}I", *action_relocations)
+        action_root = struct.pack(">II", fighter, 0)
+        action_root_name = b"ftDataKirby\0"
+        action_total = 0x20 + len(action_data) + len(action_reloc) + len(action_root) + len(action_root_name)
+        action_header = struct.pack(
+            ">IIIII4s8x",
+            action_total,
+            len(action_data),
+            len(action_relocations),
+            1,
+            0,
+            b"HSD0",
+        )
+        action_dat = HsdDat(action_header + action_data + action_reloc + action_root + action_root_name)
+        parsed_actions = action_dat.fighter_actions(expected_root="ftDataKirby", expected_count=action_count)
+        self.assertTrue(all(action.symbol is parsed_actions[0].symbol for action in parsed_actions))
+
     def test_public_api_combat_timeline_and_local_geometry(self):
         data = melee.DiscFrameData(self.iso_path)
         self.assertEqual(data.available_fighter_codes, ("Fx",))

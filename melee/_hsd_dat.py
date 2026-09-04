@@ -47,6 +47,8 @@ class HsdDat:
             self._fail(f"data size 0x{self.data_size:X} is not 4-byte aligned")
         self.version = self._file[0x14:0x18]
         self.data = self._file[0x20 : 0x20 + self.data_size]
+        self._data_string_cache: dict[int, str] = {}
+        self._data_string_bytes = 0
         reloc_start = 0x20 + self.data_size
         tables_size = reloc_count * 4 + (root_count + ref_count) * 8
         if tables_size > total_size - reloc_start:
@@ -81,24 +83,28 @@ class HsdDat:
             targets.add(target)
 
         references: list[DatRoot] = []
+        reference_locations: set[int] = set()
         for index in range(ref_count):
             entry_offset = roots_start + (root_count + index) * 8
             target, string_offset = struct.unpack_from(">II", self._file, entry_offset)
             name = self._file_c_string(strings_start + string_offset, strings_start, f"reference {index}")
-            self._validate_reference_chain(target, index)
+            self._validate_reference_chain(target, index, reference_locations)
             references.append(DatRoot(name, target, True))
         self.roots = tuple(roots)
         self.references = tuple(references)
         self.object_offsets = tuple(sorted(targets | {self.data_size}))
 
-    def _validate_reference_chain(self, offset: int, index: int) -> None:
+    def _validate_reference_chain(self, offset: int, index: int, locations: set[int]) -> None:
         seen = set()
         while offset != 0xFFFFFFFF:
             if offset % 4 or offset > self.data_size - 4:
                 self._fail(f"reference {index} has invalid link offset 0x{offset:X}")
             if offset in seen:
                 self._fail(f"reference {index} has a cycle at data offset 0x{offset:X}")
+            if offset in locations:
+                self._fail(f"reference {index} reuses link offset 0x{offset:X}")
             seen.add(offset)
+            locations.add(offset)
             offset = self.u32(offset)
             if offset == 0:
                 break
@@ -128,16 +134,24 @@ class HsdDat:
     def c_string(self, offset: int, description: str = "string") -> str:
         if offset < 0 or offset >= self.data_size:
             self._fail(f"{description} starts outside data at 0x{offset:X}")
+        if offset in self._data_string_cache:
+            return self._data_string_cache[offset]
         boundary = self.next_object_offset(offset)
         end = self.data.find(b"\0", offset, boundary)
         if end < 0:
             self._fail(
                 f"{description} at data offset 0x{offset:X} is not NUL-terminated before object boundary 0x{boundary:X}"
             )
+        byte_length = end - offset
+        if byte_length > self.data_size - self._data_string_bytes:
+            self._fail("aggregate data string bytes exceed the DAT data size")
         try:
-            return self.data[offset:end].decode("ascii")
+            value = self.data[offset:end].decode("ascii")
         except UnicodeDecodeError as exc:
             raise DatParseError(f"{self.context}: {description} at data offset 0x{offset:X} is not ASCII") from exc
+        self._data_string_bytes += byte_length
+        self._data_string_cache[offset] = value
+        return value
 
     def _file_c_string(self, offset: int, lower_bound: int, description: str) -> str:
         if offset < lower_bound or offset >= len(self._file):
