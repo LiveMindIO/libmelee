@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from itertools import pairwise
 from pathlib import Path
 from types import MappingProxyType
+from typing import BinaryIO
 
 
 class DiscImageError(ValueError):
@@ -131,16 +132,22 @@ class GameCubeDisc:
     def __init__(self, path: str | os.PathLike[str]):
         self.path = Path(path)
         try:
-            mode = self.path.stat().st_mode
+            stream = self.path.open("rb")
+        except IsADirectoryError as exc:
+            raise DiscImageError(f"disc image is not a regular file: {self.path!s}") from exc
         except OSError as exc:
-            raise DiscImageError(f"cannot stat disc image {self.path!s}: {exc}") from exc
-        if not stat.S_ISREG(mode):
-            raise DiscImageError(f"disc image is not a regular file: {self.path!s}")
-
-        self.size = self.path.stat().st_size
-        if self.size < 0x430:
-            raise DiscImageError(f"disc image is too small for a GameCube header: {self.size} bytes")
-        with self.path.open("rb") as stream:
+            raise DiscImageError(f"cannot open disc image {self.path!s}: {exc}") from exc
+        with stream:
+            try:
+                metadata = os.fstat(stream.fileno())
+            except OSError as exc:
+                raise DiscImageError(f"cannot stat disc image {self.path!s}: {exc}") from exc
+            if not stat.S_ISREG(metadata.st_mode):
+                raise DiscImageError(f"disc image is not a regular file: {self.path!s}")
+            self.size = metadata.st_size
+            self._image_identity = self._identity(metadata)
+            if self.size < 0x430:
+                raise DiscImageError(f"disc image is too small for a GameCube header: {self.size} bytes")
             header = stream.read(0x430)
             if len(header) != 0x430:
                 raise DiscImageError("could not read the complete GameCube disc header")
@@ -175,6 +182,31 @@ class GameCubeDisc:
         self.entries_by_path: Mapping[str, FstEntry] = MappingProxyType(by_path)
         self.fighter_members = self._pair_fighter_members()
         self._dol: DolImage | None = None
+
+    @staticmethod
+    def _identity(metadata: os.stat_result) -> tuple[int, int, int, int, int]:
+        return (
+            metadata.st_dev,
+            metadata.st_ino,
+            metadata.st_size,
+            metadata.st_mtime_ns,
+            metadata.st_ctime_ns,
+        )
+
+    def _open_validated_image(self) -> BinaryIO:
+        try:
+            stream = self.path.open("rb")
+        except OSError as exc:
+            raise DiscImageError(f"cannot open disc image {self.path!s}: {exc}") from exc
+        try:
+            metadata = os.fstat(stream.fileno())
+        except OSError as exc:
+            stream.close()
+            raise DiscImageError(f"cannot stat disc image {self.path!s}: {exc}") from exc
+        if self._identity(metadata) != self._image_identity:
+            stream.close()
+            raise DiscImageError("disc image changed since validation")
+        return stream
 
     def _parse_fst(self, fst: bytes) -> tuple[FstEntry, ...]:
         root0, root1, count = struct.unpack_from(">III", fst)
@@ -278,7 +310,7 @@ class GameCubeDisc:
                 f"disc member {entry.path!r} size 0x{entry.size:X} exceeds the supported maximum "
                 f"0x{self._MAX_MEMBER_SIZE:X}"
             )
-        with self.path.open("rb") as stream:
+        with self._open_validated_image() as stream:
             stream.seek(entry.offset)
             data = stream.read(entry.size)
         if len(data) != entry.size:
@@ -292,7 +324,7 @@ class GameCubeDisc:
             return self._dol
         if self.dol_offset < 0x440 or self.dol_offset > self.size - 0x100:
             raise DiscImageError(f"DOL header offset 0x{self.dol_offset:X} is outside the disc")
-        with self.path.open("rb") as stream:
+        with self._open_validated_image() as stream:
             stream.seek(self.dol_offset)
             header = stream.read(0x100)
             if len(header) != 0x100:

@@ -383,6 +383,18 @@ class DiscFrameDataTests(unittest.TestCase):
         with self.assertRaisesRegex(melee.DiscImageError, "main.dol SHA-1.*canonical NTSC 1.02"):
             melee.DiscFrameData(modified_path)
 
+    def test_disc_framedata_rejects_replaced_image_before_lazy_read(self):
+        data = melee.DiscFrameData(self.iso_path)
+        replacement = bytearray(self.iso_path.read_bytes())
+        base, _ = GameCubeDisc(self.iso_path).fighter_members["Fx"]
+        replacement[base.offset] ^= 1
+        replacement_path = Path(self.temporary_directory.name) / "replacement.iso"
+        replacement_path.write_bytes(replacement)
+        replacement_path.replace(self.iso_path)
+
+        with self.assertRaisesRegex(melee.DiscImageError, "changed since validation"):
+            data.action("Fx", 0)
+
     def test_iso_validation_fst_bounded_read_and_exact_pairing(self):
         disc = GameCubeDisc(self.iso_path)
         self.assertEqual(tuple(disc.fighter_members), ("Fx",))
