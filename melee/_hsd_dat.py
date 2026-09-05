@@ -92,7 +92,7 @@ class HsdDat:
             references.append(DatRoot(name, target, True))
         self.roots = tuple(roots)
         self.references = tuple(references)
-        self.object_offsets = tuple(sorted(targets | {self.data_size}))
+        self.object_offsets = tuple(sorted(targets | reference_locations | {self.data_size}))
 
     def _validate_reference_chain(self, offset: int, index: int, locations: set[int]) -> None:
         seen = set()

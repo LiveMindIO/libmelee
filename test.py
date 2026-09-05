@@ -1227,6 +1227,21 @@ class DiscFrameDataTests(unittest.TestCase):
         bad_string[0x20 + symbol : 0x20 + script] = b"A" * (script - symbol)
         with self.assertRaisesRegex(melee.DatParseError, "object boundary"):
             HsdDat(bytes(bad_string), context="broken string").fighter_actions()
+
+        embedded_reference = bytearray(self.fighter)
+        _, fighter_data_size, relocation_count, root_count, _ = struct.unpack_from(">IIIII", embedded_reference)
+        strings_start = 0x20 + fighter_data_size + relocation_count * 4 + root_count * 8
+        root_strings = embedded_reference[strings_start:]
+        embedded_reference[strings_start:strings_start] = struct.pack(">II", 0x20, len(root_strings))
+        embedded_reference.extend(b"external\0")
+        struct.pack_into(">I", embedded_reference, 0, len(embedded_reference))
+        struct.pack_into(">I", embedded_reference, 0x10, 1)
+        struct.pack_into(">I", embedded_reference, 0x20 + 0x20, 0xFFFFFFFF)
+        with self.assertRaisesRegex(melee.DatParseError, "fighter root.*overlaps"):
+            HsdDat(bytes(embedded_reference), context="embedded reference").fighter_actions(
+                expected_root="ftDataFox",
+                expected_count=327,
+            )
         with self.assertRaisesRegex(melee.SubactionParseError, "truncated"):
             interpret_subaction(struct.pack(">I", 11 << 26), 0)
         call = struct.pack(">III", 5 << 26, 8, 0)
@@ -1332,7 +1347,7 @@ class DiscFrameDataTests(unittest.TestCase):
         reference_dat = reference_header + reference_data + reference + reference_strings
         parsed_reference = HsdDat(reference_dat)
         self.assertEqual(parsed_reference.references[0].name, "external")
-        self.assertEqual(parsed_reference.object_offsets, (len(reference_data),))
+        self.assertEqual(parsed_reference.object_offsets, (0, len(reference_data)))
         zero_terminated_reference = bytearray(reference_dat)
         struct.pack_into(">I", zero_terminated_reference, 0x20, 0)
         self.assertEqual(HsdDat(bytes(zero_terminated_reference)).references, parsed_reference.references)
