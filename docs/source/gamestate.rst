@@ -14,6 +14,16 @@ Also a list of PlayerState objects that represent the state of the 4 players:
 
 The GameState object should be treated as immutable. Changing it won't have any effect on the game, and you'll receive a new copy each frame anyway.
 
+Facing Direction
+================
+
+Use :meth:`PlayerState.facing_left <melee.gamestate.PlayerState.facing_left>` and
+:meth:`PlayerState.facing_right <melee.gamestate.PlayerState.facing_right>` to
+query absolute direction in world coordinates. Use
+:meth:`PlayerState.facing_opponent <melee.gamestate.PlayerState.facing_opponent>`
+when direction should be relative to another player. The ambiguous boolean
+``PlayerState.facing`` attribute is deprecated.
+
 Design Note
 ===========
 

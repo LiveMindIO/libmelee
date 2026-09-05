@@ -1,14 +1,19 @@
 """ Gamestate is a single snapshot in time of the game that represents all necessary information
         to make gameplay decisions
 """
+import sys
+import warnings
 from dataclasses import dataclass, field
 from enum import Enum
+from threading import local
+from types import MemberDescriptorType
 from typing import Optional
 
 import numpy as np
 
 import melee
 from melee import enums
+
 
 @dataclass(slots=True, unsafe_hash=True)
 class Position:
@@ -221,6 +226,66 @@ class GameState:
 class UnknownAnimation:
     value: int = -1
 
+
+_FACING_SERIALIZATION = local()
+
+
+class _DeprecatedFacing:
+    def __init__(self, slot):
+        self._slot = slot
+
+    def __get__(self, instance, owner):
+        if instance is None:
+            return self._slot
+        caller = sys._getframe(1)
+        dataclass_helper = (
+            caller.f_globals.get("__name__") == "dataclasses"
+            and caller.f_code.co_name in {"_asdict_inner", "_astuple_inner", "_replace", "replace"}
+        )
+        if not (
+            getattr(_FACING_SERIALIZATION, "depth", 0)
+            or dataclass_helper
+            or self._is_generated_dataclass_reader(instance, caller)
+        ):
+            warnings.warn(
+                "PlayerState.facing is deprecated; use facing_left(), facing_right(), "
+                "or facing_opponent() instead.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+        return self._slot.__get__(instance, owner)
+
+    def __set__(self, instance, value):
+        self._slot.__set__(instance, value)
+
+    @staticmethod
+    def _is_generated_dataclass_reader(instance, caller) -> bool:
+        name = caller.f_code.co_name
+        if name not in {"__eq__", "__ge__", "__gt__", "__hash__", "__le__", "__lt__", "__repr__"}:
+            return False
+        co_qualname = getattr(caller.f_code, "co_qualname", None)
+        if co_qualname is not None:
+            if co_qualname != f"__create_fn__.<locals>.{name}":
+                return False
+        elif caller.f_code.co_filename != "<string>":
+            return False
+        for owner in type(instance).__mro__:
+            reader = owner.__dict__.get(name)
+            reader = getattr(reader, "__wrapped__", reader)
+            if getattr(reader, "__code__", None) is caller.f_code:
+                return True
+        return False
+
+    def value(self, instance) -> bool:
+        for owner in type(instance).__mro__:
+            if "facing" not in owner.__dict__:
+                continue
+            if owner.__dict__["facing"] is not self:
+                return bool(instance.facing)
+            break
+        return bool(self._slot.__get__(instance, type(instance)))
+
+
 @dataclass(slots=True)
 class PlayerState:
     """ Represents the state of a single player """
@@ -246,7 +311,7 @@ class PlayerState:
     stock: int = 0
     """(int): The player's remaining stock count"""
     facing: bool = True
-    """(bool): Is the character facing right? (left is False). Characters in Melee must always be facing left or right"""
+    """Deprecated. Use ``facing_left()``, ``facing_right()``, or ``facing_opponent()``."""
     action: enums.Action | UnknownAnimation = field(default_factory=UnknownAnimation)
     """(enum.Action): The current action (or animation) the character is in"""
     action_frame: int = 0
@@ -316,6 +381,66 @@ class PlayerState:
     """(string): The Slippi Online display name for the play. Might be blank"""
     team_id: int = 0
     """(int): The team ID of the player. This is different than costume, and only relevant during teams."""
+
+    def facing_left(self) -> bool:
+        """Return whether the character faces left, toward negative world X."""
+        return not _DEPRECATED_FACING.value(self)
+
+    def facing_right(self) -> bool:
+        """Return whether the character faces right, toward positive world X."""
+        return _DEPRECATED_FACING.value(self)
+
+    def facing_opponent(self, opponent: 'PlayerState') -> bool:
+        """Return whether the character faces the opponent's horizontal position.
+
+        Players at the same X coordinate have no horizontal direction between
+        them, so this returns ``False`` in that case.
+        """
+        if self.position.x < opponent.position.x:
+            return self.facing_right()
+        if self.position.x > opponent.position.x:
+            return self.facing_left()
+        return False
+
+    def __getstate__(self):
+        """Serialize slots without reading the deprecated public descriptor."""
+        depth = getattr(_FACING_SERIALIZATION, "depth", 0)
+        _FACING_SERIALIZATION.depth = depth + 1
+        try:
+            mro = type(self).__mro__
+            slot_descriptors = {}
+            for owner in mro:
+                for name, descriptor in owner.__dict__.items():
+                    if isinstance(descriptor, MemberDescriptorType):
+                        slot_descriptors.setdefault(name, descriptor)
+                if owner is PlayerState:
+                    slot_descriptors.setdefault("facing", _DEPRECATED_FACING._slot)
+            setattr(type(self), "__slotnames__", list(slot_descriptors))
+
+            for owner in mro[mro.index(PlayerState) + 1:]:
+                if "__getstate__" not in owner.__dict__:
+                    continue
+                if owner is not object:
+                    return super(PlayerState, self).__getstate__()
+                return object.__getstate__(self)
+
+            instance_dict = getattr(self, "__dict__", None)
+            if instance_dict is not None:
+                instance_dict = instance_dict.copy()
+            slot_state = {}
+            for name, descriptor in slot_descriptors.items():
+                try:
+                    slot_state[name] = descriptor.__get__(self, type(self))  # type: ignore[attr-defined]
+                except AttributeError:
+                    continue
+            return instance_dict, slot_state
+        finally:
+            _FACING_SERIALIZATION.depth = depth
+
+
+_DEPRECATED_FACING = _DeprecatedFacing(PlayerState.facing)
+PlayerState.facing = _DEPRECATED_FACING  # type: ignore[assignment]
+
 
 @dataclass(slots=True)
 class UnknownProjectileType:
