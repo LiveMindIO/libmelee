@@ -1636,6 +1636,10 @@ class DiscFrameDataTests(unittest.TestCase):
         zero_terminated_reference = bytearray(reference_dat)
         struct.pack_into(">I", zero_terminated_reference, 0x20, 0)
         self.assertEqual(HsdDat(bytes(zero_terminated_reference)).references, parsed_reference.references)
+        invalid_reference_head = bytearray(reference_dat)
+        struct.pack_into(">I", invalid_reference_head, 0x20 + len(reference_data), 0xFFFFFFFF)
+        with self.assertRaisesRegex(melee.DatParseError, "reference 0 has invalid link offset 0xFFFFFFFF"):
+            HsdDat(bytes(invalid_reference_head))
         cyclic_reference = bytearray(reference_dat)
         struct.pack_into(">II", cyclic_reference, 0x20, 4, 4)
         with self.assertRaisesRegex(melee.DatParseError, "reference 0 has a cycle"):

@@ -96,7 +96,7 @@ class HsdDat:
 
     def _validate_reference_chain(self, offset: int, index: int, locations: set[int]) -> None:
         seen = set()
-        while offset != 0xFFFFFFFF:
+        while True:
             if offset % 4 or offset > self.data_size - 4:
                 self._fail(f"reference {index} has invalid link offset 0x{offset:X}")
             if offset in seen:
@@ -106,7 +106,7 @@ class HsdDat:
             seen.add(offset)
             locations.add(offset)
             offset = self.u32(offset)
-            if offset == 0:
+            if offset in (0, 0xFFFFFFFF):
                 break
 
     def _fail(self, message: str) -> NoReturn:
