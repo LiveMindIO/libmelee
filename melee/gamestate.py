@@ -254,7 +254,11 @@ class _DeprecatedFacing:
         name = caller.f_code.co_name
         if name not in {"__eq__", "__ge__", "__gt__", "__hash__", "__le__", "__lt__", "__repr__"}:
             return False
-        if caller.f_code.co_qualname != f"__create_fn__.<locals>.{name}":
+        co_qualname = getattr(caller.f_code, "co_qualname", None)
+        if co_qualname is not None:
+            if co_qualname != f"__create_fn__.<locals>.{name}":
+                return False
+        elif caller.f_code.co_filename != "<string>":
             return False
         for owner in type(instance).__mro__:
             reader = owner.__dict__.get(name)
