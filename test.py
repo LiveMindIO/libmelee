@@ -1,19 +1,23 @@
 #!/usr/bin/python3
+import copy
+import dataclasses
 import hashlib
 import inspect
 import math
 import os
+import pickle
 import struct
 import sys
 import tempfile
 import unittest
 import warnings
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import get_args, get_type_hints
 from unittest.mock import patch
 from uuid import UUID
 
+import numpy as np
 from typing_extensions import get_overloads
 
 import melee
@@ -48,6 +52,7 @@ from melee.bot import (
     InputMontage,
     JigglypuffRolloutMontage,
     LedgedashMontage,
+    LedgeRecoveryOption,
     LinkBowMontage,
     LinkForwardSmashMontage,
     Listener,
@@ -1750,6 +1755,170 @@ class RecordingStrategy(Strategy[object]):
         return self.result
 
 
+class PlayerStateStateMixin:
+    def __getstate__(self):
+        return "wrapped", super().__getstate__()
+
+    def __setstate__(self, payload):
+        tag, state = payload
+        if tag != "wrapped":
+            raise ValueError(f"unexpected tag: {tag!r}")
+        instance_dict, slot_state = state
+        if instance_dict:
+            self.__dict__.update(instance_dict)
+        for name, value in slot_state.items():
+            setattr(self, name, value)
+
+
+class MixedPlayerState(melee.PlayerState, PlayerStateStateMixin):
+    marker: str
+    __slots__ = iter(("marker",))
+
+
+class IteratorSlottedPlayerState(melee.PlayerState):
+    marker: str
+    __slots__ = iter(("marker",))
+
+
+class PlayerFacingTests(unittest.TestCase):
+    def test_absolute_facing_methods_return_builtin_booleans(self):
+        right = melee.PlayerState(facing=True)
+        left = melee.PlayerState(facing=False)
+        right.facing = np.bool_(True)  # type: ignore[assignment]
+
+        self.assertIs(right.facing_right(), True)
+        self.assertIs(right.facing_left(), False)
+        self.assertIs(left.facing_right(), False)
+        self.assertIs(left.facing_left(), True)
+
+    def test_facing_opponent_uses_world_x_direction(self):
+        opponent_left = melee.PlayerState(position=melee.Position(x=np.float32(-5.0)))
+        opponent_right = melee.PlayerState(position=melee.Position(x=np.float32(5.0)))
+
+        self.assertTrue(melee.PlayerState(facing=True).facing_opponent(opponent_right))
+        self.assertFalse(melee.PlayerState(facing=True).facing_opponent(opponent_left))
+        self.assertTrue(melee.PlayerState(facing=False).facing_opponent(opponent_left))
+        self.assertFalse(melee.PlayerState(facing=False).facing_opponent(opponent_right))
+
+    def test_facing_opponent_is_false_at_the_same_x_position(self):
+        player = melee.PlayerState(facing=True, position=melee.Position(x=np.float32(2.0)))
+        opponent = melee.PlayerState(position=melee.Position(x=np.float32(2.0)))
+
+        self.assertFalse(player.facing_opponent(opponent))
+
+    def test_facing_attribute_remains_mutable_but_is_deprecated(self):
+        player = melee.PlayerState(facing=False)
+
+        with self.assertWarnsRegex(DeprecationWarning, "PlayerState.facing is deprecated"):
+            self.assertFalse(player.facing)
+
+        player.facing = True
+        self.assertTrue(player.facing_right())
+
+    def test_implicit_dataclass_operations_do_not_warn(self):
+        player = melee.PlayerState(facing=False)
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", DeprecationWarning)
+            self.assertIn("facing=False", repr(player))
+            self.assertEqual(player, melee.PlayerState(facing=False))
+            self.assertFalse(dataclasses.asdict(player)["facing"])
+            dataclasses.astuple(player)
+            self.assertEqual(dataclasses.replace(player), player)
+            self.assertEqual(copy.copy(player), player)
+            self.assertEqual(copy.deepcopy(player), player)
+            self.assertEqual(pickle.loads(pickle.dumps(player)), player)
+
+    def test_facing_methods_honor_subclass_field_override(self):
+        @dataclass
+        class DerivedPlayerState(melee.PlayerState):
+            facing: bool = False
+
+        player = DerivedPlayerState()
+
+        self.assertIs(player.facing_left(), True)
+        self.assertIs(player.facing_right(), False)
+
+    def test_generated_subclass_comparisons_do_not_warn(self):
+        @dataclass(order=True, unsafe_hash=True)
+        class OrderedPlayerState(melee.PlayerState):
+            pass
+
+        left = OrderedPlayerState(facing=False)
+        right = OrderedPlayerState(facing=True)
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", DeprecationWarning)
+            self.assertTrue(left < right)
+            with self.assertRaises(TypeError):
+                hash(left)
+
+    def test_delegated_generated_subclass_repr_does_not_warn(self):
+        @dataclass
+        class DelegatingPlayerState(melee.PlayerState):
+            def __repr__(self):
+                return super().__repr__()
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", DeprecationWarning)
+            self.assertIn("facing=True", repr(DelegatingPlayerState()))
+
+    def test_copy_preserves_subclass_slots(self):
+        class SlottedPlayerState(melee.PlayerState):
+            __slots__ = ("__marker", "facing")
+
+            def __init__(self):
+                super().__init__(facing=False)
+                self.__marker = "preserved"
+
+            def marker(self):
+                return self.__marker
+
+        player = SlottedPlayerState()
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", DeprecationWarning)
+            for copied in (copy.copy(player), copy.deepcopy(player)):
+                self.assertIs(copied.facing_left(), True)
+                self.assertEqual(copied.marker(), "preserved")
+
+    def test_defaultless_facing_override_is_rejected(self):
+        with self.assertRaises(TypeError):
+            dataclasses.make_dataclass(
+                "DefaultlessPlayerState",
+                [("facing", bool)],
+                bases=(melee.PlayerState,),
+            )
+
+    def test_serialization_uses_cooperative_state_mixin(self):
+        player = MixedPlayerState(facing=False)
+        player.marker = "preserved"
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", DeprecationWarning)
+            for copied in (
+                copy.copy(player),
+                copy.deepcopy(player),
+                pickle.loads(pickle.dumps(player)),
+            ):
+                self.assertIs(copied.facing_left(), True)
+                self.assertEqual(copied.marker, "preserved")
+
+    def test_serialization_preserves_iterator_declared_slots(self):
+        player = IteratorSlottedPlayerState(facing=False)
+        player.marker = "preserved"
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", DeprecationWarning)
+            for copied in (
+                copy.copy(player),
+                copy.deepcopy(player),
+                pickle.loads(pickle.dumps(player)),
+            ):
+                self.assertIs(copied.facing_left(), True)
+                self.assertEqual(copied.marker, "preserved")
+
+
 class StageGeometryTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -3268,6 +3437,27 @@ class SimpleControlsInputTests(unittest.TestCase):
 
         self.assertIs(character_state.forward_axis(), StickReferenceAxis.RIGHT)
         self.assertIs(character_state.backward_axis(), StickReferenceAxis.LEFT)
+
+    def test_ledge_recovery_holds_toward_stage_for_replay_facing_values(self) -> None:
+        for x, facing, expected_x in (
+            (-68.4, np.bool_(True), 1.0),
+            (68.4, np.bool_(False), 0.0),
+        ):
+            for option in (
+                LedgeRecoveryOption.DODGE_GETUP,
+                LedgeRecoveryOption.ATTACK_GETUP,
+                LedgeRecoveryOption.JUMP_RECOVERY,
+            ):
+                with self.subTest(x=x, option=option):
+                    player = melee.PlayerState(
+                        action=melee.Action.EDGE_HANGING,
+                        facing=facing,
+                        position=melee.Position(x=np.float32(x)),
+                    )
+                    controls, controller = self.controls(player)
+
+                    self.assertTrue(controls.ledge_recovery(option))
+                    self.assertEqual(controller.main_stick[0], expected_x)
 
     def test_turn_helpers_request_weak_and_full_backward_inputs(self) -> None:
         for facing, tilt_coordinates, smash_coordinates in (

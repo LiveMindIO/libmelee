@@ -336,7 +336,7 @@ class AttackType(Enum):
     Values map to Melee stick and button combinations (main stick + ``A`` for
     ground tilts and smashes, C-stick for directional aerials, ``A`` for neutral
     aerial, main stick + ``B`` for specials, ``Z`` for grab). Directional attacks
-    use the controlled port's ``PlayerState.facing`` to pick left vs right unless
+    use the controlled port's facing direction to pick left vs right unless
     an explicit left/right variant is requested.
 
     Ground-only: ``JAB``, ``FTILT``, ``LTILT``, ``RTILT``, ``UTILT``, ``DTILT``,
@@ -356,7 +356,7 @@ class AttackType(Enum):
     ``UTHROW``, ``DTHROW``. Throws are stick-only; ``A`` pummels during a grab.
     ``Z_AIR`` is air-only for tether-grab characters (Samus, Link, Young Link).
 
-    Directional throws use ``PlayerState.facing`` for forward/back; up/down are
+    Directional throws use the player's facing direction for forward/back; up/down are
     absolute. DK forward-grab behavior (cargo carry) is not implemented by the
     standard :class:`SimpleControls` path and must be handled by bot logic for now.
     """
@@ -1326,11 +1326,11 @@ class CharacterState:
     def forward_axis(self) -> HorizontalStickReferenceAxis:
         """Return the absolute horizontal axis the bound player faces.
 
-        Defaults to right when the port is absent, matching
-        :attr:`melee.gamestate.PlayerState.facing`.
+        Defaults to right when the port is absent, matching the
+        :class:`melee.gamestate.PlayerState` default.
         """
         target = self.player()
-        if target is None or target.facing:
+        if target is None or target.facing_right():
             return StickReferenceAxis.RIGHT
         return StickReferenceAxis.LEFT
 
