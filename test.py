@@ -585,6 +585,21 @@ class DiscFrameDataTests(unittest.TestCase):
         with self.assertRaisesRegex(melee.DatParseError, "'Wrong_figatree'"):
             parse_figatree_frame_count(self.animation, expected_root="Wrong_figatree")
 
+    def test_fighter_typed_object_starts_must_be_distinct(self):
+        dat = HsdDat(self.fighter)
+        actions = dat.pointer(0x0C, nullable=False)
+        assert actions is not None
+        for field_offset, aliased_offset in (
+            (0x0C, 0),
+            (0x10, 0),
+            (0x10, actions),
+        ):
+            with self.subTest(field_offset=field_offset, aliased_offset=aliased_offset):
+                aliased = bytearray(self.fighter)
+                struct.pack_into(">I", aliased, 0x20 + field_offset, aliased_offset)
+                with self.assertRaisesRegex(melee.DatParseError, "must have distinct data offsets"):
+                    HsdDat(bytes(aliased)).fighter_actions(expected_root="ftDataFox", expected_count=327)
+
     def test_fst_name_and_path_materialization_is_bounded(self):
         depth = 100
         name = b"A" * 5_000 + b"\0"

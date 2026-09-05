@@ -197,6 +197,8 @@ class HsdDat:
         dynamic = self.pointer(fighter + 0x10, description="fighter dynamic behavior table")
         if actions is None:
             self._fail("fighter action table is null")
+        if fighter == actions or dynamic in (fighter, actions):
+            self._fail("fighter root, action table, and dynamic behavior table must have distinct data offsets")
         if actions % 4:
             self._fail(f"fighter action table has unaligned data offset 0x{actions:X}")
         if self.next_object_offset(fighter) < fighter + 0x60:
