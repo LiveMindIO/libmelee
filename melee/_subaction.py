@@ -7,6 +7,11 @@ import struct
 from dataclasses import dataclass, replace
 from enum import Enum, IntEnum
 
+# DESNOTE(jbarber, 2026-09-05): Fighter command state has five return-stack
+# words between Fighter+0x3F4 and the first ColorOverlay at Fighter+0x408.
+# See https://github.com/doldecomp/melee/blob/d15c9cffe939611627b3a7a77a446705d2998f5f/src/melee/ft/types.h#L1200-L1202.
+_FIGHTER_COMMAND_RETURN_STACK_WORDS = 5
+
 
 class SubactionParseError(ValueError):
     """Raised when a subaction command stream is malformed or unsafe to run."""
@@ -505,6 +510,11 @@ def interpret_subaction(
                 raise SubactionParseError(f"{context}: loop at DAT offset 0x{pc + 0x20:X} has zero count")
             if loop_depth >= max_loop_depth:
                 raise SubactionParseError(f"{context}: loop depth guard exceeded {max_loop_depth}")
+            if call_depth + 2 * loop_depth + 2 > _FIGHTER_COMMAND_RETURN_STACK_WORDS:
+                raise SubactionParseError(
+                    f"{context}: fighter command return stack exceeds "
+                    f"{_FIGHTER_COMMAND_RETURN_STACK_WORDS} words"
+                )
             control_stack.append((pc + 4, count))
             loop_depth += 1
             pc += 4
@@ -541,6 +551,11 @@ def interpret_subaction(
             if opcode == 5:
                 if call_depth >= max_call_depth:
                     raise SubactionParseError(f"{context}: call depth guard exceeded {max_call_depth}")
+                if call_depth + 2 * loop_depth + 1 > _FIGHTER_COMMAND_RETURN_STACK_WORDS:
+                    raise SubactionParseError(
+                        f"{context}: fighter command return stack exceeds "
+                        f"{_FIGHTER_COMMAND_RETURN_STACK_WORDS} words"
+                    )
                 control_stack.append((pc + 8, None))
                 call_depth += 1
             pc = target

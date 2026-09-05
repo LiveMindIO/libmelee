@@ -1267,6 +1267,73 @@ class DiscFrameDataTests(unittest.TestCase):
                 self.assertEqual(len(parsed.commands[0].command.raw_words), length)
                 self.assertEqual(parsed.commands[-1].command.opcode, 0)
 
+    def test_subaction_control_stack_respects_runtime_capacity(self):
+        def nested_calls(count):
+            script = bytearray()
+            pointer_locations = set()
+            for depth in range(count):
+                offset = len(script)
+                script.extend(_subaction_command(5, (0, 26), ((depth + 1) * 12, 32)))
+                script.extend(_subaction_command(0 if depth == 0 else 6))
+                pointer_locations.add(offset + 4)
+            script.extend(_subaction_command(6))
+            return bytes(script), frozenset(pointer_locations)
+
+        two_loops = _subaction_command(3, (1, 26)) * 2 + _subaction_command(4) * 2 + _subaction_command(0)
+        self.assertEqual(
+            [command.command.opcode for command in interpret_subaction(two_loops, 0).commands],
+            [3, 3, 4, 4, 0],
+        )
+        three_loops = _subaction_command(3, (1, 26)) * 3 + _subaction_command(4) * 3 + _subaction_command(0)
+        with self.assertRaisesRegex(melee.SubactionParseError, "return stack exceeds 5 words"):
+            interpret_subaction(three_loops, 0)
+
+        five_calls, five_call_pointers = nested_calls(5)
+        self.assertEqual(
+            [command.command.opcode for command in interpret_subaction(
+                five_calls,
+                0,
+                pointer_locations=five_call_pointers,
+            ).commands],
+            [5] * 5 + [6] * 5 + [0],
+        )
+        six_calls, six_call_pointers = nested_calls(6)
+        with self.assertRaisesRegex(melee.SubactionParseError, "return stack exceeds 5 words"):
+            interpret_subaction(six_calls, 0, pointer_locations=six_call_pointers)
+
+        valid_mixed_target = 12
+        valid_mixed = b"".join(
+            (
+                _subaction_command(5, (0, 26), (valid_mixed_target, 32)),
+                _subaction_command(0),
+                two_loops[:-4],
+                _subaction_command(6),
+            )
+        )
+        self.assertEqual(
+            [command.command.opcode for command in interpret_subaction(
+                valid_mixed,
+                0,
+                pointer_locations=frozenset({4}),
+            ).commands],
+            [5, 3, 3, 4, 4, 6, 0],
+        )
+        overflowing_mixed = b"".join(
+            (
+                _subaction_command(5, (0, 26), (valid_mixed_target, 32)),
+                _subaction_command(0),
+                three_loops[:-4],
+                _subaction_command(6),
+            )
+        )
+        with self.assertRaisesRegex(melee.SubactionParseError, "return stack exceeds 5 words"):
+            interpret_subaction(overflowing_mixed, 0, pointer_locations=frozenset({4}))
+
+        with self.assertRaisesRegex(melee.SubactionParseError, "loop depth guard exceeded 1"):
+            interpret_subaction(two_loops, 0, max_loop_depth=1)
+        with self.assertRaisesRegex(melee.SubactionParseError, "call depth guard exceeded 1"):
+            interpret_subaction(five_calls, 0, pointer_locations=five_call_pointers, max_call_depth=1)
+
     def test_reached_state_changes_extend_exclusive_animation_endpoint(self):
         timer = _subaction_command(1, (8, 26))
         end = _subaction_command(0)
@@ -1450,9 +1517,9 @@ class DiscFrameDataTests(unittest.TestCase):
         self.assertEqual([item.command.opcode for item in backward_timeline.commands], [7, 2, 0])
         self.assertEqual(backward_timeline.frame_count, 5)
         deep_finite_loop = (
-            b"".join(_subaction_command(3, (1, 26)) for _ in range(63))
-            + _subaction_command(3, (5_000, 26))
-            + _subaction_command(4) * 64
+            _subaction_command(3, (200, 26))
+            + _subaction_command(3, (200, 26))
+            + _subaction_command(4) * 2
             + _subaction_command(0)
         )
         with self.assertRaisesRegex(
