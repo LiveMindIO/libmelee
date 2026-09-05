@@ -727,18 +727,18 @@ class FrameData:
                 return 0
             active_groups: list[int | None] = [None] * 4
             count = 0
-            for animation_time, events in groupby(
+            for _, events in groupby(
                 record.timeline.hitbox_events,
-                key=lambda event: event.animation_time,
+                key=lambda event: event.local_frame,
             ):
-                if (
-                    record.animation_frame_count is not None
-                    and not record.animation_loops
-                    and animation_time > record.animation_frame_count
-                ):
-                    continue
                 started_groups: set[int] = set()
                 for event in events:
+                    if (
+                        record.animation_frame_count is not None
+                        and not record.animation_loops
+                        and event.animation_time > record.animation_frame_count
+                    ):
+                        continue
                     if event.change is HitboxChange.CREATE and event.hitbox_id is not None and event.hitbox is not None:
                         if event.hitbox.requires_thrown_hitbox_owner:
                             continue

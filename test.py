@@ -1071,13 +1071,22 @@ class DiscFrameDataTests(unittest.TestCase):
         ephemeral_events = (
             struct.pack(">5I", (11 << 26) | (0 << 23), 0, 0, 0, 0)
             + struct.pack(">5I", (11 << 26) | (1 << 23), 0, 0, 0, 0)
+            + _subaction_command(1, (1, 26))
             + _subaction_command(16)
             + _subaction_command(0)
         )
         ephemeral_timeline = interpret_subaction(ephemeral_events, 0)
+        self.assertEqual(
+            [event.animation_time for event in ephemeral_timeline.hitbox_events],
+            [0, 0, 1],
+        )
+        self.assertEqual(
+            [event.local_frame for event in ephemeral_timeline.hitbox_events],
+            [1, 1, 1],
+        )
         self.assertFalse(ephemeral_timeline.frame(1).active_hitboxes)
         with patch.object(frame_data, "_disc_action", return_value=replace(record, timeline=ephemeral_timeline)):
-            self.assertEqual(frame_data.hitbox_count(melee.Character.YOSHI, melee.Action.DAIR), 0)
+            self.assertEqual(frame_data.hitbox_count(melee.Character.KIRBY, melee.Action.NAIR_LANDING), 0)
 
         group_events = (
             struct.pack(">5I", (11 << 26) | (0 << 23) | (0 << 20), 0, 0, 0, 0)
