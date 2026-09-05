@@ -32,6 +32,7 @@ _ISO_COMPATIBILITY_FRAME_OFFSETS = {
 
 _ISO_COMPATIBILITY_HITBOX_FRAME_OFFSETS = {
     (Character.SAMUS, Action.FAIR): -1,
+    (Character.MEWTWO, Action.NEUTRAL_B_CHARGING): -1,
     (Character.MEWTWO, Action.LOOPING_ATTACK_MIDDLE): -1,
 }
 
@@ -184,11 +185,11 @@ class FrameData:
             (character, action),
             0,
         )
-        return tuple(
-            frame.local_frame + offset
+        return tuple(sorted({
+            max(1, frame.local_frame + offset)
             for frame in record.timeline.frames
             if any(not hitbox.requires_thrown_hitbox_owner for hitbox in frame.active_hitboxes)
-        )
+        }))
 
     def _require_csv_geometry(self, method):
         if self._disc_framedata is not None:

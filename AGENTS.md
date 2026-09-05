@@ -350,6 +350,10 @@ uv pip install --python .venv/bin/python .
   Young Link, and Samus ground tether grabs. Their common grab `MotionState`
   metadata does not identify the hookshot or grapple article, so do not replace
   that list with a move-ID or callback-only predicate.
+- Repeated subaction `goto` loops expand only through the known finite animation
+  endpoint so initial-cycle hitboxes are complete. Unknown-duration and
+  zero-progress loops retain the first-pass boundary; counted `SetLoop` commands
+  remain governed by their explicit count and the interpreter resource guards.
 - `Action` explicitly covers Kirby's contiguous 398-543 Stone-end and copied
   neutral-special range. Values outside the declared enum remain
   `UnknownAnimation`; do not replace that boundary with an open-ended fallback.

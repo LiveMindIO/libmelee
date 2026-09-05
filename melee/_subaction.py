@@ -437,6 +437,7 @@ def interpret_subaction(
     iasa_time: float | None = None
     animation_timer = False
     script_loop = False
+    expanding_script_loop = False
     frame_guard = False
     seen: set[tuple[int, float, float, tuple[tuple[int, int | None], ...]]] = set()
     seen_control_flow: set[tuple[int, tuple[tuple[int, int | None], ...]]] = set()
@@ -486,6 +487,14 @@ def interpret_subaction(
             if timer > 0:
                 elapsed = timer
                 next_time = time + elapsed
+                if (
+                    expanding_script_loop
+                    and animation_frame_count is not None
+                    and next_time >= animation_frame_count
+                ):
+                    time = animation_frame_count
+                    timer = 0.0
+                    break
                 if _frame(next_time) > max_frames:
                     if not truncate_at_max_frames:
                         raise SubactionParseError(f"{context}: frame guard exceeded {max_frames} frames")
@@ -547,7 +556,10 @@ def interpret_subaction(
             target_state = (target, control_snapshot)
             if opcode == 7 and target_state in seen_control_flow:
                 script_loop = True
-                break
+                repeated_state = (target, time, timer, control_snapshot)
+                if not animation_frame_count or time >= animation_frame_count or repeated_state in seen:
+                    break
+                expanding_script_loop = True
             if opcode == 5:
                 if call_depth >= max_call_depth:
                     raise SubactionParseError(f"{context}: call depth guard exceeded {max_call_depth}")

@@ -89,8 +89,11 @@ callback-specific cancels.
 ``Set Timer Animation`` suspends script execution until an animation wrap. Phase
 one marks that command with ``animation_timer_encountered`` and reports only the
 initial animation cycle; it does not evaluate post-wrap commands. A ``goto``
-that re-enters previously executed control flow instead exposes
-``script_loop_encountered`` at the corresponding first-pass boundary.
+that re-enters previously executed control flow exposes
+``script_loop_encountered``. When the loop advances time and a finite animation
+endpoint is known, interpretation continues only through the remainder of that
+initial cycle. Unknown-duration and zero-progress loops stop at the first-pass
+boundary.
 Exceptionally long persistent scripts are bounded to 10,000 script frames and
 set ``frame_guard_encountered`` instead of allocating their full duration.
 

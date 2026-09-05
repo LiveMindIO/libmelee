@@ -1003,6 +1003,62 @@ class DiscFrameDataTests(unittest.TestCase):
                     self.assertEqual(data.frame_count(shifted_character, shifted_action), frame_count)
                     self.assertEqual(data.iasa(shifted_character, shifted_action), iasa_frame)
 
+    def test_repeated_goto_expands_to_animation_endpoint(self):
+        create = struct.pack(">5I", 11 << 26, 0, 0, 0, 0)
+        prefix = b"".join(
+            (
+                create,
+                _subaction_command(1, (3, 26)),
+                _subaction_command(16),
+                _subaction_command(1, (2, 26)),
+            )
+        )
+        script = prefix + _subaction_command(7, (0, 26), (0, 32))
+        timeline = interpret_subaction(
+            script,
+            0,
+            pointer_locations=frozenset({len(prefix) + 4}),
+            animation_frame_count=8,
+            animation_loops=True,
+        )
+
+        self.assertTrue(timeline.script_loop_encountered)
+        self.assertEqual([item.command.opcode for item in timeline.commands], [11, 1, 16, 1, 7, 11, 1])
+        self.assertEqual(
+            [(event.change, event.animation_time) for event in timeline.hitbox_events],
+            [
+                (melee.HitboxChange.CREATE, 0),
+                (melee.HitboxChange.CLEAR, 3),
+                (melee.HitboxChange.CREATE, 5),
+            ],
+        )
+        self.assertEqual(
+            [frame.local_frame for frame in timeline.frames if frame.active_hitboxes],
+            [1, 2, 5, 6, 7],
+        )
+        self.assertEqual(len(timeline.hitbox_generations), 2)
+
+        with self.assertWarnsRegex(DeprecationWarning, "FrameData is deprecated"):
+            data = melee.FrameData(iso_path=self.iso_path)
+        disc_framedata = data._disc_framedata
+        assert disc_framedata is not None
+        record = replace(
+            disc_framedata.action("Fx", 0),
+            animation_frame_count=8,
+            raw_flags=0x40000000,
+            timeline=timeline,
+        )
+        character = melee.Character.MEWTWO
+        action = melee.Action.NEUTRAL_B_CHARGING
+        with (
+            patch.object(data, "_disc_action", return_value=record),
+            patch.object(disc_framedata, "motion_state", return_value=None),
+        ):
+            self.assertEqual(data._disc_hitbox_frames(character, action), (1, 4, 5, 6))
+            self.assertEqual(data.first_hitbox_frame(character, action), 1)
+            self.assertEqual(data.last_hitbox_frame(character, action), 6)
+            self.assertEqual(data.hitbox_count(character, action), 2)
+
     def test_iso_framedata_simple_controls_continues_article_special(self):
         with self.assertWarnsRegex(DeprecationWarning, "FrameData is deprecated"):
             frame_data = melee.FrameData(iso_path=self.iso_path)
@@ -1535,6 +1591,14 @@ class DiscFrameDataTests(unittest.TestCase):
         goto_cycle = struct.pack(">II", 7 << 26, 0)
         goto_timeline = interpret_subaction(goto_cycle, 0, pointer_locations=frozenset({4}))
         self.assertTrue(goto_timeline.script_loop_encountered)
+        bounded_goto_timeline = interpret_subaction(
+            goto_cycle,
+            0,
+            pointer_locations=frozenset({4}),
+            animation_frame_count=8,
+        )
+        self.assertTrue(bounded_goto_timeline.script_loop_encountered)
+        self.assertEqual([item.command.opcode for item in bounded_goto_timeline.commands], [7])
         looping_script = _subaction_command(2, (20, 26)) + goto_cycle
         looping_timeline = interpret_subaction(
             looping_script,
