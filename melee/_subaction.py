@@ -422,8 +422,9 @@ def interpret_subaction(
     timer = 0.0
     animation_frame = 0.0
     animation_frame_carry = 0.0
-    calls: list[int] = []
-    loops: list[list[int]] = []
+    control_stack: list[tuple[int, int | None]] = []
+    call_depth = 0
+    loop_depth = 0
     executed: list[ExecutedCommand] = []
     hitbox_events: list[HitboxEvent] = []
     throw_events: list[ThrowEvent] = []
@@ -432,26 +433,25 @@ def interpret_subaction(
     animation_timer = False
     script_loop = False
     frame_guard = False
-    seen: set[tuple[int, float, float, tuple[int, ...], tuple[tuple[int, int], ...]]] = set()
-    seen_control_flow: set[tuple[int, tuple[int, ...], tuple[tuple[int, int], ...]]] = set()
+    seen: set[tuple[int, float, float, tuple[tuple[int, int | None], ...]]] = set()
+    seen_control_flow: set[tuple[int, tuple[tuple[int, int | None], ...]]] = set()
     retained_stack_values = 0
 
     while True:
         if len(executed) >= max_commands:
             raise SubactionParseError(f"{context}: command guard exceeded {max_commands} executions")
-        calls_snapshot = tuple(calls)
-        loops_snapshot = tuple((loop[0], loop[1]) for loop in loops)
-        state = (pc, time, timer, calls_snapshot, loops_snapshot)
+        control_snapshot = tuple(control_stack)
+        state = (pc, time, timer, control_snapshot)
         if state in seen:
             raise SubactionParseError(f"{context}: control-flow cycle at data offset 0x{pc:X}, time {time:g}")
-        snapshot_values = len(calls_snapshot) + 2 * len(loops_snapshot)
+        snapshot_values = call_depth + 2 * loop_depth
         if snapshot_values > max_commands - retained_stack_values:
             raise SubactionParseError(
                 f"{context}: control-flow state guard exceeded {max_commands} retained stack values"
             )
         retained_stack_values += snapshot_values
         seen.add(state)
-        seen_control_flow.add((pc, calls_snapshot, loops_snapshot))
+        seen_control_flow.add((pc, control_snapshot))
         if pc % 4 or pc < 0 or pc > len(data) - 4:
             raise SubactionParseError(f"{context}: command at data offset 0x{pc:X} is outside DAT data")
         first = struct.unpack_from(">I", data, pc)[0]
@@ -503,19 +503,27 @@ def interpret_subaction(
             count = int(command.parameter("count"))
             if count <= 0:
                 raise SubactionParseError(f"{context}: loop at DAT offset 0x{pc + 0x20:X} has zero count")
-            if len(loops) >= max_loop_depth:
+            if loop_depth >= max_loop_depth:
                 raise SubactionParseError(f"{context}: loop depth guard exceeded {max_loop_depth}")
-            loops.append([pc + 4, count])
+            control_stack.append((pc + 4, count))
+            loop_depth += 1
             pc += 4
             continue
         if opcode == 4:
-            if not loops:
+            if not control_stack:
                 raise SubactionParseError(f"{context}: execute-loop at DAT offset 0x{pc + 0x20:X} has no loop")
-            loops[-1][1] -= 1
-            if loops[-1][1] > 0:
-                pc = loops[-1][0]
+            loop_start, remaining = control_stack[-1]
+            if remaining is None:
+                raise SubactionParseError(
+                    f"{context}: execute-loop at DAT offset 0x{pc + 0x20:X} crosses an active call"
+                )
+            remaining -= 1
+            if remaining > 0:
+                control_stack[-1] = (loop_start, remaining)
+                pc = loop_start
             else:
-                loops.pop()
+                control_stack.pop()
+                loop_depth -= 1
                 pc += 4
             continue
         if opcode in (5, 7):
@@ -526,20 +534,28 @@ def interpret_subaction(
             target = int(command.parameter("target"))
             if target % 4 or target < 0 or target >= len(data):
                 raise SubactionParseError(f"{context}: opcode {opcode} targets invalid data offset 0x{target:X}")
-            target_state = (target, calls_snapshot, loops_snapshot)
+            target_state = (target, control_snapshot)
             if opcode == 7 and target_state in seen_control_flow:
                 script_loop = True
                 break
             if opcode == 5:
-                if len(calls) >= max_call_depth:
+                if call_depth >= max_call_depth:
                     raise SubactionParseError(f"{context}: call depth guard exceeded {max_call_depth}")
-                calls.append(pc + 8)
+                control_stack.append((pc + 8, None))
+                call_depth += 1
             pc = target
             continue
         if opcode == 6:
-            if not calls:
+            if not control_stack:
                 raise SubactionParseError(f"{context}: return at DAT offset 0x{pc + 0x20:X} has no caller")
-            pc = calls.pop()
+            return_pc, remaining = control_stack[-1]
+            if remaining is not None:
+                raise SubactionParseError(
+                    f"{context}: return at DAT offset 0x{pc + 0x20:X} crosses an active loop"
+                )
+            control_stack.pop()
+            call_depth -= 1
+            pc = return_pc
             continue
         if opcode == 8:
             animation_timer = True

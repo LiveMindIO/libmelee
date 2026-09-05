@@ -1247,6 +1247,28 @@ class DiscFrameDataTests(unittest.TestCase):
         call = struct.pack(">III", 5 << 26, 8, 0)
         with self.assertRaisesRegex(melee.SubactionParseError, "not relocated"):
             interpret_subaction(call, 0)
+        call_loop_return = b"".join(
+            (
+                _subaction_command(5, (0, 26), (16, 32)),
+                _subaction_command(23),
+                _subaction_command(0),
+                _subaction_command(3, (2, 26)),
+                _subaction_command(6),
+            )
+        )
+        with self.assertRaisesRegex(melee.SubactionParseError, "return.*crosses an active loop"):
+            interpret_subaction(call_loop_return, 0, pointer_locations=frozenset({4}))
+        loop_call_execute = b"".join(
+            (
+                _subaction_command(3, (2, 26)),
+                _subaction_command(5, (0, 26), (16, 32)),
+                _subaction_command(0),
+                _subaction_command(4),
+                _subaction_command(6),
+            )
+        )
+        with self.assertRaisesRegex(melee.SubactionParseError, "execute-loop.*crosses an active call"):
+            interpret_subaction(loop_call_execute, 0, pointer_locations=frozenset({8}))
         goto_cycle = struct.pack(">II", 7 << 26, 0)
         goto_timeline = interpret_subaction(goto_cycle, 0, pointer_locations=frozenset({4}))
         self.assertTrue(goto_timeline.script_loop_encountered)
