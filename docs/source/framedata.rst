@@ -54,12 +54,14 @@ The facade supports ``is_attack``, ``attack_state``, ``first_hitbox_frame``,
 raise ``DiscFrameDataError`` in this mode rather than misrepresenting bone-local
 DAT coordinates as posed fighter-relative geometry. Construction without
 ``iso_path`` temporarily retains the historical CSV-backed behavior. Article
-and projectile attacks are not yet included; a special state without fighter
-hitboxes raises ``DiscFrameDataError`` from ISO-backed hitbox-related queries
-rather than being reported as a non-attack. ``frame_count`` remains available
-because it does not require article data. The context-free facade omits hitboxes
-whose creation requires a runtime thrown-hitbox owner; the lower-level timeline
-retains those script-declared candidates and their condition flag.
+and projectile attacks are not yet included. ISO-backed hitbox-related queries
+raise ``DiscFrameDataError`` for known article-dependent states, including
+special states without fighter hitboxes and the mixed fighter/article hitboxes
+of Link, Young Link, and Samus ground tether grabs. ``frame_count`` remains
+available because it does not require article data. The context-free facade
+omits hitboxes whose creation requires a runtime thrown-hitbox owner; the
+lower-level timeline retains those script-declared candidates and their
+condition flag.
 
 Every exported ``local_frame`` and ``FrameSnapshot.local_frame`` is one-indexed
 script time. For a record with a non-empty timeline, ``ActionRecord.frame(1)``

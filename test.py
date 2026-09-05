@@ -1123,6 +1123,43 @@ class DiscFrameDataTests(unittest.TestCase):
         with self.assertRaisesRegex(melee.DiscFrameDataError, "unparsed article or projectile"):
             character_state.get_state()
 
+    def test_iso_article_uncertainty_includes_mixed_tether_grabs(self):
+        with self.assertWarnsRegex(DeprecationWarning, "FrameData is deprecated"):
+            frame_data = melee.FrameData(iso_path=self.iso_path)
+        disc_framedata = frame_data._disc_framedata
+        assert disc_framedata is not None
+        record = disc_framedata.action("Fx", 0)
+        state = disc_framedata.motion_state(melee.Character.FOX, melee.Action.NEUTRAL_ATTACK_1)
+        self.assertIsNotNone(state)
+        assert state is not None
+        common_grab_state = replace(state, move_id=1, raw_move_flags=1 << 24)
+        tether_grabs = (
+            (melee.Character.LINK, melee.Action.GRAB),
+            (melee.Character.LINK, melee.Action.GRAB_RUNNING),
+            (melee.Character.SAMUS, melee.Action.GRAB),
+            (melee.Character.SAMUS, melee.Action.GRAB_RUNNING),
+            (melee.Character.YLINK, melee.Action.GRAB),
+            (melee.Character.YLINK, melee.Action.GRAB_RUNNING),
+        )
+
+        with (
+            patch.object(frame_data, "_disc_action", return_value=record),
+            patch.object(disc_framedata, "motion_state", return_value=common_grab_state),
+        ):
+            for character, action in tether_grabs:
+                with self.subTest(character=character, action=action):
+                    self.assertEqual(frame_data.frame_count(character, action), 7)
+                    for query in (
+                        frame_data.is_attack,
+                        frame_data.first_hitbox_frame,
+                        frame_data.last_hitbox_frame,
+                        frame_data.hitbox_count,
+                    ):
+                        with self.assertRaisesRegex(melee.DiscFrameDataError, "unparsed article or projectile"):
+                            query(character, action)
+                    with self.assertRaisesRegex(melee.DiscFrameDataError, "unparsed article or projectile"):
+                        frame_data.attack_state(character, action, 7)
+
     def test_iso_hitbox_count_tracks_group_victim_history_epochs(self):
         with self.assertWarnsRegex(DeprecationWarning, "FrameData is deprecated"):
             frame_data = melee.FrameData(iso_path=self.iso_path)

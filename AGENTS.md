@@ -346,6 +346,10 @@ uv pip install --python .venv/bin/python .
   filter to rows available in `framedata.csv`. Do not restore formatted-label
   grouping: slot blocks vary in order and range, and include exceptions such as
   Kirby copy powers, Popo/Nana partner states, and Samus default-tagged states.
+- ISO-backed article uncertainty uses explicit character/action pairs for Link,
+  Young Link, and Samus ground tether grabs. Their common grab `MotionState`
+  metadata does not identify the hookshot or grapple article, so do not replace
+  that list with a move-ID or callback-only predicate.
 - `Action` explicitly covers Kirby's contiguous 398-543 Stone-end and copied
   neutral-special range. Values outside the declared enum remain
   `UnknownAnimation`; do not replace that boundary with an open-ended fallback.

@@ -35,8 +35,17 @@ _ISO_COMPATIBILITY_HITBOX_FRAME_OFFSETS = {
     (Character.MEWTWO, Action.LOOPING_ATTACK_MIDDLE): -1,
 }
 
+# DESNOTE(jbarber, 2026-09-05): Ground tether grabs share the common grab
+# MotionState metadata, so only the character/action pair identifies their
+# unparsed hookshot or grapple article. See https://github.com/doldecomp/melee/blob/d15c9cffe939611627b3a7a77a446705d2998f5f/src/melee/it/items/itlinkhookshot.c.
 _ISO_UNPARSED_ARTICLE_ATTACK_STATES = frozenset({
+    (Character.LINK, Action.GRAB),
+    (Character.LINK, Action.GRAB_RUNNING),
     (Character.PEACH, Action.PARASOL_FALLING),
+    (Character.SAMUS, Action.GRAB),
+    (Character.SAMUS, Action.GRAB_RUNNING),
+    (Character.YLINK, Action.GRAB),
+    (Character.YLINK, Action.GRAB_RUNNING),
 })
 
 
@@ -160,16 +169,16 @@ class FrameData:
         assert disc_framedata is not None
         state = disc_framedata.motion_state(character, action)
         if (
-            not record.timeline.hitbox_generations
-            and state is not None
-            and (
-                state.move_id in SPECIAL_MOVE_IDS
-                or (character, action) in _ISO_UNPARSED_ARTICLE_ATTACK_STATES
+            (character, action) in _ISO_UNPARSED_ARTICLE_ATTACK_STATES
+            or (
+                not record.timeline.hitbox_generations
+                and state is not None
+                and state.move_id in SPECIAL_MOVE_IDS
             )
         ):
             raise DiscFrameDataError(
-                "ISO-backed hitbox timing is unavailable for special or article attack states without fighter "
-                "hitboxes; the move may create an unparsed article or projectile"
+                "ISO-backed hitbox timing is unavailable for this special or article-dependent attack state; "
+                "the move may create an unparsed article or projectile"
             )
         offset = self._disc_frame_offset(character, action) + _ISO_COMPATIBILITY_HITBOX_FRAME_OFFSETS.get(
             (character, action),
@@ -722,8 +731,12 @@ class FrameData:
             record = self._disc_action(character, action)
             if record is None:
                 return 0
-            if not record.timeline.hitbox_generations:
+            if (
+                (character, action) in _ISO_UNPARSED_ARTICLE_ATTACK_STATES
+                or not record.timeline.hitbox_generations
+            ):
                 self._disc_hitbox_frames(character, action)
+            if not record.timeline.hitbox_generations:
                 return 0
             active_groups: list[int | None] = [None] * 4
             count = 0
