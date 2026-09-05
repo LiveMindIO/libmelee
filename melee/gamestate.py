@@ -5,6 +5,8 @@ import sys
 import warnings
 from dataclasses import dataclass, field
 from enum import Enum
+from threading import local
+from types import MemberDescriptorType
 from typing import Optional
 
 import numpy as np
@@ -225,19 +227,26 @@ class UnknownAnimation:
     value: int = -1
 
 
+_FACING_SERIALIZATION = local()
+
+
 class _DeprecatedFacing:
     def __init__(self, slot):
         self._slot = slot
 
     def __get__(self, instance, owner):
         if instance is None:
-            return self
+            return self._slot
         caller = sys._getframe(1)
         dataclass_helper = (
             caller.f_globals.get("__name__") == "dataclasses"
             and caller.f_code.co_name in {"_asdict_inner", "_astuple_inner", "_replace", "replace"}
         )
-        if not (dataclass_helper or self._is_generated_dataclass_reader(instance, caller)):
+        if not (
+            getattr(_FACING_SERIALIZATION, "depth", 0)
+            or dataclass_helper
+            or self._is_generated_dataclass_reader(instance, caller)
+        ):
             warnings.warn(
                 "PlayerState.facing is deprecated; use facing_left(), facing_right(), "
                 "or facing_opponent() instead.",
@@ -395,31 +404,38 @@ class PlayerState:
 
     def __getstate__(self):
         """Serialize slots without reading the deprecated public descriptor."""
-        instance_dict = getattr(self, "__dict__", None)
-        slot_state = {}
-        for owner in type(self).__mro__:
-            slots = owner.__dict__.get("__slots__", ())
-            if isinstance(slots, str):
-                slots = (slots,)
-            for slot_name in slots:
-                if slot_name in {"__dict__", "__weakref__"}:
+        depth = getattr(_FACING_SERIALIZATION, "depth", 0)
+        _FACING_SERIALIZATION.depth = depth + 1
+        try:
+            mro = type(self).__mro__
+            slot_descriptors = {}
+            for owner in mro:
+                for name, descriptor in owner.__dict__.items():
+                    if isinstance(descriptor, MemberDescriptorType):
+                        slot_descriptors.setdefault(name, descriptor)
+                if owner is PlayerState:
+                    slot_descriptors.setdefault("facing", _DEPRECATED_FACING._slot)
+            setattr(type(self), "__slotnames__", list(slot_descriptors))
+
+            for owner in mro[mro.index(PlayerState) + 1:]:
+                if "__getstate__" not in owner.__dict__:
                     continue
-                name = slot_name
-                if slot_name.startswith("__") and not slot_name.endswith("__"):
-                    name = f"_{owner.__name__.lstrip('_')}{slot_name}"
-                if name in slot_state:
-                    continue
+                if owner is not object:
+                    return super(PlayerState, self).__getstate__()
+                return object.__getstate__(self)
+
+            instance_dict = getattr(self, "__dict__", None)
+            if instance_dict is not None:
+                instance_dict = instance_dict.copy()
+            slot_state = {}
+            for name, descriptor in slot_descriptors.items():
                 try:
-                    descriptor = (
-                        _DEPRECATED_FACING._slot
-                        if owner is PlayerState and name == "facing"
-                        else owner.__dict__[name]
-                    )
-                    value = descriptor.__get__(self, type(self))  # type: ignore[attr-defined]
+                    slot_state[name] = descriptor.__get__(self, type(self))  # type: ignore[attr-defined]
                 except AttributeError:
                     continue
-                slot_state[name] = value
-        return instance_dict, slot_state
+            return instance_dict, slot_state
+        finally:
+            _FACING_SERIALIZATION.depth = depth
 
 
 _DEPRECATED_FACING = _DeprecatedFacing(PlayerState.facing)

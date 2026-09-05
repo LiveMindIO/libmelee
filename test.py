@@ -110,6 +110,31 @@ class RecordingStrategy(Strategy[object]):
         return self.result
 
 
+class PlayerStateStateMixin:
+    def __getstate__(self):
+        return "wrapped", super().__getstate__()
+
+    def __setstate__(self, payload):
+        tag, state = payload
+        if tag != "wrapped":
+            raise ValueError(f"unexpected tag: {tag!r}")
+        instance_dict, slot_state = state
+        if instance_dict:
+            self.__dict__.update(instance_dict)
+        for name, value in slot_state.items():
+            setattr(self, name, value)
+
+
+class MixedPlayerState(melee.PlayerState, PlayerStateStateMixin):
+    marker: str
+    __slots__ = iter(("marker",))
+
+
+class IteratorSlottedPlayerState(melee.PlayerState):
+    marker: str
+    __slots__ = iter(("marker",))
+
+
 class PlayerFacingTests(unittest.TestCase):
     def test_absolute_facing_methods_return_builtin_booleans(self):
         right = melee.PlayerState(facing=True)
@@ -211,6 +236,42 @@ class PlayerFacingTests(unittest.TestCase):
             for copied in (copy.copy(player), copy.deepcopy(player)):
                 self.assertIs(copied.facing_left(), True)
                 self.assertEqual(copied.marker(), "preserved")
+
+    def test_defaultless_facing_override_is_rejected(self):
+        with self.assertRaises(TypeError):
+            dataclasses.make_dataclass(
+                "DefaultlessPlayerState",
+                [("facing", bool)],
+                bases=(melee.PlayerState,),
+            )
+
+    def test_serialization_uses_cooperative_state_mixin(self):
+        player = MixedPlayerState(facing=False)
+        player.marker = "preserved"
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", DeprecationWarning)
+            for copied in (
+                copy.copy(player),
+                copy.deepcopy(player),
+                pickle.loads(pickle.dumps(player)),
+            ):
+                self.assertIs(copied.facing_left(), True)
+                self.assertEqual(copied.marker, "preserved")
+
+    def test_serialization_preserves_iterator_declared_slots(self):
+        player = IteratorSlottedPlayerState(facing=False)
+        player.marker = "preserved"
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", DeprecationWarning)
+            for copied in (
+                copy.copy(player),
+                copy.deepcopy(player),
+                pickle.loads(pickle.dumps(player)),
+            ):
+                self.assertIs(copied.facing_left(), True)
+                self.assertEqual(copied.marker, "preserved")
 
 
 class StageGeometryTests(unittest.TestCase):
