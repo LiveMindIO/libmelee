@@ -130,7 +130,7 @@ class GameCubeDisc:
     _MAX_MEMBER_SIZE = 0x214D00
 
     def __init__(self, path: str | os.PathLike[str]):
-        self.path = Path(path)
+        self.path = Path(path).resolve()
         try:
             stream = self.path.open("rb")
         except IsADirectoryError as exc:
@@ -172,8 +172,9 @@ class GameCubeDisc:
                 )
             stream.seek(self.fst_offset)
             fst = stream.read(self.fst_size)
-        if len(fst) != self.fst_size:
-            raise DiscImageError("could not read the complete FST")
+            if len(fst) != self.fst_size:
+                raise DiscImageError("could not read the complete FST")
+            self._assert_image_unchanged(stream)
 
         self.entries = self._parse_fst(fst)
         by_path = {entry.path: entry for entry in self.entries}
@@ -199,14 +200,19 @@ class GameCubeDisc:
         except OSError as exc:
             raise DiscImageError(f"cannot open disc image {self.path!s}: {exc}") from exc
         try:
+            self._assert_image_unchanged(stream)
+        except DiscImageError:
+            stream.close()
+            raise
+        return stream
+
+    def _assert_image_unchanged(self, stream: BinaryIO) -> None:
+        try:
             metadata = os.fstat(stream.fileno())
         except OSError as exc:
-            stream.close()
             raise DiscImageError(f"cannot stat disc image {self.path!s}: {exc}") from exc
         if self._identity(metadata) != self._image_identity:
-            stream.close()
             raise DiscImageError("disc image changed since validation")
-        return stream
 
     def _parse_fst(self, fst: bytes) -> tuple[FstEntry, ...]:
         root0, root1, count = struct.unpack_from(">III", fst)
@@ -313,8 +319,9 @@ class GameCubeDisc:
         with self._open_validated_image() as stream:
             stream.seek(entry.offset)
             data = stream.read(entry.size)
-        if len(data) != entry.size:
-            raise DiscImageError(f"short read for disc member {entry.path!r}")
+            if len(data) != entry.size:
+                raise DiscImageError(f"short read for disc member {entry.path!r}")
+            self._assert_image_unchanged(stream)
         return data
 
     def read_dol(self) -> DolImage:
@@ -345,8 +352,9 @@ class GameCubeDisc:
                 )
             stream.seek(self.dol_offset)
             data = stream.read(dol_size)
-        if len(data) != dol_size:
-            raise DiscImageError("could not read the complete DOL")
+            if len(data) != dol_size:
+                raise DiscImageError("could not read the complete DOL")
+            self._assert_image_unchanged(stream)
         digest = hashlib.sha1(data).hexdigest()
         if digest != self._EXPECTED_DOL_SHA1:
             raise DiscImageError(

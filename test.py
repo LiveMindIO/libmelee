@@ -2,6 +2,7 @@
 import hashlib
 import inspect
 import math
+import os
 import struct
 import sys
 import tempfile
@@ -394,6 +395,88 @@ class DiscFrameDataTests(unittest.TestCase):
 
         with self.assertRaisesRegex(melee.DiscImageError, "changed since validation"):
             data.action("Fx", 0)
+
+    def test_disc_framedata_binds_relative_path_before_lazy_read(self):
+        previous_directory = Path.cwd()
+        try:
+            os.chdir(self.iso_path.parent)
+            data = melee.DiscFrameData(self.iso_path.name)
+            os.chdir(previous_directory)
+            action = data.action("Fx", 0)
+        finally:
+            os.chdir(previous_directory)
+
+        self.assertEqual(data.build.iso_path, self.iso_path.resolve())
+        self.assertIsNotNone(action)
+        assert action is not None
+        self.assertEqual(action.animation_frame_count, 8.0)
+
+    def test_disc_member_read_rejects_in_place_change_after_identity_check(self):
+        disc = GameCubeDisc(self.iso_path)
+        member, _ = disc.fighter_members["Fx"]
+        original_fstat = os.fstat
+        fstat_calls = 0
+
+        def mutate_after_fstat(file_descriptor):
+            nonlocal fstat_calls
+            metadata = original_fstat(file_descriptor)
+            if fstat_calls == 0:
+                with self.iso_path.open("r+b") as image:
+                    image.seek(member.offset)
+                    image.write(bytes([self.fighter[0] ^ 1]))
+                    image.seek(0, 2)
+                    image.write(b"\0")
+            fstat_calls += 1
+            return metadata
+
+        with patch(
+            "melee._gamecube.os.fstat",
+            side_effect=mutate_after_fstat,
+        ), self.assertRaisesRegex(melee.DiscImageError, "changed since validation"):
+            disc.read_member(member)
+        self.assertEqual(fstat_calls, 2)
+
+    def test_disc_construction_rejects_in_place_change_after_identity_check(self):
+        original_fstat = os.fstat
+        fstat_calls = 0
+
+        def mutate_after_fstat(file_descriptor):
+            nonlocal fstat_calls
+            metadata = original_fstat(file_descriptor)
+            if fstat_calls == 0:
+                with self.iso_path.open("ab") as image:
+                    image.write(b"\0")
+            fstat_calls += 1
+            return metadata
+
+        with patch(
+            "melee._gamecube.os.fstat",
+            side_effect=mutate_after_fstat,
+        ), self.assertRaisesRegex(melee.DiscImageError, "changed since validation"):
+            GameCubeDisc(self.iso_path)
+        self.assertEqual(fstat_calls, 2)
+
+    def test_disc_dol_read_rejects_in_place_change_after_identity_check(self):
+        disc = GameCubeDisc(self.iso_path)
+        original_fstat = os.fstat
+        fstat_calls = 0
+
+        def mutate_after_fstat(file_descriptor):
+            nonlocal fstat_calls
+            metadata = original_fstat(file_descriptor)
+            if fstat_calls == 0:
+                with self.iso_path.open("ab") as image:
+                    image.write(b"\0")
+            fstat_calls += 1
+            return metadata
+
+        with patch(
+            "melee._gamecube.os.fstat",
+            side_effect=mutate_after_fstat,
+        ), self.assertRaisesRegex(melee.DiscImageError, "changed since validation"):
+            disc.read_dol()
+        self.assertEqual(fstat_calls, 2)
+        self.assertIsNone(disc._dol)
 
     def test_iso_validation_fst_bounded_read_and_exact_pairing(self):
         disc = GameCubeDisc(self.iso_path)
