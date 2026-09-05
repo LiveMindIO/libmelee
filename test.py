@@ -853,6 +853,58 @@ class DiscFrameDataTests(unittest.TestCase):
             self.assertEqual(data.iasa(shifted_character, shifted_action), 6)
             self.assertEqual(data.frame_count(shifted_character, shifted_action), 8)
 
+        def hitbox_timeline(active_ranges, *, frame_count, iasa_frame):
+            script = []
+            time = 0
+            for start, end in active_ranges:
+                if start > time:
+                    script.append(_subaction_command(1, (start - time, 26)))
+                script.append(struct.pack(">5I", 11 << 26, 0, 0, 0, 0))
+                script.append(_subaction_command(1, (end - start + 1, 26)))
+                script.append(_subaction_command(16))
+                time = end + 1
+            if iasa_frame > time:
+                script.append(_subaction_command(1, (iasa_frame - time, 26)))
+            script.extend((_subaction_command(23), _subaction_command(0)))
+            return interpret_subaction(b"".join(script), 0, animation_frame_count=frame_count + 1)
+
+        hitbox_offsets = (
+            (
+                melee.Character.SAMUS,
+                melee.Action.FAIR,
+                ((5, 6), (12, 13), (19, 20), (26, 27), (31, 32)),
+                (4, 5, 11, 12, 18, 19, 25, 26, 30, 31),
+                55,
+                50,
+            ),
+            (
+                melee.Character.MEWTWO,
+                melee.Action.LOOPING_ATTACK_MIDDLE,
+                ((6, 6), (13, 13), (20, 20), (27, 27), (34, 34), (41, 41), (48, 48)),
+                (5, 12, 19, 26, 33, 40, 47),
+                50,
+                50,
+            ),
+        )
+        for (
+            shifted_character,
+            shifted_action,
+            active_ranges,
+            expected_frames,
+            frame_count,
+            iasa_frame,
+        ) in hitbox_offsets:
+            with self.subTest(character=shifted_character, action=shifted_action):
+                shifted_timeline = hitbox_timeline(active_ranges, frame_count=frame_count, iasa_frame=iasa_frame)
+                shifted_record = replace(record, animation_frame_count=frame_count + 1, timeline=shifted_timeline)
+                with (
+                    patch.object(data, "_disc_action", return_value=shifted_record),
+                    patch.object(disc_framedata, "motion_state", return_value=None),
+                ):
+                    self.assertEqual(data._disc_hitbox_frames(shifted_character, shifted_action), expected_frames)
+                    self.assertEqual(data.frame_count(shifted_character, shifted_action), frame_count)
+                    self.assertEqual(data.iasa(shifted_character, shifted_action), iasa_frame)
+
     def test_iso_framedata_simple_controls_continues_article_special(self):
         with self.assertWarnsRegex(DeprecationWarning, "FrameData is deprecated"):
             frame_data = melee.FrameData(iso_path=self.iso_path)

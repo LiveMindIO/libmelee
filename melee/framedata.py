@@ -30,6 +30,11 @@ _ISO_COMPATIBILITY_FRAME_OFFSETS = {
     (Character.ZELDA, Action.NEUTRAL_B_CHARGING),
 }
 
+_ISO_COMPATIBILITY_HITBOX_FRAME_OFFSETS = {
+    (Character.SAMUS, Action.FAIR): -1,
+    (Character.MEWTWO, Action.LOOPING_ATTACK_MIDDLE): -1,
+}
+
 _ISO_UNPARSED_ARTICLE_ATTACK_STATES = frozenset({
     (Character.PEACH, Action.PARASOL_FALLING),
 })
@@ -166,7 +171,10 @@ class FrameData:
                 "ISO-backed hitbox timing is unavailable for special or article attack states without fighter "
                 "hitboxes; the move may create an unparsed article or projectile"
             )
-        offset = self._disc_frame_offset(character, action)
+        offset = self._disc_frame_offset(character, action) + _ISO_COMPATIBILITY_HITBOX_FRAME_OFFSETS.get(
+            (character, action),
+            0,
+        )
         return tuple(
             frame.local_frame + offset
             for frame in record.timeline.frames
