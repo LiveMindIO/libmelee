@@ -352,7 +352,9 @@ uv pip install --python .venv/bin/python .
   that list with a move-ID or callback-only predicate.
 - Disc image paths are opened nonblocking until the descriptor is confirmed to
   be a regular file. This prevents user-supplied or replacement FIFOs from
-  stalling construction or lazy reads before identity validation.
+  stalling construction or lazy reads before identity validation. Windows maps
+  directory opens to `PermissionError`, so classify that path before reporting
+  a generic open failure while retaining descriptor-level validation.
 - Repeated subaction `goto` loops expand only through the known finite animation
   endpoint so initial-cycle hitboxes are complete. Commands due exactly at the
   endpoint still execute, including zero-time commands reached through an

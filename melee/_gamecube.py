@@ -181,6 +181,12 @@ class GameCubeDisc:
             file_descriptor = os.open(self.path, flags)
         except IsADirectoryError as exc:
             raise DiscImageError(f"disc image is not a regular file: {self.path!s}") from exc
+        except PermissionError as exc:
+            # DESNOTE(jbarber, 2026-09-05): Windows reports directory opens as
+            # access denied instead of EISDIR, so classify the path explicitly.
+            if self.path.is_dir():
+                raise DiscImageError(f"disc image is not a regular file: {self.path!s}") from exc
+            raise DiscImageError(f"cannot open disc image {self.path!s}: {exc}") from exc
         except OSError as exc:
             raise DiscImageError(f"cannot open disc image {self.path!s}: {exc}") from exc
         try:

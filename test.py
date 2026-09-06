@@ -554,6 +554,16 @@ class DiscFrameDataTests(unittest.TestCase):
             GameCubeDisc(bad_path)
         with self.assertRaisesRegex(melee.DiscImageError, "regular file"):
             GameCubeDisc(Path(self.temporary_directory.name))
+        with (
+            patch("melee._gamecube.os.open", side_effect=PermissionError(13, "Access is denied")),
+            self.assertRaisesRegex(melee.DiscImageError, "regular file"),
+        ):
+            GameCubeDisc(Path(self.temporary_directory.name))
+        with (
+            patch("melee._gamecube.os.open", side_effect=PermissionError(13, "Access is denied")),
+            self.assertRaisesRegex(melee.DiscImageError, "cannot open"),
+        ):
+            GameCubeDisc(self.iso_path)
 
         for offset, value, message in ((0, ord("X"), "disc ID"), (6, 1, "disc number")):
             with self.subTest(message=message):
