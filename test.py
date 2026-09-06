@@ -1065,19 +1065,22 @@ class DiscFrameDataTests(unittest.TestCase):
         )
 
         self.assertTrue(timeline.script_loop_encountered)
-        self.assertEqual([item.command.opcode for item in timeline.commands], [11, 1, 16, 1, 7, 11, 1])
+        self.assertEqual([item.command.opcode for item in timeline.commands], [11, 1, 16, 1, 7, 11, 1, 16, 1])
         self.assertEqual(
             [(event.change, event.animation_time) for event in timeline.hitbox_events],
             [
                 (melee.HitboxChange.CREATE, 0),
                 (melee.HitboxChange.CLEAR, 3),
                 (melee.HitboxChange.CREATE, 5),
+                (melee.HitboxChange.CLEAR, 8),
             ],
         )
         self.assertEqual(
             [frame.local_frame for frame in timeline.frames if frame.active_hitboxes],
             [1, 2, 5, 6, 7],
         )
+        self.assertEqual(timeline.frame_count, 8)
+        self.assertEqual(timeline.frame(8).active_hitboxes, ())
         self.assertEqual(len(timeline.hitbox_generations), 2)
 
         with self.assertWarnsRegex(DeprecationWarning, "FrameData is deprecated"):
@@ -1100,6 +1103,7 @@ class DiscFrameDataTests(unittest.TestCase):
             self.assertEqual(data.first_hitbox_frame(character, action), 1)
             self.assertEqual(data.last_hitbox_frame(character, action), 6)
             self.assertEqual(data.hitbox_count(character, action), 2)
+            self.assertEqual(data.frame_count(character, action), 8)
 
     def test_iso_framedata_simple_controls_continues_article_special(self):
         with self.assertWarnsRegex(DeprecationWarning, "FrameData is deprecated"):

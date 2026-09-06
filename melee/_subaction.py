@@ -490,7 +490,7 @@ def interpret_subaction(
                 if (
                     expanding_script_loop
                     and animation_frame_count is not None
-                    and next_time >= animation_frame_count
+                    and next_time > animation_frame_count
                 ):
                     time = animation_frame_count
                     timer = 0.0

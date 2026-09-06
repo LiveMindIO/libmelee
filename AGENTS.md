@@ -354,9 +354,11 @@ uv pip install --python .venv/bin/python .
   be a regular file. This prevents user-supplied or replacement FIFOs from
   stalling construction or lazy reads before identity validation.
 - Repeated subaction `goto` loops expand only through the known finite animation
-  endpoint so initial-cycle hitboxes are complete. Unknown-duration and
-  zero-progress loops retain the first-pass boundary; counted `SetLoop` commands
-  remain governed by their explicit count and the interpreter resource guards.
+  endpoint so initial-cycle hitboxes are complete. Commands due exactly at the
+  endpoint still execute; only a wait that would overshoot it ends expansion.
+  Unknown-duration and zero-progress loops retain the first-pass boundary;
+  counted `SetLoop` commands remain governed by their explicit count and the
+  interpreter resource guards.
 - `Action` explicitly covers Kirby's contiguous 398-543 Stone-end and copied
   neutral-special range. Values outside the declared enum remain
   `UnknownAnimation`; do not replace that boundary with an open-ended fallback.
