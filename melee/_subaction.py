@@ -557,7 +557,7 @@ def interpret_subaction(
             if opcode == 7 and target_state in seen_control_flow:
                 script_loop = True
                 repeated_state = (target, time, timer, control_snapshot)
-                if not animation_frame_count or time >= animation_frame_count or repeated_state in seen:
+                if not animation_frame_count or time > animation_frame_count or repeated_state in seen:
                     break
                 expanding_script_loop = True
             if opcode == 5:

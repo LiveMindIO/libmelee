@@ -355,7 +355,8 @@ uv pip install --python .venv/bin/python .
   stalling construction or lazy reads before identity validation.
 - Repeated subaction `goto` loops expand only through the known finite animation
   endpoint so initial-cycle hitboxes are complete. Commands due exactly at the
-  endpoint still execute; only a wait that would overshoot it ends expansion.
+  endpoint still execute, including zero-time commands reached through an
+  endpoint `goto`; only a wait that would overshoot it ends expansion.
   Unknown-duration and zero-progress loops retain the first-pass boundary;
   counted `SetLoop` commands remain governed by their explicit count and the
   interpreter resource guards.

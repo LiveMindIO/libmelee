@@ -1083,6 +1083,26 @@ class DiscFrameDataTests(unittest.TestCase):
         self.assertEqual(timeline.frame(8).active_hitboxes, ())
         self.assertEqual(len(timeline.hitbox_generations), 2)
 
+        endpoint_prefix = create + _subaction_command(1, (4, 26))
+        endpoint_script = endpoint_prefix + _subaction_command(7, (0, 26), (0, 32))
+        endpoint_timeline = interpret_subaction(
+            endpoint_script,
+            0,
+            pointer_locations=frozenset({len(endpoint_prefix) + 4}),
+            animation_frame_count=8,
+            animation_loops=True,
+        )
+        self.assertEqual(
+            [item.command.opcode for item in endpoint_timeline.commands],
+            [11, 1, 7, 11, 1, 7, 11, 1],
+        )
+        self.assertEqual(
+            [event.animation_time for event in endpoint_timeline.hitbox_events],
+            [0, 4, 8],
+        )
+        self.assertEqual(endpoint_timeline.frame_count, 8)
+        self.assertEqual(tuple(hitbox.hitbox_id for hitbox in endpoint_timeline.frame(8).active_hitboxes), (0,))
+
         with self.assertWarnsRegex(DeprecationWarning, "FrameData is deprecated"):
             data = melee.FrameData(iso_path=self.iso_path)
         disc_framedata = data._disc_framedata
