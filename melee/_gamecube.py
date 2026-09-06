@@ -131,19 +131,8 @@ class GameCubeDisc:
 
     def __init__(self, path: str | os.PathLike[str]):
         self.path = Path(path).resolve()
-        try:
-            stream = self.path.open("rb")
-        except IsADirectoryError as exc:
-            raise DiscImageError(f"disc image is not a regular file: {self.path!s}") from exc
-        except OSError as exc:
-            raise DiscImageError(f"cannot open disc image {self.path!s}: {exc}") from exc
+        stream, metadata = self._open_regular_image()
         with stream:
-            try:
-                metadata = os.fstat(stream.fileno())
-            except OSError as exc:
-                raise DiscImageError(f"cannot stat disc image {self.path!s}: {exc}") from exc
-            if not stat.S_ISREG(metadata.st_mode):
-                raise DiscImageError(f"disc image is not a regular file: {self.path!s}")
             self.size = metadata.st_size
             self._image_identity = self._identity(metadata)
             if self.size < 0x430:
@@ -184,6 +173,28 @@ class GameCubeDisc:
         self.fighter_members = self._pair_fighter_members()
         self._dol: DolImage | None = None
 
+    def _open_regular_image(self) -> tuple[BinaryIO, os.stat_result]:
+        # DESNOTE(jbarber, 2026-09-05): Opening with O_NONBLOCK lets fstat reject
+        # a FIFO without waiting indefinitely for a writer.
+        flags = os.O_RDONLY | getattr(os, "O_BINARY", 0) | getattr(os, "O_NONBLOCK", 0)
+        try:
+            file_descriptor = os.open(self.path, flags)
+        except IsADirectoryError as exc:
+            raise DiscImageError(f"disc image is not a regular file: {self.path!s}") from exc
+        except OSError as exc:
+            raise DiscImageError(f"cannot open disc image {self.path!s}: {exc}") from exc
+        try:
+            metadata = os.fstat(file_descriptor)
+            if not stat.S_ISREG(metadata.st_mode):
+                raise DiscImageError(f"disc image is not a regular file: {self.path!s}")
+            return os.fdopen(file_descriptor, "rb"), metadata
+        except DiscImageError:
+            os.close(file_descriptor)
+            raise
+        except OSError as exc:
+            os.close(file_descriptor)
+            raise DiscImageError(f"cannot stat disc image {self.path!s}: {exc}") from exc
+
     @staticmethod
     def _identity(metadata: os.stat_result) -> tuple[int, int, int, int, int]:
         return (
@@ -195,15 +206,10 @@ class GameCubeDisc:
         )
 
     def _open_validated_image(self) -> BinaryIO:
-        try:
-            stream = self.path.open("rb")
-        except OSError as exc:
-            raise DiscImageError(f"cannot open disc image {self.path!s}: {exc}") from exc
-        try:
-            self._assert_image_unchanged(stream)
-        except DiscImageError:
+        stream, metadata = self._open_regular_image()
+        if self._identity(metadata) != self._image_identity:
             stream.close()
-            raise
+            raise DiscImageError("disc image changed since validation")
         return stream
 
     def _assert_image_unchanged(self, stream: BinaryIO) -> None:

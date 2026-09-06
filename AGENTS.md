@@ -350,6 +350,9 @@ uv pip install --python .venv/bin/python .
   Young Link, and Samus ground tether grabs. Their common grab `MotionState`
   metadata does not identify the hookshot or grapple article, so do not replace
   that list with a move-ID or callback-only predicate.
+- Disc image paths are opened nonblocking until the descriptor is confirmed to
+  be a regular file. This prevents user-supplied or replacement FIFOs from
+  stalling construction or lazy reads before identity validation.
 - Repeated subaction `goto` loops expand only through the known finite animation
   endpoint so initial-cycle hitboxes are complete. Unknown-duration and
   zero-progress loops retain the first-pass boundary; counted `SetLoop` commands

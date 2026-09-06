@@ -6,6 +6,7 @@ import inspect
 import math
 import os
 import pickle
+import subprocess
 import struct
 import sys
 import tempfile
@@ -400,6 +401,42 @@ class DiscFrameDataTests(unittest.TestCase):
 
         with self.assertRaisesRegex(melee.DiscImageError, "changed since validation"):
             data.action("Fx", 0)
+
+    @unittest.skipUnless(hasattr(os, "mkfifo") and hasattr(os, "O_NONBLOCK"), "requires POSIX FIFOs")
+    def test_disc_image_rejects_fifos_without_blocking(self):
+        fifo_path = Path(self.temporary_directory.name) / "disc.fifo"
+        os.mkfifo(fifo_path)
+        initial = subprocess.run(
+            [
+                sys.executable,
+                "-c",
+                "from melee._gamecube import GameCubeDisc; GameCubeDisc(__import__('sys').argv[1])",
+                str(fifo_path),
+            ],
+            capture_output=True,
+            text=True,
+            timeout=2,
+        )
+        self.assertNotEqual(initial.returncode, 0)
+        self.assertIn("disc image is not a regular file", initial.stderr)
+
+        replacement_path = Path(self.temporary_directory.name) / "replacement-fifo.iso"
+        replacement_path.write_bytes(self.iso_path.read_bytes())
+        lazy = subprocess.run(
+            [
+                sys.executable,
+                "-c",
+                "import os, sys; from melee._gamecube import GameCubeDisc; "
+                "disc = GameCubeDisc(sys.argv[1]); member = disc.fighter_members['Fx'][0]; "
+                "os.unlink(sys.argv[1]); os.mkfifo(sys.argv[1]); disc.read_member(member)",
+                str(replacement_path),
+            ],
+            capture_output=True,
+            text=True,
+            timeout=2,
+        )
+        self.assertNotEqual(lazy.returncode, 0)
+        self.assertIn("disc image is not a regular file", lazy.stderr)
 
     def test_disc_framedata_binds_relative_path_before_lazy_read(self):
         previous_directory = Path.cwd()
