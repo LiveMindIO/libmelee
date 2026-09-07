@@ -168,6 +168,12 @@ class FrameData:
     def _disc_frame_offset(self, character, action):
         return int((character, action) in _ISO_COMPATIBILITY_FRAME_OFFSETS)
 
+    def _disc_hitbox_frame_offset(self, character, action):
+        return self._disc_frame_offset(character, action) + _ISO_COMPATIBILITY_HITBOX_FRAME_OFFSETS.get(
+            (character, action),
+            0,
+        )
+
     def _disc_hitbox_frames(self, character, action):
         record = self._disc_action(character, action)
         if record is None:
@@ -187,10 +193,7 @@ class FrameData:
                 "ISO-backed hitbox timing is unavailable for this special or article-dependent attack state; "
                 "the move may create an unparsed article or projectile"
             )
-        offset = self._disc_frame_offset(character, action) + _ISO_COMPATIBILITY_HITBOX_FRAME_OFFSETS.get(
-            (character, action),
-            0,
-        )
+        offset = self._disc_hitbox_frame_offset(character, action)
         return tuple(sorted({
             max(1, frame.local_frame + offset)
             for frame in record.timeline.frames

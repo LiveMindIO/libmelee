@@ -290,6 +290,7 @@ def _synthetic_dol():
     pack_motion_state(0x803C2800 + melee.Action.DAMAGE_FLY_HIGH.value * 0x20, 1)
     pack_virtual(0x803C12E0 + melee.Character.FOX.value * 4, 0x803C5800)
     pack_motion_state(0x803C5800, 295, raw_move_flags=18 << 24)
+    pack_motion_state(0x803C5820, 46, raw_move_flags=19 << 24)
     donkey_motion_states = 0x803C5900
     pack_virtual(0x803C12E0 + melee.Character.DK.value * 4, donkey_motion_states)
     pack_motion_state(donkey_motion_states, 295, raw_move_flags=53 << 24)
@@ -1202,14 +1203,106 @@ class DiscFrameDataTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "cannot record CSV data"):
             melee.FrameData(write=True, iso_path=self.iso_path, _warn_deprecated=False)
 
-    def test_framedata_query_remains_explicitly_csv_backed(self):
-        framedata_query._frame_data.cache_clear()
-        self.addCleanup(framedata_query._frame_data.cache_clear)
-        with patch.dict(os.environ, {"MELEE_ISO_PATH": str(self.iso_path)}):
-            data = framedata_query._frame_data()
+    def test_framedata_query_uses_configured_iso_without_fabricating_runtime_fields(self):
+        framedata_query.clear_framedata_query_caches()
+        self.addCleanup(framedata_query.clear_framedata_query_caches)
+        with (
+            patch.dict(os.environ, {"MELEE_ISO_PATH": str(self.iso_path)}),
+            patch("melee.bot.framedata_query._open_framedata_csv") as open_csv,
+        ):
+            result = get_framedata("fox", "NEUTRAL_ATTACK_1")
 
-        self.assertIsNone(data._disc_framedata)
-        self.assertTrue(data.framedata)
+        open_csv.assert_not_called()
+        self.assertEqual(result.source.kind, "iso")
+        self.assertIsNotNone(result.source.disc_build)
+        assert result.source.disc_build is not None
+        self.assertEqual(result.source.disc_build.iso_path, self.iso_path.resolve())
+        self.assertEqual(len(result.resolved_actions), 1)
+        summary = result.resolved_actions[0]
+        self.assertEqual(
+            (summary.total_frames, summary.first_hitbox_frame, summary.last_hitbox_frame, summary.iasa_frame),
+            (7, 1, 5, 5),
+        )
+        active = [segment for segment in result.segments if any(hitbox.active for hitbox in segment.hitboxes)]
+        self.assertTrue(active)
+        hitbox = next(hitbox for hitbox in active[0].hitboxes if hitbox.active)
+        self.assertEqual(hitbox.index, 2)
+        self.assertEqual(hitbox.size, 1.5)
+        self.assertIsNone(hitbox.x)
+        self.assertIsNone(active[0].locomotion_x)
+        self.assertIsNone(active[0].facing_changed)
+        self.assertIsNone(active[0].projectile)
+
+    def test_raw_framedata_query_stays_csv_backed_with_configured_iso(self):
+        framedata_query.clear_framedata_query_caches()
+        self.addCleanup(framedata_query.clear_framedata_query_caches)
+        with patch.dict(os.environ, {"MELEE_ISO_PATH": str(self.iso_path)}):
+            result = framedata_query.get_raw_framedata_csv("fox", "nair", max_rows=1)
+
+        self.assertEqual(result.row_count, 1)
+        self.assertEqual(result.rows[0]["character"], str(melee.Character.FOX.value))
+
+    def test_iso_framedata_query_cache_is_keyed_by_configured_source(self):
+        framedata_query.clear_framedata_query_caches()
+        self.addCleanup(framedata_query.clear_framedata_query_caches)
+        with patch.dict(os.environ, {"MELEE_ISO_PATH": ""}):
+            csv_result = get_framedata("fox", "NEUTRAL_ATTACK_1")
+        with patch.dict(os.environ, {"MELEE_ISO_PATH": str(self.iso_path)}):
+            iso_result = get_framedata("fox", "NEUTRAL_ATTACK_1")
+            repeated = get_framedata("fox", "NEUTRAL_ATTACK_1")
+
+        self.assertEqual(csv_result.source.kind, "csv")
+        self.assertEqual(iso_result.source.kind, "iso")
+        self.assertTrue(csv_result.segments)
+        self.assertIsInstance(csv_result.segments[0].locomotion_x, float)
+        self.assertIsInstance(csv_result.segments[0].hitboxes[0].x, float)
+        self.assertIs(iso_result, repeated)
+        self.assertIsNot(csv_result, iso_result)
+
+    def test_special_move_slot_uses_executable_move_ids(self):
+        self.assertIsNone(framedata_query._special_slot_for_move_id(17))
+        self.assertEqual(
+            tuple(framedata_query._special_slot_for_move_id(move_id) for move_id in range(18, 22)),
+            ("neutral-special", "side-special", "up-special", "down-special"),
+        )
+        self.assertEqual(framedata_query._special_slot_for_move_id(22), "neutral-special")
+        self.assertEqual(framedata_query._special_slot_for_move_id(47), "neutral-special")
+        self.assertIsNone(framedata_query._special_slot_for_move_id(48))
+
+    def test_iso_special_slot_resolution_uses_executable_move_id(self):
+        framedata_query.clear_framedata_query_caches()
+        self.addCleanup(framedata_query.clear_framedata_query_caches)
+        with patch.dict(os.environ, {"MELEE_ISO_PATH": str(self.iso_path)}):
+            result = get_framedata("fox", "side-special")
+
+        self.assertEqual(tuple(action.action_id for action in result.resolved_actions), (342,))
+
+    def test_iso_special_slot_resolution_rejects_unparsed_article_attacks(self):
+        framedata_query.clear_framedata_query_caches()
+        self.addCleanup(framedata_query.clear_framedata_query_caches)
+        with (
+            patch.dict(os.environ, {"MELEE_ISO_PATH": str(self.iso_path)}),
+            self.assertRaisesRegex(melee.DiscFrameDataError, "unparsed article or projectile"),
+        ):
+            get_framedata("fox", "neutral-special")
+
+    def test_iso_framedata_query_rejects_unparsed_article_attacks(self):
+        framedata_query.clear_framedata_query_caches()
+        self.addCleanup(framedata_query.clear_framedata_query_caches)
+        with (
+            patch.dict(os.environ, {"MELEE_ISO_PATH": str(self.iso_path)}),
+            self.assertRaisesRegex(melee.DiscFrameDataError, "unparsed article or projectile"),
+        ):
+            get_framedata("fox", "LASER_GUN_PULL")
+
+    def test_iso_framedata_query_omits_conditional_thrown_owner_hitboxes(self):
+        framedata_query.clear_framedata_query_caches()
+        self.addCleanup(framedata_query.clear_framedata_query_caches)
+        with patch.dict(os.environ, {"MELEE_ISO_PATH": str(self.iso_path)}):
+            result = get_framedata("fox", "DAMAGE_FLY_HIGH")
+
+        self.assertEqual(result.resolved_actions[0].first_hitbox_frame, -1)
+        self.assertFalse(any(hitbox.active for segment in result.segments for hitbox in segment.hitboxes))
 
     def test_repeated_goto_expands_to_animation_endpoint(self):
         create = struct.pack(">5I", 11 << 26, 0, 0, 0, 0)
@@ -2856,14 +2949,18 @@ class SLPFile(unittest.TestCase):
         )
 
     def test_internal_framedata_construction_does_not_warn(self):
-        framedata_query.get_framedata.cache_clear()
-        framedata_query._frame_data.cache_clear()
+        framedata_query.clear_framedata_query_caches()
 
-        with warnings.catch_warnings():
+        with warnings.catch_warnings(), patch.dict(os.environ, {"MELEE_ISO_PATH": ""}):
             warnings.simplefilter("error", DeprecationWarning)
             get_framedata("fox", "nair")
             CharacterState(melee.GameState(), 1)
             SimpleControls(melee.GameState(), 1, RecordingSimpleController())
+
+    def test_get_framedata_retains_public_cache_helpers(self):
+        self.assertIs(get_framedata.cache_clear, framedata_query.clear_framedata_query_caches)
+        self.assertEqual(get_framedata.cache_parameters(), {"maxsize": None, "typed": False})
+        self.assertIsNone(get_framedata.cache_info().maxsize)
 
     def test_special_slot_table_covers_framedata_roster(self) -> None:
         framedata = melee.FrameData()
@@ -2924,6 +3021,7 @@ class SLPFile(unittest.TestCase):
         self.assertIs(raw_369, melee.Action.MARTH_SPECIAL_LW)
         self.assertEqual(raw_369.name, "MARTH_COUNTER")
 
+    @patch.dict(os.environ, {"MELEE_ISO_PATH": ""})
     def test_special_slot_resolution_filters_to_available_framedata(self) -> None:
         framedata = melee.FrameData()
 

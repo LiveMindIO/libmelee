@@ -2,16 +2,18 @@
 
 This module exposes two query entry points:
 
-* :func:`get_framedata` returns synthetic, fully-typed framedata for a
+* :func:`get_framedata` returns source-derived, fully-typed framedata for a
   character/action query — a :class:`FramedataResult` containing one
   :class:`ActionSummary` per resolved action plus an ordered list of
   :class:`FrameSegment` snapshots. Segments are explicit, significant state
   transitions in the framedata: a new segment begins whenever any tracked
   property of a frame changes — a hitbox appearing or disappearing, a hitbox
   stat (size, x, y) changing, the attack phase (windup/attacking/cooldown)
-  advancing, the IASA flag flipping, locomotion shifting, the facing flag
-  toggling, or a projectile spawning. Each segment is inclusive on both ends
-  (it covers ``[start_frame, end_frame]``).
+  advancing, the IASA flag flipping, or an available source-specific property
+  changing. Historical CSV results include locomotion, facing, projectile, and
+  runtime-captured XY geometry. ISO results leave those fields ``None`` while
+  retaining script-proven hitbox activity, size, and timing. Each segment is
+  inclusive on both ends (it covers ``[start_frame, end_frame]``).
 
 * :func:`get_raw_framedata_csv` streams the raw framedata CSV filtered by
   character/action/frame range. Returns a :class:`RawFramedataCsvResult`.
@@ -27,21 +29,23 @@ Note:
     on a live game state.
 
 Caching:
-    Per ``(character, action)`` the segment list and action summary are
-    constructed once and cached via :func:`functools.lru_cache`.
-    ``get_framedata`` itself assembles cached pieces cheaply; repeated queries
-    for the same character/action pair do not re-walk the framedata.
+    Results and their building blocks are cached by resolved source path as well
+    as character/action. Changing ``MELEE_ISO_PATH`` selects a different cache
+    entry. Call :func:`clear_framedata_query_caches` after replacing an ISO at
+    the same path.
 """
 
 from __future__ import annotations
 
 import csv
+import os
 import re
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
-from functools import lru_cache
+from functools import cache, lru_cache
+from itertools import groupby
 from pathlib import Path
-from typing import Final, TextIO, TypedDict
+from typing import Final, Literal, Protocol, TextIO, TypedDict, cast
 
 import melee
 from melee.bot.action_names import (
@@ -49,6 +53,7 @@ from melee.bot.action_names import (
     action_state_ident,
     character_section_name,
 )
+from melee.disc_framedata import DiscBuild, FrameSnapshot
 from melee.enums import Action, AttackState, Character
 from melee.framedata import FrameData
 
@@ -149,14 +154,14 @@ _SPECIAL_SLOT_ACTION_IDS: Final[dict[Character, dict[str, tuple[int, ...]]]] = {
     },
     Character.POPO: {
         "neutral-special": (341, 342),
-        "side-special": tuple(range(343, 347)) + (359, 360),
-        "up-special": tuple(range(347, 357)) + tuple(range(361, 367)),
+        "side-special": (*range(343, 347), 359, 360),
+        "up-special": (*range(347, 357), *range(361, 367)),
         "down-special": (357, 358),
     },
     Character.NANA: {
         "neutral-special": (341, 342),
-        "side-special": tuple(range(343, 347)) + (359, 360),
-        "up-special": tuple(range(347, 357)) + tuple(range(361, 367)),
+        "side-special": (*range(343, 347), 359, 360),
+        "up-special": (*range(347, 357), *range(361, 367)),
         "down-special": (357, 358),
     },
     Character.PIKACHU: {
@@ -348,22 +353,22 @@ class HitboxSnapshot:
     size: float
     """Hitbox radius."""
 
-    x: float
-    """Hitbox center X relative to the character's root bone."""
+    x: float | None
+    """Runtime-captured root-relative X, or ``None`` for ISO results."""
 
-    y: float
-    """Hitbox center Y relative to the character's root bone."""
+    y: float | None
+    """Runtime-captured root-relative Y, or ``None`` for ISO results."""
 
-    min_x: float
+    min_x: float | None
     """Leftmost extent of the hitbox (``x - size``)."""
 
-    max_x: float
+    max_x: float | None
     """Rightmost extent of the hitbox (``x + size``)."""
 
-    min_y: float
+    min_y: float | None
     """Lowermost extent of the hitbox (``y - size``)."""
 
-    max_y: float
+    max_y: float | None
     """Uppermost extent of the hitbox (``y + size``)."""
 
 
@@ -379,9 +384,9 @@ class FrameSegment:
       (a hitbox appears, disappears, or shifts)
     * the attack phase advances (WINDUP/ATTACKING/COOLDOWN/NOT_ATTACKING)
     * the IASA flag flips
-    * the ``locomotion_x``/``locomotion_y`` delta changes (rounded to 4 dp)
-    * the ``facing_changed`` flag toggles
-    * the ``projectile`` flag toggles
+    * the ``locomotion_x``/``locomotion_y`` delta changes when available
+    * the ``facing_changed`` flag toggles when available
+    * the ``projectile`` flag toggles when available
 
     Both ``start_frame`` and ``end_frame`` are inclusive, and
     ``frame_count == end_frame - start_frame + 1``.
@@ -391,11 +396,11 @@ class FrameSegment:
     end_frame: int
     frame_count: int
     attack_state: AttackState
-    locomotion_x: float
-    locomotion_y: float
+    locomotion_x: float | None
+    locomotion_y: float | None
     iasa: bool
-    facing_changed: bool
-    projectile: bool
+    facing_changed: bool | None
+    projectile: bool | None
     hitboxes: tuple[HitboxSnapshot, ...]
     """Fixed-length 4-tuple sampled from ``start_frame``."""
 
@@ -451,6 +456,17 @@ class ActionSummary:
 
 
 @dataclass(frozen=True)
+class FramedataSource:
+    """Provenance for one high-level framedata result."""
+
+    kind: Literal["csv", "iso"]
+    """Selected source kind."""
+
+    disc_build: DiscBuild | None = None
+    """Validated disc identity for ISO results; otherwise ``None``."""
+
+
+@dataclass(frozen=True)
 class FramedataResult:
     """Fully-typed result of :func:`get_framedata`.
 
@@ -466,6 +482,23 @@ class FramedataResult:
     resolved_actions: tuple[ActionSummary, ...]
     tags: tuple[str, ...]
     segments: tuple[FrameSegment, ...]
+    source: FramedataSource = FramedataSource("csv")
+    """Source kind and optional validated disc-build provenance."""
+
+
+class _CacheInfo(Protocol):
+    @property
+    def maxsize(self) -> int | None: ...
+
+
+class _CachedFramedataQuery(Protocol):
+    """Callable shape retained from the former ``@lru_cache`` wrapper."""
+
+    def __call__(self, character_query: str | int, action_query: str | int) -> FramedataResult: ...
+
+    cache_clear: Callable[[], None]
+    cache_info: Callable[[], _CacheInfo]
+    cache_parameters: Callable[[], object]
 
 
 class RawFramedataRow(TypedDict):
@@ -522,16 +555,22 @@ class RawFramedataCsvResult:
     rows: tuple[RawFramedataRow, ...]
 
 
-@lru_cache(maxsize=1)
-def _frame_data() -> FrameData:
-    """Return the process-wide :class:`FrameData` singleton.
+def _configured_iso_path() -> Path | None:
+    """Return the configured ISO path used as the query-cache source key."""
 
-    Built once per process (``lru_cache(maxsize=1)``); shared by all framedata
-    query helpers so the legacy CSV is parsed at most once. This query model
-    remains explicitly CSV-backed until its per-frame result can represent
-    unavailable ISO-derived fields without inventing values.
-    """
-    return FrameData(use_iso_environment=False, _warn_deprecated=False)
+    value = os.environ.get("MELEE_ISO_PATH")
+    return Path(value).expanduser().resolve() if value else None
+
+
+@lru_cache(maxsize=4)
+def _frame_data(iso_path: Path | None = None) -> FrameData:
+    """Return a process-wide helper for one explicit framedata source."""
+
+    return FrameData(
+        iso_path=iso_path,
+        use_iso_environment=False,
+        _warn_deprecated=False,
+    )
 
 
 def _open_framedata_csv() -> TextIO:
@@ -597,7 +636,35 @@ def _resolve_action_entry(character: Character, action: Action) -> ResolvedActio
     )
 
 
-def _resolve_special_slot(character: Character, slot: str) -> list[ResolvedAction]:
+@lru_cache(maxsize=128)
+def _available_actions(iso_path: Path | None, character: Character) -> tuple[Action, ...]:
+    """Return queryable actions from the selected source."""
+
+    frame_data = _frame_data(iso_path)
+    if iso_path is None:
+        return tuple(frame_data.framedata[character])
+    disc = frame_data._disc_framedata
+    assert disc is not None
+    return tuple(
+        action
+        for action in Action
+        if (record := disc.action_for_state(character, action)) is not None and record.timeline.frames
+    )
+
+
+def _special_slot_for_move_id(move_id: int) -> str | None:
+    """Map the executable's ``FtMoveId`` special range to an input slot."""
+
+    if move_id == 18 or 22 <= move_id <= 47:
+        return "neutral-special"
+    return {19: "side-special", 20: "up-special", 21: "down-special"}.get(move_id)
+
+
+def _resolve_special_slot(
+    character: Character,
+    slot: str,
+    iso_path: Path | None,
+) -> list[ResolvedAction]:
     """Return the sub-actions for one of ``character``'s special-move slots.
 
     ``slot`` may be ``"neutral-special"``, ``"side-special"``,
@@ -609,40 +676,51 @@ def _resolve_special_slot(character: Character, slot: str) -> list[ResolvedActio
     if normalized is None:
         msg = f"unknown special slot: {slot!r}"
         raise FramedataQueryError(msg)
-    special_action_ids = _SPECIAL_SLOT_ACTION_IDS.get(character, {}).get(normalized)
-    if special_action_ids is None:
-        msg = f"no {normalized!r} motion-state mapping for {character.name}"
-        raise FramedataQueryError(msg)
-
-    available_actions = _frame_data().framedata.get(character)
-    if available_actions is None:
-        msg = f"no framedata for {character.name}"
-        raise FramedataQueryError(msg)
-
     actions: list[ResolvedAction] = []
-    for action_id in special_action_ids:
-        try:
-            action = Action(action_id)
-        except ValueError:
-            continue
-        if action in available_actions:
+    available_actions = _available_actions(iso_path, character)
+    if iso_path is None:
+        special_action_ids = _SPECIAL_SLOT_ACTION_IDS.get(character, {}).get(normalized)
+        if special_action_ids is None:
+            msg = f"no {normalized!r} motion-state mapping for {character.name}"
+            raise FramedataQueryError(msg)
+        available = set(available_actions)
+        for action_id in special_action_ids:
+            try:
+                action = Action(action_id)
+            except ValueError:
+                continue
+            if action in available:
+                actions.append(_resolve_action_entry(character, action))
+    else:
+        frame_data = _frame_data(iso_path)
+        disc = frame_data._disc_framedata
+        assert disc is not None
+        for action in available_actions:
+            state = disc.motion_state(character, action)
+            if state is None or _special_slot_for_move_id(state.move_id) != normalized:
+                continue
+            frame_data.is_attack(character, action)
             actions.append(_resolve_action_entry(character, action))
     if not actions:
         msg = f"no framedata for {character.name} {normalized!r}"
         raise FramedataQueryError(msg)
-    return actions
+    return sorted(actions, key=lambda entry: entry.action_id)
 
 
-def _match_actions_by_label(character: Character, query: str) -> list[ResolvedAction]:
+def _match_actions_by_label(
+    character: Character,
+    query: str,
+    iso_path: Path | None,
+) -> list[ResolvedAction]:
     """Fuzzy-match ``query`` against action labels / enum names / state idents.
 
     Tries exact normalized matches first, falling back to substring matches.
     Returns matches sorted by ``action_id``, or an empty list when none match.
     """
     normalized = _normalize_token(query)
-    frame_data = _frame_data()
     matches: list[ResolvedAction] = []
-    for action in frame_data.framedata[character]:
+    available_actions = _available_actions(iso_path, character)
+    for action in available_actions:
         entry = _resolve_action_entry(character, action)
         candidates = {
             _normalize_token(entry.action_label),
@@ -652,7 +730,7 @@ def _match_actions_by_label(character: Character, query: str) -> list[ResolvedAc
         if normalized in candidates:
             matches.append(entry)
     if not matches:
-        for action in frame_data.framedata[character]:
+        for action in available_actions:
             entry = _resolve_action_entry(character, action)
             candidates = (
                 _normalize_token(entry.action_label),
@@ -664,7 +742,11 @@ def _match_actions_by_label(character: Character, query: str) -> list[ResolvedAc
     return sorted(matches, key=lambda entry: entry.action_id)
 
 
-def resolve_actions(character: Character, action_query: str | int) -> list[ResolvedAction]:
+def _resolve_actions(
+    character: Character,
+    action_query: str | int,
+    iso_path: Path | None,
+) -> list[ResolvedAction]:
     """Resolve ``action_query`` to one or more :class:`ResolvedAction` entries.
 
     Accepts:
@@ -681,32 +763,32 @@ def resolve_actions(character: Character, action_query: str | int) -> list[Resol
         character: Already-resolved :class:`Character`.
         action_query: Slug, enum name, numeric ID, or special-slot alias.
     """
-    frame_data = _frame_data()
+    available_actions = _available_actions(iso_path, character)
     if isinstance(action_query, int):
         action = Action(action_query)
-        if not frame_data.framedata[character].get(action):
+        if action not in available_actions:
             msg = f"no framedata for {character.name} action id {action_query}"
             raise FramedataQueryError(msg)
         return [_resolve_action_entry(character, action)]
 
     token = action_query.strip()
     if token.isdigit():
-        return resolve_actions(character, int(token))
+        return _resolve_actions(character, int(token), iso_path)
 
     normalized = _normalize_token(token)
     slot = _SPECIAL_SLOT_BY_NORMALIZED.get(normalized)
     if slot is not None:
-        return _resolve_special_slot(character, slot)
+        return _resolve_special_slot(character, slot, iso_path)
 
     try:
         enum_action = Action[token.upper()]
     except KeyError:
         enum_action = None
     else:
-        if frame_data.framedata[character].get(enum_action):
+        if enum_action in available_actions:
             return [_resolve_action_entry(character, enum_action)]
 
-    label_matches = _match_actions_by_label(character, token)
+    label_matches = _match_actions_by_label(character, token, iso_path)
     if label_matches:
         return label_matches
 
@@ -714,7 +796,19 @@ def resolve_actions(character: Character, action_query: str | int) -> list[Resol
     raise FramedataQueryError(msg)
 
 
-def _hitbox_snapshot(index: int, status: bool, size: float, x: float, y: float) -> HitboxSnapshot:
+def resolve_actions(character: Character, action_query: str | int) -> list[ResolvedAction]:
+    """Resolve actions against the currently configured high-level source."""
+
+    return _resolve_actions(character, action_query, _configured_iso_path())
+
+
+def _hitbox_snapshot(
+    index: int,
+    status: bool,
+    size: float,
+    x: float | None,
+    y: float | None,
+) -> HitboxSnapshot:
     """Construct a :class:`HitboxSnapshot` and its derived bounding box."""
     return HitboxSnapshot(
         index=index,
@@ -722,10 +816,10 @@ def _hitbox_snapshot(index: int, status: bool, size: float, x: float, y: float) 
         size=size,
         x=x,
         y=y,
-        min_x=x - size,
-        max_x=x + size,
-        min_y=y - size,
-        max_y=y + size,
+        min_x=None if x is None else x - size,
+        max_x=None if x is None else x + size,
+        min_y=None if y is None else y - size,
+        max_y=None if y is None else y + size,
     )
 
 
@@ -763,6 +857,26 @@ def _frame_hitboxes(frame: FramedataFrame) -> tuple[HitboxSnapshot, ...]:
     )
 
 
+def _iso_frame_hitboxes(frame: FrameSnapshot | None) -> tuple[HitboxSnapshot, ...]:
+    """Return script-proven hitbox slots without inventing runtime geometry."""
+
+    active = {
+        hitbox.hitbox_id: hitbox
+        for hitbox in (() if frame is None else frame.active_hitboxes)
+        if not hitbox.requires_thrown_hitbox_owner
+    }
+    return tuple(
+        _hitbox_snapshot(
+            index + 1,
+            index in active,
+            active[index].size if index in active else 0.0,
+            None,
+            None,
+        )
+        for index in range(4)
+    )
+
+
 def _frame_signature(
     character: Character,
     action: Action,
@@ -791,14 +905,18 @@ def _frame_signature(
     )
 
 
-def _collect_tags(character: Character, actions: Sequence[ResolvedAction]) -> list[str]:
+def _collect_tags(
+    character: Character,
+    actions: Sequence[ResolvedAction],
+    iso_path: Path | None,
+) -> list[str]:
     """Build a sorted tag set summarizing the resolved actions.
 
     Tags include ``GRAB``, ``B_MOVE``, ``ATTACK``, ``ROLL``, ``SHIELD``,
     ``IASA``, and ``PROJECTILE``. Useful for quick archetype classification of
     a query's resolved sub-actions (e.g. a side-B that is also a grab).
     """
-    frame_data = _frame_data()
+    frame_data = _frame_data(iso_path)
     tags: set[str] = set()
     for entry in actions:
         action = entry.action
@@ -814,15 +932,20 @@ def _collect_tags(character: Character, actions: Sequence[ResolvedAction]) -> li
             tags.add("SHIELD")
         if frame_data.iasa(character, action) != -1:
             tags.add("IASA")
-        for _, frame in frame_data.framedata[character][action].items():
-            if frame and frame["projectile"]:
-                tags.add("PROJECTILE")
-                break
+        if iso_path is None:
+            for _, frame in frame_data.framedata[character][action].items():
+                if frame and frame["projectile"]:
+                    tags.add("PROJECTILE")
+                    break
     return sorted(tags)
 
 
-@lru_cache(maxsize=None)
-def _action_segments(character: Character, action: Action) -> tuple[FrameSegment, ...]:
+@cache
+def _action_segments(
+    iso_path: Path | None,
+    character: Character,
+    action: Action,
+) -> tuple[FrameSegment, ...]:
     """Return the ordered list of significant state transitions for one action.
 
     Cached per (character, action); constructed exactly once and reused across
@@ -830,7 +953,49 @@ def _action_segments(character: Character, action: Action) -> tuple[FrameSegment
     framedata signature (hitbox status/size/position, attack phase, locomotion,
     IASA, facing, projectile flags) is unchanged.
     """
-    frame_data = _frame_data()
+    frame_data = _frame_data(iso_path)
+    if iso_path is not None:
+        record = frame_data._disc_action(character, action)
+        if record is None:
+            return ()
+        normalized_frames: dict[int, FrameSnapshot] = {}
+        hitbox_offset = frame_data._disc_hitbox_frame_offset(character, action)
+        for frame in record.timeline.frames:
+            normalized_frames[max(1, frame.local_frame + hitbox_offset)] = frame
+        total_frames = frame_data.frame_count(character, action)
+        iasa_frame = frame_data.iasa(character, action)
+        states = []
+        for frame_number in range(1, total_frames + 1):
+            hitboxes = _iso_frame_hitboxes(normalized_frames.get(frame_number))
+            states.append(
+                (
+                    frame_number,
+                    frame_data.attack_state(character, action, frame_number),
+                    iasa_frame != -1 and frame_number >= iasa_frame,
+                    hitboxes,
+                )
+            )
+        segments = []
+        for _, grouped_states in groupby(states, key=lambda state: state[1:]):
+            group = list(grouped_states)
+            start_frame, attack_state, iasa, hitboxes = group[0]
+            end_frame = group[-1][0]
+            segments.append(
+                FrameSegment(
+                    start_frame=start_frame,
+                    end_frame=end_frame,
+                    frame_count=end_frame - start_frame + 1,
+                    attack_state=attack_state,
+                    locomotion_x=None,
+                    locomotion_y=None,
+                    iasa=iasa,
+                    facing_changed=None,
+                    projectile=None,
+                    hitboxes=hitboxes,
+                )
+            )
+        return tuple(segments)
+
     frames = sorted(frame_data.framedata[character][action])
     if not frames:
         return ()
@@ -841,12 +1006,12 @@ def _action_segments(character: Character, action: Action) -> tuple[FrameSegment
         character,
         action,
         segment_start,
-        frame_data.framedata[character][action][segment_start],
+        cast(FramedataFrame, frame_data.framedata[character][action][segment_start]),
         frame_data,
     )
 
     def flush(end_frame: int) -> None:
-        sample = frame_data.framedata[character][action][segment_start]
+        sample = cast(FramedataFrame, frame_data.framedata[character][action][segment_start])
         attack = frame_data.attack_state(character, action, segment_start)
         segments.append(
             FrameSegment(
@@ -864,7 +1029,7 @@ def _action_segments(character: Character, action: Action) -> tuple[FrameSegment
         )
 
     for frame_number in frames[1:]:
-        frame = frame_data.framedata[character][action][frame_number]
+        frame = cast(FramedataFrame, frame_data.framedata[character][action][frame_number])
         signature = _frame_signature(character, action, frame_number, frame, frame_data)
         if signature != previous_signature:
             flush(frame_number - 1)
@@ -875,6 +1040,7 @@ def _action_segments(character: Character, action: Action) -> tuple[FrameSegment
 
 
 def _hitbox_active_ranges(
+    iso_path: Path | None,
     character: Character,
     action: Action,
 ) -> tuple[HitboxActiveRange, ...]:
@@ -884,7 +1050,25 @@ def _hitbox_active_ranges(
     inactive/active for each of the four hitbox slots. A single hitbox that
     pulses on, off, and on again yields two ranges.
     """
-    frame_data = _frame_data()
+    if iso_path is not None:
+        ranges: list[HitboxActiveRange] = []
+        for index in range(1, 5):
+            run_start: int | None = None
+            run_end: int | None = None
+            for segment in _action_segments(iso_path, character, action):
+                active = segment.hitboxes[index - 1].active
+                if active and run_start is None:
+                    run_start = segment.start_frame
+                if active:
+                    run_end = segment.end_frame
+                elif run_start is not None and run_end is not None:
+                    ranges.append(HitboxActiveRange(index, run_start, run_end, run_end - run_start + 1))
+                    run_start = run_end = None
+            if run_start is not None and run_end is not None:
+                ranges.append(HitboxActiveRange(index, run_start, run_end, run_end - run_start + 1))
+        return tuple(ranges)
+
+    frame_data = _frame_data(iso_path)
     frames = sorted(frame_data.framedata[character][action])
     if not frames:
         return ()
@@ -927,10 +1111,14 @@ def _hitbox_active_ranges(
     return tuple(ranges)
 
 
-@lru_cache(maxsize=None)
-def _action_summary(character: Character, action: Action) -> ActionSummary:
+@cache
+def _action_summary(
+    iso_path: Path | None,
+    character: Character,
+    action: Action,
+) -> ActionSummary:
     """Return the :class:`ActionSummary` for one action, cached per (char, action)."""
-    frame_data = _frame_data()
+    frame_data = _frame_data(iso_path)
     entry = _resolve_action_entry(character, action)
     return ActionSummary(
         action_id=entry.action_id,
@@ -942,14 +1130,15 @@ def _action_summary(character: Character, action: Action) -> ActionSummary:
         last_hitbox_frame=frame_data.last_hitbox_frame(character, action),
         iasa_frame=frame_data.iasa(character, action),
         has_invulnerability=frame_data.is_roll(character, action),
-        hitbox_active_ranges=_hitbox_active_ranges(character, action),
+        hitbox_active_ranges=_hitbox_active_ranges(iso_path, character, action),
     )
 
 
-@lru_cache(maxsize=None)
-def get_framedata(
+@cache
+def _get_framedata(
     character_query: str | int,
     action_query: str | int,
+    iso_path: Path | None,
 ) -> FramedataResult:
     """Return typed framedata for a character/action query.
 
@@ -998,13 +1187,17 @@ def get_framedata(
                       ])
     """
     character = resolve_character(character_query)
-    actions = resolve_actions(character, action_query)
+    actions = _resolve_actions(character, action_query, iso_path)
 
     segments: list[FrameSegment] = []
     summaries: list[ActionSummary] = []
     for entry in actions:
-        segments.extend(_action_segments(character, entry.action))
-        summaries.append(_action_summary(character, entry.action))
+        summaries.append(_action_summary(iso_path, character, entry.action))
+        segments.extend(_action_segments(iso_path, character, entry.action))
+
+    frame_data = _frame_data(iso_path)
+    disc = frame_data._disc_framedata
+    source = FramedataSource("csv") if disc is None else FramedataSource("iso", disc.build)
 
     return FramedataResult(
         character=character.name,
@@ -1012,9 +1205,45 @@ def get_framedata(
         character_section=character_section_name(character),
         action_query=str(action_query),
         resolved_actions=tuple(summaries),
-        tags=tuple(_collect_tags(character, actions)),
+        tags=tuple(_collect_tags(character, actions, iso_path)),
         segments=tuple(segments),
+        source=source,
     )
+
+
+def get_framedata(
+    character_query: str | int,
+    action_query: str | int,
+) -> FramedataResult:
+    """Return typed framedata from the configured ISO or historical CSV source.
+
+    ``MELEE_ISO_PATH`` selects executable-backed action resolution, script
+    timing, hitbox activity, and hitbox sizes. Runtime-only segment fields are
+    ``None`` in that mode rather than guessed. Without the environment setting,
+    this retains the historical CSV result. Results are cached by resolved
+    source path and query.
+    """
+
+    return _get_framedata(character_query, action_query, _configured_iso_path())
+
+
+def clear_framedata_query_caches() -> None:
+    """Clear all cached high-level framedata sources and derived results."""
+
+    _get_framedata.cache_clear()
+    _action_summary.cache_clear()
+    _action_segments.cache_clear()
+    _available_actions.cache_clear()
+    _frame_data.cache_clear()
+
+
+# DESNOTE(jbarber, 2026-09-07): @lru_cache exposed these methods on the public
+# callable. The source-aware wrapper cannot itself be decorated because the
+# current MELEE_ISO_PATH must participate in every lookup's cache key.
+get_framedata = cast(_CachedFramedataQuery, get_framedata)
+get_framedata.cache_clear = clear_framedata_query_caches
+get_framedata.cache_info = _get_framedata.cache_info
+get_framedata.cache_parameters = _get_framedata.cache_parameters
 
 
 def _attack_state_matches(
@@ -1022,6 +1251,7 @@ def _attack_state_matches(
     action: Action,
     frame_number: int,
     attack_state_query: str | None,
+    iso_path: Path | None,
 ) -> bool:
     """Return whether one frame's attack state matches a query string.
 
@@ -1032,7 +1262,7 @@ def _attack_state_matches(
     if attack_state_query is None:
         return True
     normalized = _normalize_token(attack_state_query)
-    attack = _frame_data().attack_state(character, action, frame_number)
+    attack = _frame_data(iso_path).attack_state(character, action, frame_number)
     return _normalize_token(attack.name) == normalized
 
 
@@ -1068,7 +1298,8 @@ def get_raw_framedata_csv(
 ) -> RawFramedataCsvResult:
     """Return raw framedata CSV rows for a character/action query as typed data.
 
-    All row values are unparsed strings (the CSV is consumed as-text). Use
+    This compatibility API always reads the historical CSV, even when
+    ``MELEE_ISO_PATH`` is configured. All row values are unparsed strings. Use
     :func:`get_framedata` for parsed, segmented framedata — i.e. when you want
     explicit transitions like "new hitbox appeared" / "hitbox disappeared" /
     "hitbox stat changed" rather than raw per-frame rows.
@@ -1096,7 +1327,7 @@ def get_raw_framedata_csv(
         raise FramedataQueryError(msg)
 
     character = resolve_character(character_query)
-    actions = resolve_actions(character, action_query)
+    actions = _resolve_actions(character, action_query, None)
     if action_state is not None:
         actions = [entry for entry in actions if _action_state_matches(entry, action_state)]
         if not actions:
@@ -1122,7 +1353,7 @@ def get_raw_framedata_csv(
             if frame_end is not None and frame_number > frame_end:
                 continue
             action = Action(action_id)
-            if not _attack_state_matches(character, action, frame_number, attack_state):
+            if not _attack_state_matches(character, action, frame_number, attack_state, None):
                 continue
             rows.append(row)  # type: ignore[arg-type]
             if len(rows) >= max_rows:

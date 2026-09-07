@@ -52,9 +52,13 @@ facade while retaining its query method signatures::
 Callers that do not directly construct the shared helper can set
 ``MELEE_ISO_PATH`` to select the same ISO-backed facade. An explicit
 ``iso_path`` takes precedence, invalid configured paths fail rather than falling
-back to bundled data, and recording mode ignores the environment. The
-high-level ``framedata_query`` helpers remain explicitly CSV-backed until their
-per-frame result model can represent unavailable ISO fields honestly.
+back to bundled data, and recording mode ignores the environment.
+``melee.bot.framedata_query.get_framedata`` uses the same configured source and
+returns its provenance. ISO-derived segments expose script-proven hitbox status,
+size, attack phase, and IASA while representing unavailable locomotion, facing,
+projectile, and runtime-captured XY fields as ``None``. Its caches are keyed by
+resolved ISO path; call ``clear_framedata_query_caches`` after replacing a disc
+at the same path. ``get_raw_framedata_csv`` remains explicitly CSV-backed.
 
 The facade supports ``is_attack``, ``attack_state``, ``first_hitbox_frame``,
 ``last_hitbox_frame``, ``hitbox_count``, ``iasa``, ``frame_count``, and

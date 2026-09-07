@@ -366,12 +366,17 @@ uv pip install --python .venv/bin/python .
   ISO-backed deprecated `FrameData` geometry methods unavailable until those
   dependencies can be represented rather than silently returning approximate
   compatibility values.
-- An omitted `FrameData.iso_path` selects `MELEE_ISO_PATH` when configured;
-  explicit paths win, invalid configured paths fail closed, and recording mode
-  ignores the environment. `framedata_query` explicitly opts out because its
-  current public result is still shaped around `framedata.csv`. Do not synthesize
-  missing locomotion, facing, projectile, or runtime geometry values to migrate
-  that API.
+- An omitted `FrameData.iso_path` and high-level `get_framedata()` select
+  `MELEE_ISO_PATH` when configured; explicit `FrameData` paths win, invalid
+  configured paths fail closed, and recording mode ignores the environment.
+  ISO query segments expose script-proven timing, hitbox status, and size while
+  unavailable locomotion, facing, projectile, and runtime XY fields are `None`.
+  Query caches include the resolved ISO path; clear them after replacing a disc
+  at the same path. `get_raw_framedata_csv()` intentionally remains CSV-only.
+  A canonical NTSC 1.02 sweep resolves 8,828 playable-character action states:
+  8,334 produce complete high-level summaries/segments, while 494 fail through
+  the explicit article/projectile uncertainty boundary with no unexpected
+  segmentation failures.
 - Disc image paths are opened nonblocking until the descriptor is confirmed to
   be a regular file. This prevents user-supplied or replacement FIFOs from
   stalling construction or lazy reads before identity validation. Windows maps
