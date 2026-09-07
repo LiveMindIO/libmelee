@@ -157,8 +157,8 @@ important references are:
      - Jostle box
      - Horizontal offset and size.
    * - ``0x54``
-     - Common fighter bones
-     - Head, arms, and legs used by common-bone IDs.
+     - Fighter-owned bone lookup table
+     - Frequently used model bones; this is not the common part remapping table.
    * - ``0x58``
      - Inverse-kinematics data
      - IK chains and constraints used by pose evaluation.
@@ -504,6 +504,24 @@ scaling, scale compensation, independent parent/SRT behavior, quaternion paths,
 and special joints. Treating local bone positions as world positions, ignoring
 interpolation, or using action-frame integers directly for every track will
 produce wrong geometry.
+
+The common ``part_to_joint`` and ``joint_to_part`` mappings used when an action
+borrows another fighter's animation are runtime tables, not the fighter root's
+``0x54`` bone lookup. For NTSC 1.02 their pointer table is reached through
+``PlCo.dat``'s ``ftLoadCommonData`` root at ``+0x10``. FigaTree nodes are walked
+in the source fighter's joint order, optional source joints consume nodes only
+when the action's additional-bone bits enable them, and each node is then mapped
+through the common part ID to the target costume skeleton.
+
+The current ``DiscFrameData.posed_frame`` implementation provides a deliberately
+static subset: neutral costume, unit animation rate, no incoming-pose blend, and
+fighter-owned hitboxes only. Its one-indexed local frame samples the same numeric
+FigaTree time, matching the runtime update order and checked-in Fox jab capture.
+It applies the retail root Y rotation, model scale, approximate ``0.003906``
+fixed-point multiplier, common bone mapping, and root-motion removal. Model-part
+changes, secondary dynamics, inverse kinematics, articles, and compiled callback
+changes remain runtime-dependent and are not represented as exact historical
+poses by this API.
 
 Character attributes missing from libmelee
 ------------------------------------------

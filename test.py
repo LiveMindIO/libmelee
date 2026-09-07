@@ -6,8 +6,8 @@ import inspect
 import math
 import os
 import pickle
-import subprocess
 import struct
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -22,10 +22,21 @@ import numpy as np
 from typing_extensions import get_overloads
 
 import melee
-from melee.bot import framedata_query
 from melee._gamecube import DolImage, GameCubeDisc
 from melee._hsd_dat import HsdDat, parse_figatree_frame_count
 from melee._ntsc102 import COMMON_MOTION_STATE_COUNT
+from melee._pose import (
+    AnimationKey,
+    AnimationNode,
+    AnimationTrack,
+    FigaTree,
+    FighterParts,
+    FighterPoseSource,
+    Joint,
+    Vec3,
+    _decode_track,
+    _optional_part_bit,
+)
 from melee._subaction import interpret_subaction
 from melee.bot import (
     MIN_SHIELD,
@@ -89,6 +100,7 @@ from melee.bot import (
     can_dodge,
     can_grab,
     can_jump,
+    framedata_query,
     stick_coordinates,
 )
 from melee.bot.framedata_query import (
@@ -903,6 +915,86 @@ class DiscFrameDataTests(unittest.TestCase):
             action.raw_flags = 0
         with self.assertRaisesRegex(melee.DiscFrameDataError, "DAT action index 327"):
             data.action("Fx", 327)
+
+    def test_static_pose_uses_retail_action_clock_and_facing_transform(self):
+        data = melee.DiscFrameData(self.iso_path)
+        identity_parts = FighterParts(
+            tuple(range(6)),
+            tuple(range(6)) + (0xFF,) * 48,
+            (),
+        )
+        source = FighterPoseSource(
+            (
+                Joint(None, 0, Vec3(0.0, 0.0, 0.0), Vec3(1.0, 1.0, 1.0), Vec3(0.0, 0.0, 0.0)),
+                *(
+                    Joint(index - 1, 0, Vec3(0.0, 0.0, 0.0), Vec3(1.0, 1.0, 1.0), Vec3(0.0, 1.0, 0.0))
+                    for index in range(1, 6)
+                ),
+            ),
+            (identity_parts,) * 33,
+            1.0,
+            5,
+        )
+        tree = FigaTree(0, 0, 8.0, (AnimationNode(()),) * 6)
+        with (
+            patch.object(data, "_fighter_pose_source", return_value=source),
+            patch.object(data, "_figatree", return_value=tree),
+        ):
+            frame = data.posed_frame(melee.Character.FOX, melee.Action.NEUTRAL_ATTACK_1, 1)
+            facing_left = data.posed_frame(
+                melee.Character.FOX,
+                melee.Action.NEUTRAL_ATTACK_1,
+                1,
+                facing=-1,
+            )
+
+        self.assertEqual(frame.animation_time, 1.0)
+        self.assertEqual(len(frame.hitboxes), 1)
+        self.assertAlmostEqual(frame.hitboxes[0].size, 1.4999040365219116, places=6)
+        self.assertAlmostEqual(frame.hitboxes[0].x, -1.4999040365219116, places=6)
+        self.assertAlmostEqual(frame.hitboxes[0].y, 4.4999680519104, places=6)
+        self.assertAlmostEqual(frame.hitboxes[0].z, 0.999936044216156, places=6)
+        self.assertAlmostEqual(facing_left.hitboxes[0].x, 1.4999040365219116, places=6)
+        with self.assertRaisesRegex(melee.DiscFrameDataError, "one-indexed"):
+            data.posed_frame(melee.Character.FOX, melee.Action.NEUTRAL_ATTACK_1, 0)
+        with self.assertRaisesRegex(melee.DiscFrameDataError, "finite and positive"):
+            data.posed_frame(melee.Character.FOX, melee.Action.NEUTRAL_ATTACK_1, 1, fighter_scale=0)
+        with self.assertRaisesRegex(melee.DiscFrameDataError, "facing must"):
+            data.posed_frame(melee.Character.FOX, melee.Action.NEUTRAL_ATTACK_1, 1, facing=0)
+
+    def test_fobj_track_evaluation_preserves_slope_commands(self):
+        linear = AnimationTrack(
+            0,
+            1,
+            (
+                AnimationKey(0, 0.0, 0.0, 2),
+                AnimationKey(2, 4.0, 0.0, 2),
+            ),
+        )
+        spline = AnimationTrack(
+            0,
+            1,
+            (
+                AnimationKey(0, 0.0, 0.0, 4),
+                AnimationKey(0, None, 2.0, 5),
+                AnimationKey(2, 4.0, 0.0, 4),
+            ),
+        )
+
+        self.assertEqual(linear.value_at(1.0), 2.0)
+        self.assertEqual(spline.value_at(1.0), 2.5)
+
+        discrete = _decode_track(
+            b"\x06" + struct.pack("<f", 3.0) + b"\x06" + struct.pack("<f", 4.0) + b"\0",
+            0,
+            0,
+            "discrete test track",
+        )
+        self.assertEqual([(key.frame, key.value) for key in discrete], [(0, 3.0), (0, 4.0)])
+
+    def test_optional_part_bits_follow_encoded_table_order(self):
+        optional_parts = FighterParts((), (), (5, 2))
+        self.assertEqual((_optional_part_bit(optional_parts, 5), _optional_part_bit(optional_parts, 2)), (0, 1))
 
     def test_nana_runtime_actions_inherit_missing_popo_animations(self):
         popo = _synthetic_fighter_dat(

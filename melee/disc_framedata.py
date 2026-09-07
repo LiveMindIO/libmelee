@@ -14,7 +14,7 @@ import threading
 from dataclasses import dataclass
 from pathlib import Path
 
-from melee._gamecube import DiscImageError, GameCubeDisc
+from melee._gamecube import DiscImageError, FstEntry, GameCubeDisc
 from melee._hsd_dat import DatParseError, HsdDat, parse_figatree_frame_count
 from melee._ntsc102 import (
     CHARACTER_MOTION_STATE_POINTERS,
@@ -25,6 +25,18 @@ from melee._ntsc102 import (
     FIGHTER_KINDS,
     FIGHTER_KINDS_BY_CODE,
     MOTION_STATE_SIZE,
+)
+from melee._pose import (
+    FigaTree,
+    FighterParts,
+    FighterPoseSource,
+    Vec3,
+    parse_figatree,
+    parse_fighter_parts,
+    parse_fighter_pose_source,
+    pose_matrices,
+    retail_fixed_point,
+    transform_point,
 )
 from melee._subaction import (
     ActionTimeline,
@@ -136,6 +148,26 @@ class ActionRecord:
 
 
 @dataclass(frozen=True, slots=True)
+class PosedHitbox:
+    """One fighter-owned hitbox transformed into fighter-root coordinates."""
+
+    hitbox: Hitbox
+    size: float
+    x: float
+    y: float
+    z: float
+
+
+@dataclass(frozen=True, slots=True)
+class PosedFrame:
+    """Static unblended pose sampled using one-based public action frames."""
+
+    local_frame: int
+    animation_time: float
+    hitboxes: tuple[PosedHitbox, ...]
+
+
+@dataclass(frozen=True, slots=True)
 class FighterRecord:
     """Immutable source and action records for a two-character fighter code."""
 
@@ -182,6 +214,9 @@ class DiscFrameData:
         self._code_lookup = {code.casefold(): code for code in self._codes}
         self._cache: dict[str, FighterRecord] = {}
         self._motion_state_cache: dict[tuple[int, int], MotionStateRecord | None] = {}
+        self._fighter_parts: tuple[FighterParts, ...] | None = None
+        self._pose_cache: dict[str, FighterPoseSource] = {}
+        self._figatree_cache: dict[tuple[str, int], FigaTree] = {}
         self._lock = threading.RLock()
         self._build = DiscBuild(
             self._disc.path.resolve(),
@@ -330,13 +365,167 @@ class DiscFrameData:
     def action_for_state(self, character: Character, action: Action) -> ActionRecord | None:
         """Return the DAT action selected by a public runtime character/action pair."""
 
+        resolved = self._action_and_code_for_state(character, action)
+        return None if resolved is None else resolved[0]
+
+    def _action_and_code_for_state(
+        self,
+        character: Character,
+        action: Action,
+    ) -> tuple[ActionRecord, str] | None:
         dat_index = self.dat_action_index(character, action)
         if dat_index is None:
             return None
-        record = self.action(FIGHTER_KINDS[character.value].code, dat_index)
+        code = FIGHTER_KINDS[character.value].code
+        record = self.action(code, dat_index)
         if character is Character.NANA and not record.animation_size:
-            record = self.action(FIGHTER_KINDS[Character.POPO.value].code, dat_index)
-        return record if record.animation_size or record.script_data_offset is not None else None
+            code = FIGHTER_KINDS[Character.POPO.value].code
+            record = self.action(code, dat_index)
+        return (record, code) if record.animation_size or record.script_data_offset is not None else None
+
+    def posed_frame(
+        self,
+        character: Character,
+        action: Action,
+        local_frame: int,
+        *,
+        fighter_scale: float = 1.0,
+        facing: int = 1,
+    ) -> PosedFrame:
+        """Return fighter-owned hitboxes in fighter-root coordinates.
+
+        This deterministic static view starts an unblended action at animation
+        time zero and advances it at unit speed. Runtime callbacks, articles,
+        transition blending, and dynamic bones are outside this contract.
+        """
+
+        if local_frame < 1:
+            raise DiscFrameDataError(f"action frames are one-indexed; got {local_frame}")
+        if not math.isfinite(fighter_scale) or fighter_scale <= 0:
+            raise DiscFrameDataError(f"fighter_scale must be finite and positive; got {fighter_scale!r}")
+        if facing not in (-1, 1):
+            raise DiscFrameDataError(f"facing must be -1 or 1; got {facing!r}")
+        resolved = self._action_and_code_for_state(character, action)
+        if resolved is None:
+            raise DiscFrameDataError(f"{character.name} {action.name} has no fighter animation pose")
+        record, animation_code = resolved
+        if not record.animation_size or record.symbol is None:
+            raise DiscFrameDataError(f"{character.name} {action.name} has no fighter animation pose")
+        try:
+            snapshot = record.frame(local_frame)
+        except IndexError as exc:
+            raise DiscFrameDataError(
+                f"{character.name} {action.name} has no extracted script snapshot for frame {local_frame}"
+            ) from exc
+
+        metadata = FIGHTER_KINDS[character.value]
+        pose_source = self._fighter_pose_source(metadata.code, character.value)
+        tree = self._figatree(animation_code, record)
+        animation_time = float(local_frame)
+        if record.animation_loops and tree.frame_count > 0:
+            animation_time %= tree.frame_count
+        source_kind = record.raw_flags & 0x3F
+        if source_kind >= len(pose_source.parts):
+            raise DiscFrameDataError(
+                f"{character.name} {action.name} selects unsupported animation source kind {source_kind}"
+            )
+        try:
+            matrices = pose_matrices(
+                pose_source,
+                tree,
+                fighter_kind=character.value,
+                source_kind=source_kind,
+                additional_bones=(record.raw_flags & 0x003FFE00) >> 9,
+                raw_action_flags=record.raw_flags,
+                animation_time=animation_time,
+                fighter_scale=fighter_scale,
+                facing=facing,
+            )
+        except DatParseError as exc:
+            raise DiscFrameDataError(str(exc)) from exc
+        root_matrix = matrices[0]
+        assert root_matrix is not None
+        root = transform_point(root_matrix, Vec3(0.0, 0.0, 0.0))
+        target_parts = pose_source.parts[character.value]
+        posed = []
+        for hitbox in snapshot.active_hitboxes:
+            bone = hitbox.bone_id
+            if hitbox.use_common_bone_ids:
+                if bone >= len(target_parts.part_to_joint):
+                    raise DiscFrameDataError(
+                        f"{character.name} {action.name} hitbox {hitbox.hitbox_id} has invalid common bone {bone}"
+                    )
+                bone = target_parts.part_to_joint[bone]
+            if bone == 0xFF or bone >= len(matrices) or matrices[bone] is None:
+                raise DiscFrameDataError(
+                    f"{character.name} {action.name} hitbox {hitbox.hitbox_id} uses unavailable fighter bone "
+                    f"{hitbox.bone_id}"
+                )
+            local_scale = fighter_scale if hitbox.ignore_fighter_scale else 1.0
+            local = Vec3(
+                retail_fixed_point(hitbox.bone_local_x) / local_scale,
+                retail_fixed_point(hitbox.bone_local_y) / local_scale,
+                retail_fixed_point(hitbox.bone_local_z) / local_scale,
+            )
+            matrix = matrices[bone]
+            assert matrix is not None
+            world = transform_point(matrix, local)
+            posed.append(
+                PosedHitbox(
+                    hitbox,
+                    retail_fixed_point(hitbox.size) * fighter_scale,
+                    world.x - root.x,
+                    world.y - root.y,
+                    world.z - root.z,
+                )
+            )
+        return PosedFrame(local_frame, animation_time, tuple(posed))
+
+    def _figatree(self, code: str, record: ActionRecord) -> FigaTree:
+        key = (code, record.dat_action_index)
+        with self._lock:
+            cached = self._figatree_cache.get(key)
+            if cached is not None:
+                return cached
+            _, animation_member = self._disc.fighter_members[code]
+            animation_data = self._disc.read_member(animation_member)
+            embedded = animation_data[
+                record.animation_offset : record.animation_offset + record.animation_size
+            ]
+            tree = parse_figatree(
+                embedded,
+                expected_root=record.symbol,
+                context=f"{animation_member.path} action {record.dat_action_index} pose",
+            )
+            self._figatree_cache[key] = tree
+            return tree
+
+    def _fighter_pose_source(self, code: str, fighter_kind: int) -> FighterPoseSource:
+        with self._lock:
+            cached = self._pose_cache.get(code)
+            if cached is not None:
+                return cached
+            if self._fighter_parts is None:
+                common_member = self._unique_member("PlCo.dat")
+                self._fighter_parts = parse_fighter_parts(
+                    HsdDat(self._disc.read_member(common_member), context=common_member.path)
+                )
+            fighter_member, _ = self._disc.fighter_members[code]
+            costume_member = self._unique_member(f"Pl{code}Nr.dat")
+            source = parse_fighter_pose_source(
+                HsdDat(self._disc.read_member(fighter_member), context=fighter_member.path),
+                HsdDat(self._disc.read_member(costume_member), context=costume_member.path),
+                self._fighter_parts,
+                fighter_kind,
+            )
+            self._pose_cache[code] = source
+            return source
+
+    def _unique_member(self, name: str) -> FstEntry:
+        matches = [entry for entry in self._disc.entries if not entry.is_directory and entry.name == name]
+        if len(matches) != 1:
+            raise DiscFrameDataError(f"disc must contain exactly one {name!r} member; found {len(matches)}")
+        return matches[0]
 
     def _parse_fighter(self, code: str) -> FighterRecord:
         dat_member, aj_member = self._disc.fighter_members[code]
@@ -445,6 +634,8 @@ __all__ = [
     "HurtState",
     "HurtStateEvent",
     "MotionStateRecord",
+    "PosedFrame",
+    "PosedHitbox",
     "RawCommand",
     "SubactionParseError",
     "ThrowEvent",

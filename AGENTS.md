@@ -350,6 +350,22 @@ uv pip install --python .venv/bin/python .
   Young Link, and Samus ground tether grabs. Their common grab `MotionState`
   metadata does not identify the hookshot or grapple article, so do not replace
   that list with a move-ID or callback-only predicate.
+- `DiscFrameData.posed_frame()` is pure ISO extraction of fighter-owned hitboxes:
+  it evaluates the neutral costume JOBJ hierarchy and FigaTree at unit rate, with
+  no prior-pose blend. One-indexed local frame `N` samples FigaTree time `N`, not
+  `N - 1`; this matches retail's first observable action-frame update and the
+  checked-in Fox jab capture. Keep the script timeline and animation clock
+  distinct.
+- Cross-fighter animation nodes are walked in the source fighter's joint order
+  from the action flag's low six bits, then remapped to the target through the
+  `PlCo.dat` `ftLoadCommonData + 0x10` part tables. The fighter root's `+0x54`
+  bone lookup is a different structure. Optional-joint gating also uses the
+  source fighter's table.
+- Static poses intentionally do not claim runtime parity for model-part changes,
+  secondary dynamics, IK, articles, callbacks, or incoming-pose blending. Keep
+  ISO-backed deprecated `FrameData` geometry methods unavailable until those
+  dependencies can be represented rather than silently returning approximate
+  compatibility values.
 - Disc image paths are opened nonblocking until the descriptor is confirmed to
   be a regular file. This prevents user-supplied or replacement FIFOs from
   stalling construction or lazy reads before identity validation. Windows maps

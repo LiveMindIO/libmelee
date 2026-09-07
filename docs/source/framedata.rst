@@ -22,6 +22,8 @@ runtime and does not extract or write Nintendo data::
    action = data.action_for_state(melee.Character.FOX, melee.Action.NEUTRAL_ATTACK_1)
    assert action is not None
    print(action.symbol, action.animation_frame_count, action.timeline.iasa_frame)
+   pose = data.posed_frame(melee.Character.FOX, melee.Action.NEUTRAL_ATTACK_1, 2)
+   print([(hitbox.x, hitbox.y, hitbox.z, hitbox.size) for hitbox in pose.hitboxes])
 
 ``action_for_state`` maps a public ``Character`` and runtime ``Action`` through
 the NTSC 1.02 executable's common and character-specific ``MotionState`` tables.
@@ -49,10 +51,25 @@ facade while retaining its query method signatures::
 
 The facade supports ``is_attack``, ``attack_state``, ``first_hitbox_frame``,
 ``last_hitbox_frame``, ``hitbox_count``, ``iasa``, ``frame_count``, and
-``last_roll_frame`` from the ISO. Geometry-dependent methods such as
+``last_roll_frame`` from the ISO.
+
+The lower-level ``DiscFrameData.posed_frame`` method evaluates fighter-owned
+script hitboxes against the neutral-costume JOBJ hierarchy and FigaTree from the
+ISO. It resolves common and cross-fighter bone mappings through ``PlCo.dat``,
+applies model/fighter scale, retail fixed-point conversion, root-motion removal,
+and the runtime-facing transform, and returns fighter-root-relative XYZ centers.
+Its ``local_frame`` is one-indexed and samples that same numeric FigaTree time;
+this matches the runtime's first observable action-frame update. The result is a
+deterministic, unit-rate, unblended static pose. It does not claim to reproduce
+prior-pose blending, model-part changes, inverse kinematics, secondary dynamics,
+article bones, or callback mutations. Conditional thrown-owner hitboxes remain
+present with their source condition, like the lower-level timeline.
+
+Compatibility geometry methods such as
 ``range_forward``, ``range_backward``, ``in_range``, and ``roll_end_position``
-raise ``DiscFrameDataError`` in this mode rather than misrepresenting bone-local
-DAT coordinates as posed fighter-relative geometry. Construction without
+still raise ``DiscFrameDataError`` in this mode rather than presenting the
+static pose as historical runtime geometry before those remaining systems are
+implemented. Construction without
 ``iso_path`` temporarily retains the historical CSV-backed behavior. Article
 and projectile attacks are not yet included. ISO-backed hitbox-related queries
 raise ``DiscFrameDataError`` for known article-dependent states, including
@@ -77,12 +94,14 @@ an animation ending at source time 18 normally has public snapshots ``1..17``
 while retaining ``animation_frame_count == 18``. A reached state-changing event
 at that endpoint adds the required final snapshot rather than being discarded.
 
-This phase parses action symbols, raw flags, FigaTree frame counts, guarded
-subaction control flow, local-frame snapshots, hitbox generations and
-mutations, throws, hurt-state events, and DAT-level Allow Interrupt events. All
-hitbox XYZ values are explicitly bone-local. The API does not yet evaluate
-skeletons/animation tracks into root or world geometry, parse articles and
-static hurtbox capsules, or reproduce executable callbacks and contextual
+This phase parses action symbols, raw flags, FigaTree frame counts and tracks,
+the neutral costume skeleton and fighter-part remapping, guarded subaction
+control flow, local-frame snapshots, hitbox generations and mutations, throws,
+hurt-state events, DAT-level Allow Interrupt events, and an optional static
+fighter-root-relative hitbox pose. ``Hitbox.bone_local_*`` stays explicitly
+bone-local; ``PosedHitbox`` carries the transformed XYZ separately. The API does
+not yet parse articles and static hurtbox capsules, evaluate secondary dynamics,
+model-part changes, or IK, or reproduce executable callbacks and contextual
 gameplay calculations such as knockback, hitlag, landing transitions, and
 callback-specific cancels.
 
