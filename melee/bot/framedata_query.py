@@ -1050,64 +1050,22 @@ def _hitbox_active_ranges(
     inactive/active for each of the four hitbox slots. A single hitbox that
     pulses on, off, and on again yields two ranges.
     """
-    if iso_path is not None:
-        ranges: list[HitboxActiveRange] = []
-        for index in range(1, 5):
-            run_start: int | None = None
-            run_end: int | None = None
-            for segment in _action_segments(iso_path, character, action):
-                active = segment.hitboxes[index - 1].active
-                if active and run_start is None:
-                    run_start = segment.start_frame
-                if active:
-                    run_end = segment.end_frame
-                elif run_start is not None and run_end is not None:
-                    ranges.append(HitboxActiveRange(index, run_start, run_end, run_end - run_start + 1))
-                    run_start = run_end = None
-            if run_start is not None and run_end is not None:
-                ranges.append(HitboxActiveRange(index, run_start, run_end, run_end - run_start + 1))
-        return tuple(ranges)
-
-    frame_data = _frame_data(iso_path)
-    frames = sorted(frame_data.framedata[character][action])
-    if not frames:
-        return ()
-    statuses: dict[int, list[tuple[int, bool]]] = {i: [] for i in (1, 2, 3, 4)}
-    for frame_number in frames:
-        frame = frame_data.framedata[character][action][frame_number]
-        statuses[1].append((frame_number, bool(frame["hitbox_1_status"])))
-        statuses[2].append((frame_number, bool(frame["hitbox_2_status"])))
-        statuses[3].append((frame_number, bool(frame["hitbox_3_status"])))
-        statuses[4].append((frame_number, bool(frame["hitbox_4_status"])))
-
     ranges: list[HitboxActiveRange] = []
-    for index in (1, 2, 3, 4):
+    segments = _action_segments(iso_path, character, action)
+    for index in range(1, 5):
         run_start: int | None = None
-        prev_active = False
-        for frame_number, active in statuses[index]:
-            if active and not prev_active:
-                run_start = frame_number
-            elif not active and prev_active and run_start is not None:
-                ranges.append(
-                    HitboxActiveRange(
-                        hitbox_index=index,
-                        start_frame=run_start,
-                        end_frame=frame_number - 1,
-                        frame_count=frame_number - run_start,
-                    )
-                )
-                run_start = None
-            prev_active = active
-        if run_start is not None:
-            last_frame = statuses[index][-1][0]
-            ranges.append(
-                HitboxActiveRange(
-                    hitbox_index=index,
-                    start_frame=run_start,
-                    end_frame=last_frame,
-                    frame_count=last_frame - run_start + 1,
-                )
-            )
+        run_end: int | None = None
+        for segment in segments:
+            active = segment.hitboxes[index - 1].active
+            if active and run_start is None:
+                run_start = segment.start_frame
+            if active:
+                run_end = segment.end_frame
+            elif run_start is not None and run_end is not None:
+                ranges.append(HitboxActiveRange(index, run_start, run_end, run_end - run_start + 1))
+                run_start = run_end = None
+        if run_start is not None and run_end is not None:
+            ranges.append(HitboxActiveRange(index, run_start, run_end, run_end - run_start + 1))
     return tuple(ranges)
 
 

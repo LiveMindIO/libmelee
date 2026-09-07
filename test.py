@@ -1223,6 +1223,13 @@ class DiscFrameDataTests(unittest.TestCase):
             (summary.total_frames, summary.first_hitbox_frame, summary.last_hitbox_frame, summary.iasa_frame),
             (7, 1, 5, 5),
         )
+        self.assertEqual(
+            tuple(
+                (active_range.hitbox_index, active_range.start_frame, active_range.end_frame)
+                for active_range in summary.hitbox_active_ranges
+            ),
+            ((2, 1, 5),),
+        )
         active = [segment for segment in result.segments if any(hitbox.active for hitbox in segment.hitboxes)]
         self.assertTrue(active)
         hitbox = next(hitbox for hitbox in active[0].hitboxes if hitbox.active)
@@ -2961,6 +2968,33 @@ class SLPFile(unittest.TestCase):
         self.assertIs(get_framedata.cache_clear, framedata_query.clear_framedata_query_caches)
         self.assertEqual(get_framedata.cache_parameters(), {"maxsize": None, "typed": False})
         self.assertIsNone(get_framedata.cache_info().maxsize)
+
+    @patch.dict(os.environ, {"MELEE_ISO_PATH": ""})
+    def test_framedata_query_derives_pulsing_hitbox_ranges_from_segments(self):
+        framedata_query.clear_framedata_query_caches()
+        self.addCleanup(framedata_query.clear_framedata_query_caches)
+
+        summary = get_framedata("fox", "UAIR").resolved_actions[0]
+
+        self.assertEqual(
+            tuple(
+                (
+                    active_range.hitbox_index,
+                    active_range.start_frame,
+                    active_range.end_frame,
+                    active_range.frame_count,
+                )
+                for active_range in summary.hitbox_active_ranges
+            ),
+            (
+                (1, 8, 9, 2),
+                (1, 11, 14, 4),
+                (2, 8, 9, 2),
+                (2, 11, 14, 4),
+                (3, 8, 9, 2),
+                (3, 11, 14, 4),
+            ),
+        )
 
     def test_special_slot_table_covers_framedata_roster(self) -> None:
         framedata = melee.FrameData()

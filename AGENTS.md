@@ -373,6 +373,8 @@ uv pip install --python .venv/bin/python .
   unavailable locomotion, facing, projectile, and runtime XY fields are `None`.
   Query caches include the resolved ISO path; clear them after replacing a disc
   at the same path. `get_raw_framedata_csv()` intentionally remains CSV-only.
+  Per-hitbox active ranges derive from the public segment sequence for both
+  sources rather than maintaining a second source-specific frame scan.
   A canonical NTSC 1.02 sweep resolves 8,828 playable-character action states:
   8,334 produce complete high-level summaries/segments, while 494 fail through
   the explicit article/projectile uncertainty boundary with no unexpected
