@@ -86,7 +86,7 @@ Libmelee tries to create a sensible and intuitive API for Melee. So it may break
 
 ## FrameData
 
-`FrameData` is deprecated in favor of the read-only `DiscFrameData` API, which reads fighter data directly from a legally supplied NTSC 1.02 Melee ISO without extracting files. Use `DiscFrameData.action_for_state(character, action)` for runtime action IDs. Existing timing-query callers can migrate incrementally with `FrameData(iso_path="/path/to/melee.iso")`; geometry-dependent methods are unavailable in that mode until skeleton and animation-pose evaluation is implemented.
+`FrameData` is deprecated in favor of the read-only `DiscFrameData` API, which reads fighter data directly from a legally supplied NTSC 1.02 Melee ISO without extracting files. Use `DiscFrameData.action_for_state(character, action)` for runtime action IDs. Existing timing-query callers can migrate incrementally with `FrameData(iso_path="/path/to/melee.iso")`, or set `MELEE_ISO_PATH` for callers that omit `iso_path`. Geometry-dependent compatibility methods remain unavailable in ISO mode while runtime dynamics, articles, and locomotion are not represented.
 
 ### Some Values are Unintuitive but Unavoidable
 Other values in Melee are unintuitive, but are a core aspect of how the game works so we can't abstract it away.

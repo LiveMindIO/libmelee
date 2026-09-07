@@ -527,9 +527,11 @@ def _frame_data() -> FrameData:
     """Return the process-wide :class:`FrameData` singleton.
 
     Built once per process (``lru_cache(maxsize=1)``); shared by all framedata
-    query helpers so the CSV is parsed at most once.
+    query helpers so the legacy CSV is parsed at most once. This query model
+    remains explicitly CSV-backed until its per-frame result can represent
+    unavailable ISO-derived fields without inventing values.
     """
-    return FrameData(_warn_deprecated=False)
+    return FrameData(use_iso_environment=False, _warn_deprecated=False)
 
 
 def _open_framedata_csv() -> TextIO:

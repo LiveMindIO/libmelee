@@ -290,9 +290,9 @@ class AttackFrameData:
             smashes report ``FSMASH_HIGH`` rather than ``FSMASH_MID``).
         frame_data: Shared libmelee ``FrameData`` helper. Use methods such as
             ``first_hitbox_frame(character, action)``, ``iasa(character, action)``,
-            ``range_forward(character, action, action_frame)``, and
             ``attack_state(character, action, action_frame)`` for spacing and
-            combo decisions.
+            combo decisions. Geometry methods such as ``range_forward`` remain
+            unavailable when the helper uses its ISO-backed source.
     """
 
     character: Character
@@ -443,9 +443,9 @@ class SimpleControls:
             port: Controller port (1–4) whose ``PlayerState`` is controlled.
             controller: Virtual controller receiving stick and button presses.
             frame_data: Optional shared ``FrameData`` instance. When omitted, a
-                new helper is constructed (loads ``framedata.csv``). The runtime
-                passes its match-scoped instance to avoid reloading CSV data every
-                frame.
+                new helper is constructed from ``MELEE_ISO_PATH`` when configured,
+                or from the legacy CSV otherwise. The runtime passes its
+                match-scoped instance to avoid rebuilding framedata every frame.
         """
         self._game_state = game_state
         self._port = port

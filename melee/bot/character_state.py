@@ -1075,9 +1075,9 @@ class CharacterState:
             game_state: Current libmelee game state.
             port: Controller port (1–4) whose ``PlayerState`` is classified.
             frame_data: Optional shared ``FrameData`` instance. When omitted, a
-                new helper is constructed (loads ``framedata.csv``). The runtime
-                passes its match-scoped instance to avoid reloading CSV data every
-                frame.
+                new helper is constructed from ``MELEE_ISO_PATH`` when configured,
+                or from the legacy CSV otherwise. The runtime passes its
+                match-scoped instance to avoid rebuilding framedata every frame.
         """
         self._game_state = game_state
         self._port = port

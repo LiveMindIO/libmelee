@@ -1147,6 +1147,70 @@ class DiscFrameDataTests(unittest.TestCase):
                     self.assertEqual(data.frame_count(shifted_character, shifted_action), frame_count)
                     self.assertEqual(data.iasa(shifted_character, shifted_action), iasa_frame)
 
+    def test_no_argument_framedata_uses_configured_iso(self):
+        with (
+            patch.dict(os.environ, {"MELEE_ISO_PATH": str(self.iso_path)}),
+            patch("melee.framedata._open_package_csv", wraps=melee.framedata._open_package_csv) as open_csv,
+        ):
+            data = melee.FrameData(_warn_deprecated=False)
+
+        self.assertIsNotNone(data._disc_framedata)
+        self.assertTrue(data.is_attack(melee.Character.FOX, melee.Action.NEUTRAL_ATTACK_1))
+        self.assertNotIn("framedata.csv", [entry.args[0] for entry in open_csv.call_args_list])
+
+    def test_no_argument_simple_controls_uses_configured_iso(self):
+        player = melee.PlayerState(
+            character=melee.Character.FOX,
+            action=melee.Action.STANDING,
+            on_ground=True,
+        )
+        with patch.dict(os.environ, {"MELEE_ISO_PATH": str(self.iso_path)}):
+            controls = SimpleControls(
+                melee.GameState(frame=0, players={1: player}),
+                1,
+                RecordingSimpleController(),
+            )
+        hold = controls.attack(AttackType.JAB)
+
+        self.assertIsInstance(hold, Hold)
+        assert isinstance(hold, Hold)
+        self.assertIsNotNone(hold.frame_data._disc_framedata)
+        self.assertIs(controls.character_state._frame_data, hold.frame_data)
+
+    def test_explicit_framedata_iso_path_overrides_environment(self):
+        with patch.dict(os.environ, {"MELEE_ISO_PATH": str(self.iso_path.with_name("missing.iso"))}):
+            data = melee.FrameData(iso_path=self.iso_path, _warn_deprecated=False)
+
+        self.assertIsNotNone(data._disc_framedata)
+
+    def test_invalid_configured_framedata_iso_fails_closed(self):
+        missing = self.iso_path.with_name("missing.iso")
+        with (
+            patch.dict(os.environ, {"MELEE_ISO_PATH": str(missing)}),
+            self.assertRaisesRegex(melee.DiscImageError, "cannot open disc image"),
+        ):
+            melee.FrameData(_warn_deprecated=False)
+
+    def test_framedata_recording_ignores_configured_iso(self):
+        with (
+            patch.dict(os.environ, {"MELEE_ISO_PATH": str(self.iso_path)}),
+            patch("melee.framedata.open", create=True),
+        ):
+            data = melee.FrameData(write=True, _warn_deprecated=False)
+
+        self.assertIsNone(data._disc_framedata)
+        with self.assertRaisesRegex(ValueError, "cannot record CSV data"):
+            melee.FrameData(write=True, iso_path=self.iso_path, _warn_deprecated=False)
+
+    def test_framedata_query_remains_explicitly_csv_backed(self):
+        framedata_query._frame_data.cache_clear()
+        self.addCleanup(framedata_query._frame_data.cache_clear)
+        with patch.dict(os.environ, {"MELEE_ISO_PATH": str(self.iso_path)}):
+            data = framedata_query._frame_data()
+
+        self.assertIsNone(data._disc_framedata)
+        self.assertTrue(data.framedata)
+
     def test_repeated_goto_expands_to_animation_endpoint(self):
         create = struct.pack(">5I", 11 << 26, 0, 0, 0, 0)
         prefix = b"".join(

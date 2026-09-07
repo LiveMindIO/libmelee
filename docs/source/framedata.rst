@@ -49,6 +49,13 @@ facade while retaining its query method signatures::
    data = melee.FrameData(iso_path="/path/to/melee.iso")
    print(data.first_hitbox_frame(melee.Character.FOX, melee.Action.NEUTRAL_ATTACK_1))
 
+Callers that do not directly construct the shared helper can set
+``MELEE_ISO_PATH`` to select the same ISO-backed facade. An explicit
+``iso_path`` takes precedence, invalid configured paths fail rather than falling
+back to bundled data, and recording mode ignores the environment. The
+high-level ``framedata_query`` helpers remain explicitly CSV-backed until their
+per-frame result model can represent unavailable ISO fields honestly.
+
 The facade supports ``is_attack``, ``attack_state``, ``first_hitbox_frame``,
 ``last_hitbox_frame``, ``hitbox_count``, ``iasa``, ``frame_count``, and
 ``last_roll_frame`` from the ISO.
@@ -69,8 +76,8 @@ Compatibility geometry methods such as
 ``range_forward``, ``range_backward``, ``in_range``, and ``roll_end_position``
 still raise ``DiscFrameDataError`` in this mode rather than presenting the
 static pose as historical runtime geometry before those remaining systems are
-implemented. Construction without
-``iso_path`` temporarily retains the historical CSV-backed behavior. Article
+implemented. Construction without ``iso_path`` uses ``MELEE_ISO_PATH`` when set
+and temporarily retains the historical CSV-backed behavior otherwise. Article
 and projectile attacks are not yet included. ISO-backed hitbox-related queries
 raise ``DiscFrameDataError`` for known article-dependent states, including
 special states without fighter hitboxes and the mixed fighter/article hitboxes

@@ -366,6 +366,12 @@ uv pip install --python .venv/bin/python .
   ISO-backed deprecated `FrameData` geometry methods unavailable until those
   dependencies can be represented rather than silently returning approximate
   compatibility values.
+- An omitted `FrameData.iso_path` selects `MELEE_ISO_PATH` when configured;
+  explicit paths win, invalid configured paths fail closed, and recording mode
+  ignores the environment. `framedata_query` explicitly opts out because its
+  current public result is still shaped around `framedata.csv`. Do not synthesize
+  missing locomotion, facing, projectile, or runtime geometry values to migrate
+  that API.
 - Disc image paths are opened nonblocking until the descriptor is confirmed to
   be a regular file. This prevents user-supplied or replacement FIFOs from
   stalling construction or lazy reads before identity validation. Windows maps

@@ -7,6 +7,7 @@ and state information that would be difficult to discover on your own.
 
 import csv
 import math
+import os
 import warnings
 from collections import defaultdict
 from importlib.resources import files
@@ -17,7 +18,6 @@ from melee import stages
 from melee._ntsc102 import SPECIAL_MOVE_IDS
 from melee.disc_framedata import DiscFrameData, DiscFrameDataError, HitboxChange
 from melee.enums import Action, AttackState, Character
-
 
 _ISO_COMPATIBILITY_FRAME_OFFSETS = {
     (Character.PEACH, Action.NEUTRAL_ATTACK_2),
@@ -70,17 +70,23 @@ def _open_package_csv(name: str):
 class FrameData:
     """Deprecated compatibility helpers for CSV or ISO-backed Melee framedata.
 
+    When ``iso_path`` is omitted, ``MELEE_ISO_PATH`` selects the ISO-backed
+    source unless ``use_iso_environment`` is false. Recording mode ignores the
+    environment and remains incompatible with an explicit ISO path.
+
     Note:
         The frame data in libmelee is written to be useful to bots, and behave in a sane way,
         not necessarily be binary-compatible with in-game structures or values.
     """
-    def __init__(self, write=False, *, iso_path=None, _warn_deprecated=True):
+    def __init__(self, write=False, *, iso_path=None, use_iso_environment=True, _warn_deprecated=True):
         if _warn_deprecated:
             warnings.warn(
                 "FrameData is deprecated; use DiscFrameData with a legally supplied NTSC 1.02 ISO.",
                 DeprecationWarning,
                 stacklevel=2,
             )
+        if iso_path is None and use_iso_environment and not write:
+            iso_path = os.environ.get("MELEE_ISO_PATH") or None
         if write and iso_path is not None:
             raise ValueError("FrameData cannot record CSV data while using an ISO-backed source")
         self._disc_framedata = DiscFrameData(iso_path) if iso_path is not None else None
