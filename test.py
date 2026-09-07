@@ -1659,10 +1659,16 @@ class RecordingMenuController(RecordingSimpleController):
 
 
 class MenuHelperCharacterSelectTests(unittest.TestCase):
-    def choose_at(self, character, cursor_x):
+    def choose_at(
+        self,
+        character,
+        cursor_x,
+        *,
+        reported_character=melee.Character.UNKNOWN_CHARACTER,
+    ):
         controller = RecordingMenuController()
         player = melee.PlayerState(
-            character=melee.Character.UNKNOWN_CHARACTER,
+            character=reported_character,
             cursor=melee.Cursor(x=cursor_x, y=4.5),
         )
         gamestate = melee.GameState(
@@ -1691,10 +1697,31 @@ class MenuHelperCharacterSelectTests(unittest.TestCase):
             (melee.Character.ROY, 20.7),
         ):
             with self.subTest(character=character):
-                controller = self.choose_at(character, cursor_x)
+                controller = self.choose_at(
+                    character,
+                    cursor_x,
+                    reported_character=character,
+                )
 
                 self.assertEqual(controller.main_stick, (0.5, 0.5))
                 self.assertIn(melee.Button.BUTTON_A, controller.buttons)
+
+    def test_in_bounds_character_mismatch_moves_toward_center(self) -> None:
+        for character, cursor_x, expected_stick in (
+            (melee.Character.PICHU, -22.7, (1, 0.5)),
+            (melee.Character.ROY, 20.7, (0, 0.5)),
+        ):
+            with self.subTest(character=character):
+                controller = self.choose_at(character, cursor_x)
+
+                self.assertEqual(controller.main_stick, expected_stick)
+                self.assertNotIn(melee.Button.BUTTON_A, controller.buttons)
+
+    def test_centered_character_mismatch_waits_without_selecting(self) -> None:
+        controller = self.choose_at(melee.Character.PICHU, -22.0)
+
+        self.assertEqual(controller.main_stick, (0.5, 0.5))
+        self.assertNotIn(melee.Button.BUTTON_A, controller.buttons)
 
     def test_edge_character_bounds_do_not_affect_random_slot(self) -> None:
         for character in (melee.Character.PICHU, melee.Character.ROY):
