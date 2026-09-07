@@ -135,6 +135,18 @@ class IteratorSlottedPlayerState(melee.PlayerState):
     __slots__ = iter(("marker",))
 
 
+class SlotCacheRejectingMeta(type):
+    def __setattr__(cls, name, value):
+        if name == "__slotnames__":
+            raise TypeError("class metadata is frozen")
+        super().__setattr__(name, value)
+
+
+class SlotCacheRejectingPlayerState(melee.PlayerState, metaclass=SlotCacheRejectingMeta):
+    marker: str
+    __slots__ = ("marker",)
+
+
 class PlayerFacingTests(unittest.TestCase):
     def test_absolute_facing_methods_return_builtin_booleans(self):
         right = melee.PlayerState(facing=True)
@@ -261,6 +273,20 @@ class PlayerFacingTests(unittest.TestCase):
 
     def test_serialization_preserves_iterator_declared_slots(self):
         player = IteratorSlottedPlayerState(facing=False)
+        player.marker = "preserved"
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", DeprecationWarning)
+            for copied in (
+                copy.copy(player),
+                copy.deepcopy(player),
+                pickle.loads(pickle.dumps(player)),
+            ):
+                self.assertIs(copied.facing_left(), True)
+                self.assertEqual(copied.marker, "preserved")
+
+    def test_serialization_tolerates_rejected_slot_cache(self):
+        player = SlotCacheRejectingPlayerState(facing=False)
         player.marker = "preserved"
 
         with warnings.catch_warnings():

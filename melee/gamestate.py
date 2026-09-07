@@ -3,6 +3,7 @@
 """
 import sys
 import warnings
+from contextlib import suppress
 from dataclasses import dataclass, field
 from enum import Enum
 from threading import local
@@ -415,7 +416,11 @@ class PlayerState:
                         slot_descriptors.setdefault(name, descriptor)
                 if owner is PlayerState:
                     slot_descriptors.setdefault("facing", _DEPRECATED_FACING._slot)
-            setattr(type(self), "__slotnames__", list(slot_descriptors))
+            # DESNOTE(jbarber, 2026-09-07): Match copyreg's best-effort cache;
+            # metaclasses may intentionally reject class mutation.
+            # https://github.com/python/cpython/blob/v3.13.7/Lib/copyreg.py#L113-L164
+            with suppress(Exception):
+                type(self).__slotnames__ = list(slot_descriptors)
 
             for owner in mro[mro.index(PlayerState) + 1:]:
                 if "__getstate__" not in owner.__dict__:
