@@ -368,3 +368,7 @@ uv pip install --python .venv/bin/python .
   toward the roster interior, but Pichu's left edge and Roy's right edge use a
   tighter 0.8-unit tolerance. Those outer slots have narrower safe cursor margins;
   widening either edge can make the helper press A outside the portrait.
+- On offline CSS, the Extract Menu Info character is authoritative before the
+  helper presses A. If that character disagrees while the token is inside the
+  approximate target bounds, the helper moves toward the estimated portrait
+  center instead; this escapes tolerance overlap with an adjacent card.

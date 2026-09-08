@@ -405,6 +405,31 @@ class MenuHelper():
             controller.release_button(enums.Button.BUTTON_B)
             return
 
+        # DESNOTE(jbarber, 2026-09-06): The evenly spaced CSS geometry is only an
+        # approximation and its tolerance can overlap a neighboring portrait.
+        # Offline Extract Menu Info reports the portrait under the token, so do
+        # not press A until that signal agrees; move toward the estimated center
+        # to escape the overlapping fringe instead.
+        # See https://github.com/doldecomp/melee/blob/f49c14fdb835c8d69f0b1eaa9b1a12afa129653f/src/melee/mn/mncharsel.c#L96-L116
+        if (
+            isOverCharacter
+            and not swag
+            and not isSlippiCSS
+            and not correct_character
+            and not coin_down
+        ):
+            controller.release_button(enums.Button.BUTTON_A)
+            controller.tilt_analog(enums.Button.BUTTON_MAIN, .5, .5)
+            horizontal_delta = target_x - cursor_x
+            vertical_delta = target_y - cursor_y
+            if abs(horizontal_delta) >= abs(vertical_delta) and horizontal_delta != 0:
+                x = 1 if horizontal_delta > 0 else 0
+                controller.tilt_analog(enums.Button.BUTTON_MAIN, x, .5)
+            elif vertical_delta != 0:
+                y = 1 if vertical_delta > 0 else 0
+                controller.tilt_analog(enums.Button.BUTTON_MAIN, .5, y)
+            return
+
         #If character is selected, and we're in of the area, and coin is down, then we're good
         if correct_character and coin_down:
             if gamestate.frame % 2 == 0:
