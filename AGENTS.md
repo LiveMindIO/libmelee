@@ -379,6 +379,16 @@ uv pip install --python .venv/bin/python .
   8,334 produce complete high-level summaries/segments, while 494 fail through
   the explicit article/projectile uncertainty boundary with no unexpected
   segmentation failures.
+- `DiscFrameData.animation_root_frame()` exposes retail-scaled absolute TransN
+  (or action-selected TransN2) translation and adjacent unit-rate sample deltas.
+  It reports root enablement and scale-selection flags but is nominal animation
+  input, not runtime locomotion; callbacks, velocity, collision, and logical
+  facing remain separate. Never populate ISO `FrameSegment.locomotion_*` or
+  `facing_changed` from this curve. Standard forward/backward
+  `FrameData.roll_end_position()` is the narrow exception: opcode-20 throw flag
+  B3 recovers the callback-driven facing flip, and all 3,458 canonical per-frame
+  comparisons match historical captures within `4.58e-05`. Tech and ledge rolls
+  remain unavailable because their runtime displacement diverges.
 - Disc image paths are opened nonblocking until the descriptor is confirmed to
   be a regular file. This prevents user-supplied or replacement FIFOs from
   stalling construction or lazy reads before identity validation. Windows maps

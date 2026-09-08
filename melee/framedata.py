@@ -649,51 +649,124 @@ class FrameData:
         return max(frames)
 
     def roll_end_position(self, character_state, stage):
-        """Returns the x coordinate that the current roll will end in
+        """Returns the x coordinate that the current roll will end in.
+
+        ISO-backed data supports standard forward/backward rolls. Tech and
+        ledge-roll outcomes remain unavailable because their runtime physics and
+        collision do not match the nominal animation-root curve.
 
         Args:
             character_state (gamestate.PlayerState): The player we're calculating for
             stage (enums.Stage): The stage being played on
         """
-        self._require_csv_geometry("roll_end_position")
         distance = 0
-        try:
-            #TODO: Take current momentum into account
-            # Loop through each frame in the attack
-            for action_frame in self.framedata[character_state.character][character_state.action]:
-                # Only care about frames that haven't happened yet
-                if action_frame > character_state.action_frame:
-                    distance += self.framedata[character_state.character][character_state.action][action_frame]["locomotion_x"]
+        if self._disc_framedata is not None:
+            if character_state.action not in (Action.ROLL_FORWARD, Action.ROLL_BACKWARD):
+                raise DiscFrameDataError(
+                    "ISO-backed roll_end_position() supports only standard forward and backward rolls; "
+                    "tech and ledge-roll displacement depends on runtime physics and collision"
+                )
+            facing = 1 if character_state.facing_right() else -1
+            record = self._disc_framedata.action_for_state(
+                character_state.character,
+                character_state.action,
+            )
+            if record is None:
+                raise DiscFrameDataError(
+                    f"{character_state.character.name} {character_state.action.name} has no fighter animation"
+                )
+            # DESNOTE(jbarber, 2026-09-07): Standard roll animation callbacks
+            # consume throw flag B3 (subaction opcode 20, hit index 0) to flip
+            # logical facing. Recover action-entry facing before projecting
+            # TransN.z. See ftCo_Escape_Anim:
+            # https://github.com/doldecomp/melee/blob/d15c9cffe939611627b3a7a77a446705d2998f5f/src/melee/ft/chara/ftCommon/ftCo_Escape.c#L132-L142
+            if any(
+                command.local_frame <= character_state.action_frame
+                and command.command.opcode == 20
+                and command.command.parameter("hit_idx") == 0
+                for command in record.timeline.commands
+            ):
+                facing = -facing
+            final_frame = self.frame_count(character_state.character, character_state.action)
+            if character_state.action_frame >= final_frame:
+                position = character_state.position.x
+            else:
+                final_root = self._disc_framedata.animation_root_frame(
+                    character_state.character,
+                    character_state.action,
+                    final_frame,
+                    facing=facing,
+                )
+                if not final_root.animation_root_enabled:
+                    raise DiscFrameDataError(
+                        f"{character_state.character.name} {character_state.action.name} does not enable "
+                        "animation-induced root motion"
+                    )
+                sample_frame = max(1, int(character_state.action_frame))
+                current_root = self._disc_framedata.animation_root_frame(
+                    character_state.character,
+                    character_state.action,
+                    sample_frame,
+                    facing=facing,
+                )
+                current_forward = current_root.translation.forward
+                if character_state.action_frame < 1:
+                    current_forward -= current_root.delta.forward
+                distance = (final_root.translation.forward - current_forward) * facing
+                position = character_state.position.x + distance
+        else:
+            try:
+                #TODO: Take current momentum into account
+                # Loop through each frame in the attack
+                for action_frame in self.framedata[character_state.character][character_state.action]:
+                    # Only care about frames that haven't happened yet
+                    if action_frame > character_state.action_frame:
+                        distance += self.framedata[character_state.character][character_state.action][action_frame]["locomotion_x"]
 
-            # We can derive the direction we're supposed to be moving by xor'ing a few things together...
-            #   1) Current facing
-            #   2) Facing changed in the frame data
-            #   3) Is backwards roll
-            facingchanged = self.framedata[character_state.character][character_state.action][character_state.action_frame]["facing_changed"]
-            backroll = character_state.action in [Action.ROLL_BACKWARD, Action.GROUND_ROLL_BACKWARD_UP, \
-                Action.GROUND_ROLL_BACKWARD_DOWN, Action.BACKWARD_TECH]
-            if not (character_state.facing_right() ^ facingchanged ^ backroll):
-                distance = -distance
+                # We can derive the direction we're supposed to be moving by xor'ing a few things together...
+                #   1) Current facing
+                #   2) Facing changed in the frame data
+                #   3) Is backwards roll
+                facingchanged = self.framedata[character_state.character][character_state.action][character_state.action_frame]["facing_changed"]
+                backroll = character_state.action in [Action.ROLL_BACKWARD, Action.GROUND_ROLL_BACKWARD_UP, \
+                    Action.GROUND_ROLL_BACKWARD_DOWN, Action.BACKWARD_TECH]
+                if not (character_state.facing_right() ^ facingchanged ^ backroll):
+                    distance = -distance
+                position = character_state.position.x + distance
+            # If we get a key error, just assume this animation doesn't go anywhere
+            except KeyError:
+                position = character_state.position.x
 
-            position = character_state.position.x + distance
-
-            if character_state.action not in [Action.TECH_MISS_UP, Action.TECH_MISS_DOWN]:
-                # Adjust the position to account for the fact that we can't roll off the platform
-                side_platform_height, side_platform_left, side_platform_right = stages.side_platform_position(character_state.position.x > 0, stage)
+        if character_state.action not in [Action.TECH_MISS_UP, Action.TECH_MISS_DOWN]:
+            # Adjust the position to account for the fact that we can't roll off the platform
+            try:
+                side_platform_height, side_platform_left, side_platform_right = stages.side_platform_position(
+                    character_state.position.x > 0,
+                    stage,
+                )
                 top_platform_height, top_platform_left, top_platform_right = stages.top_platform_position(stage)
                 if character_state.position.y < 5:
                     position = min(position, stages.EDGE_GROUND_POSITION[stage])
                     position = max(position, -stages.EDGE_GROUND_POSITION[stage])
-                elif (side_platform_height is not None) and abs(character_state.position.y - side_platform_height) < 5:
+                elif (
+                    side_platform_height is not None
+                    and side_platform_left is not None
+                    and side_platform_right is not None
+                    and abs(character_state.position.y - side_platform_height) < 5
+                ):
                     position = min(position, side_platform_right)
                     position = max(position, side_platform_left)
-                elif (top_platform_height is not None) and abs(character_state.position.y - top_platform_height) < 5:
+                elif (
+                    top_platform_height is not None
+                    and top_platform_left is not None
+                    and top_platform_right is not None
+                    and abs(character_state.position.y - top_platform_height) < 5
+                ):
                     position = min(position, top_platform_right)
                     position = max(position, top_platform_left)
-            return position
-        # If we get a key error, just assume this animation doesn't go anywhere
-        except KeyError:
-            return character_state.position.x
+            except KeyError:
+                return character_state.position.x
+        return position
 
     def first_hitbox_frame(self, character, action):
         """Returns the first frame that a hitbox appears for a given action

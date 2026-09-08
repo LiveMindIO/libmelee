@@ -1,7 +1,7 @@
 """Read framedata directly from a user-supplied NTSC 1.02 Melee ISO.
 
-This module never extracts or writes disc members. Hitbox coordinates are
-bone-local DAT values; this phase does not evaluate skeletons or world geometry.
+This module never extracts or writes disc members. It exposes bone-local DAT
+values plus explicitly static animation-root and fighter-pose evaluations.
 """
 
 from __future__ import annotations
@@ -31,6 +31,7 @@ from melee._pose import (
     FighterParts,
     FighterPoseSource,
     Vec3,
+    animation_root_translation,
     parse_figatree,
     parse_fighter_parts,
     parse_fighter_pose_source,
@@ -66,6 +67,9 @@ _MAX_TIMELINE_FRAMES = 10_000
 _MAX_FIGHTER_TIMELINE_ITEMS = _MAX_TIMELINE_COMMANDS + _MAX_TIMELINE_FRAMES
 _ANIMATION_LOOP_FLAG = 0x40000000
 _ANIMATION_FRAME_ACCUMULATION_FLAG = 0x20000000
+_ANIMATION_ROOT_MOTION_FLAG = 0x80000000
+_ANIMATION_SECONDARY_ROOT_FLAG = 0x04000000
+_ANIMATION_ROOT_MODEL_SCALE_ONLY_FLAG = 0x02000000
 
 
 @dataclass(frozen=True, slots=True)
@@ -146,6 +150,24 @@ class ActionRecord:
 
         return bool(self.raw_flags & _ANIMATION_LOOP_FLAG)
 
+    @property
+    def animation_root_motion_enabled(self) -> bool:
+        """Whether retail extracts TransN translation for animation-induced physics."""
+
+        return bool(self.raw_flags & _ANIMATION_ROOT_MOTION_FLAG)
+
+    @property
+    def animation_uses_secondary_root(self) -> bool:
+        """Whether retail selects TransN2 as the effective animation root."""
+
+        return bool(self.raw_flags & _ANIMATION_SECONDARY_ROOT_FLAG)
+
+    @property
+    def animation_root_uses_fighter_scale(self) -> bool:
+        """Whether dynamic fighter scale participates in root-translation scaling."""
+
+        return not bool(self.raw_flags & _ANIMATION_ROOT_MODEL_SCALE_ONLY_FLAG)
+
 
 @dataclass(frozen=True, slots=True)
 class PosedHitbox:
@@ -165,6 +187,44 @@ class PosedFrame:
     local_frame: int
     animation_time: float
     hitboxes: tuple[PosedHitbox, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class AnimationRootTranslation:
+    """Retail-scaled absolute or delta translation in TransN local axes."""
+
+    lateral: float
+    """TRAX translation, not ordinary horizontal gameplay movement."""
+
+    vertical: float
+    """TRAY translation."""
+
+    forward: float
+    """TRAZ translation, projected through fighter facing for horizontal use."""
+
+
+@dataclass(frozen=True, slots=True)
+class AnimationRootFrame:
+    """Nominal unit-rate animation-root sample before gameplay callbacks."""
+
+    local_frame: int
+    animation_time: float
+    animation_root_enabled: bool
+    uses_secondary_translation: bool
+    fighter_scale_applied: bool
+    translation: AnimationRootTranslation
+    delta: AnimationRootTranslation
+    projected_horizontal_delta: float
+
+
+@dataclass(frozen=True, slots=True)
+class _AnimationContext:
+    record: ActionRecord
+    source: FighterPoseSource
+    tree: FigaTree
+    source_kind: int
+    additional_bones: int
+    animation_time: float
 
 
 @dataclass(frozen=True, slots=True)
@@ -196,6 +256,32 @@ def _empty_timeline(frame_count: float | None) -> ActionTimeline:
             FrameSnapshot(frame, float(frame - 1), (), False) for frame in range(1, snapshot_count + 1)
         )
     return ActionTimeline((), (), (), (), (), None, None, frames, False, False, False)
+
+
+def _float32(value: float) -> float:
+    return struct.unpack(">f", struct.pack(">f", value))[0]
+
+
+def _checked_float32(value: float, name: str) -> float:
+    try:
+        rounded = _float32(value)
+    except OverflowError as exc:
+        raise DiscFrameDataError(f"{name} must fit a finite float32; got {value!r}") from exc
+    if not math.isfinite(rounded):
+        raise DiscFrameDataError(f"{name} must fit a finite float32; got {value!r}")
+    return rounded
+
+
+def _validate_fighter_scale(value: float) -> float:
+    if not math.isfinite(value) or value <= 0:
+        raise DiscFrameDataError(f"fighter_scale must be finite and positive; got {value!r}")
+    try:
+        rounded = _float32(value)
+    except OverflowError as exc:
+        raise DiscFrameDataError(f"fighter_scale must fit a finite float32; got {value!r}") from exc
+    if rounded <= 0:
+        raise DiscFrameDataError(f"fighter_scale must remain positive as float32; got {value!r}")
+    return rounded
 
 
 class DiscFrameData:
@@ -401,43 +487,20 @@ class DiscFrameData:
 
         if local_frame < 1:
             raise DiscFrameDataError(f"action frames are one-indexed; got {local_frame}")
-        if not math.isfinite(fighter_scale) or fighter_scale <= 0:
-            raise DiscFrameDataError(f"fighter_scale must be finite and positive; got {fighter_scale!r}")
+        fighter_scale = _validate_fighter_scale(fighter_scale)
         if facing not in (-1, 1):
             raise DiscFrameDataError(f"facing must be -1 or 1; got {facing!r}")
-        resolved = self._action_and_code_for_state(character, action)
-        if resolved is None:
-            raise DiscFrameDataError(f"{character.name} {action.name} has no fighter animation pose")
-        record, animation_code = resolved
-        if not record.animation_size or record.symbol is None:
-            raise DiscFrameDataError(f"{character.name} {action.name} has no fighter animation pose")
-        try:
-            snapshot = record.frame(local_frame)
-        except IndexError as exc:
-            raise DiscFrameDataError(
-                f"{character.name} {action.name} has no extracted script snapshot for frame {local_frame}"
-            ) from exc
-
-        metadata = FIGHTER_KINDS[character.value]
-        pose_source = self._fighter_pose_source(metadata.code, character.value)
-        tree = self._figatree(animation_code, record)
-        animation_time = float(local_frame)
-        if record.animation_loops and tree.frame_count > 0:
-            animation_time %= tree.frame_count
-        source_kind = record.raw_flags & 0x3F
-        if source_kind >= len(pose_source.parts):
-            raise DiscFrameDataError(
-                f"{character.name} {action.name} selects unsupported animation source kind {source_kind}"
-            )
+        context = self._animation_context(character, action, local_frame)
+        snapshot = context.record.frame(local_frame)
         try:
             matrices = pose_matrices(
-                pose_source,
-                tree,
+                context.source,
+                context.tree,
                 fighter_kind=character.value,
-                source_kind=source_kind,
-                additional_bones=(record.raw_flags & 0x003FFE00) >> 9,
-                raw_action_flags=record.raw_flags,
-                animation_time=animation_time,
+                source_kind=context.source_kind,
+                additional_bones=context.additional_bones,
+                raw_action_flags=context.record.raw_flags,
+                animation_time=context.animation_time,
                 fighter_scale=fighter_scale,
                 facing=facing,
             )
@@ -446,7 +509,7 @@ class DiscFrameData:
         root_matrix = matrices[0]
         assert root_matrix is not None
         root = transform_point(root_matrix, Vec3(0.0, 0.0, 0.0))
-        target_parts = pose_source.parts[character.value]
+        target_parts = context.source.parts[character.value]
         posed = []
         for hitbox in snapshot.active_hitboxes:
             bone = hitbox.bone_id
@@ -479,7 +542,118 @@ class DiscFrameData:
                     world.z - root.z,
                 )
             )
-        return PosedFrame(local_frame, animation_time, tuple(posed))
+        return PosedFrame(local_frame, context.animation_time, tuple(posed))
+
+    def animation_root_frame(
+        self,
+        character: Character,
+        action: Action,
+        local_frame: int,
+        *,
+        fighter_scale: float = 1.0,
+        facing: int = 1,
+    ) -> AnimationRootFrame:
+        """Return nominal TransN animation input for one unit-rate frame.
+
+        Translation channels are absolute local animation values. ``delta`` is
+        the retail-scaled difference between samples at times ``local_frame``
+        and ``local_frame - 1``. Runtime callbacks, blending, velocity, and
+        collision decide whether that input becomes fighter displacement.
+        """
+
+        if local_frame < 1:
+            raise DiscFrameDataError(f"action frames are one-indexed; got {local_frame}")
+        fighter_scale = _validate_fighter_scale(fighter_scale)
+        if facing not in (-1, 1):
+            raise DiscFrameDataError(f"facing must be -1 or 1; got {facing!r}")
+        context = self._animation_context(character, action, local_frame)
+        previous_time = float(local_frame - 1)
+        if context.record.animation_loops and context.tree.frame_count > 0:
+            previous_time %= context.tree.frame_count
+        try:
+            current = animation_root_translation(
+                context.source,
+                context.tree,
+                fighter_kind=character.value,
+                source_kind=context.source_kind,
+                additional_bones=context.additional_bones,
+                raw_action_flags=context.record.raw_flags,
+                animation_time=context.animation_time,
+                fighter_scale=fighter_scale,
+            )
+            previous = animation_root_translation(
+                context.source,
+                context.tree,
+                fighter_kind=character.value,
+                source_kind=context.source_kind,
+                additional_bones=context.additional_bones,
+                raw_action_flags=context.record.raw_flags,
+                animation_time=previous_time,
+                fighter_scale=fighter_scale,
+            )
+        except DatParseError as exc:
+            raise DiscFrameDataError(str(exc)) from exc
+        translation = AnimationRootTranslation(current.x, current.y, current.z)
+        delta = AnimationRootTranslation(
+            _checked_float32(current.x - previous.x, "animation-root delta"),
+            _checked_float32(current.y - previous.y, "animation-root delta"),
+            _checked_float32(current.z - previous.z, "animation-root delta"),
+        )
+        return AnimationRootFrame(
+            local_frame=local_frame,
+            animation_time=context.animation_time,
+            animation_root_enabled=context.record.animation_root_motion_enabled,
+            uses_secondary_translation=context.record.animation_uses_secondary_root,
+            fighter_scale_applied=context.record.animation_root_uses_fighter_scale,
+            translation=translation,
+            delta=delta,
+            projected_horizontal_delta=_checked_float32(
+                delta.forward * facing,
+                "projected animation-root delta",
+            ),
+        )
+
+    def _animation_context(
+        self,
+        character: Character,
+        action: Action,
+        local_frame: int,
+    ) -> _AnimationContext:
+        """Resolve one validated static animation sample."""
+
+        if local_frame < 1:
+            raise DiscFrameDataError(f"action frames are one-indexed; got {local_frame}")
+        resolved = self._action_and_code_for_state(character, action)
+        if resolved is None:
+            raise DiscFrameDataError(f"{character.name} {action.name} has no fighter animation")
+        record, animation_code = resolved
+        if not record.animation_size or record.symbol is None:
+            raise DiscFrameDataError(f"{character.name} {action.name} has no fighter animation")
+        try:
+            record.frame(local_frame)
+        except IndexError as exc:
+            raise DiscFrameDataError(
+                f"{character.name} {action.name} has no extracted script snapshot for frame {local_frame}"
+            ) from exc
+        metadata = FIGHTER_KINDS[character.value]
+        source = self._fighter_pose_source(metadata.code, character.value)
+        tree = self._figatree(animation_code, record)
+        source_kind = record.raw_flags & 0x3F
+        if source_kind >= len(source.parts):
+            raise DiscFrameDataError(
+                f"{character.name} {action.name} selects unsupported animation source kind {source_kind}"
+            )
+        animation_time = float(local_frame)
+        if record.animation_loops and tree.frame_count > 0:
+            animation_time %= tree.frame_count
+        return _AnimationContext(
+            record,
+            source,
+            tree,
+            source_kind,
+            (record.raw_flags & 0x003FFE00) >> 9,
+            animation_time,
+        )
 
     def _figatree(self, code: str, record: ActionRecord) -> FigaTree:
         key = (code, record.dat_action_index)
@@ -617,6 +791,8 @@ class DiscFrameData:
 __all__ = [
     "ActionRecord",
     "ActionTimeline",
+    "AnimationRootFrame",
+    "AnimationRootTranslation",
     "DatParseError",
     "DiscBuild",
     "DiscFrameData",

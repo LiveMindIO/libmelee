@@ -865,6 +865,9 @@ class DiscFrameDataTests(unittest.TestCase):
         assert script_data_offset is not None
         self.assertEqual(action.animation_frame_count, 8.0)
         self.assertFalse(action.animation_loops)
+        self.assertTrue(action.animation_root_motion_enabled)
+        self.assertFalse(action.animation_uses_secondary_root)
+        self.assertTrue(action.animation_root_uses_fighter_scale)
         self.assertEqual(action.script_dat_offset, script_data_offset + 0x20)
         self.assertEqual(action.timeline.iasa_frame, 5)
         self.assertEqual(len(action.timeline.frames), 7)
@@ -962,6 +965,308 @@ class DiscFrameDataTests(unittest.TestCase):
             data.posed_frame(melee.Character.FOX, melee.Action.NEUTRAL_ATTACK_1, 1, fighter_scale=0)
         with self.assertRaisesRegex(melee.DiscFrameDataError, "facing must"):
             data.posed_frame(melee.Character.FOX, melee.Action.NEUTRAL_ATTACK_1, 1, facing=0)
+
+    def test_animation_root_frame_exposes_scaled_absolute_and_delta_values(self):
+        data = melee.DiscFrameData(self.iso_path)
+        identity_parts = FighterParts(
+            tuple(range(6)),
+            tuple(range(6)) + (0xFF,) * 48,
+            (),
+        )
+        source = FighterPoseSource(
+            tuple(
+                Joint(None, 0, Vec3(0.0, 0.0, 0.0), Vec3(1.0, 1.0, 1.0), Vec3(0.0, 0.0, 0.0))
+                for _ in range(6)
+            ),
+            (identity_parts,) * 33,
+            2.0,
+            5,
+        )
+
+        def linear(track_type, value):
+            return AnimationTrack(
+                0,
+                track_type,
+                (
+                    AnimationKey(0, 0.0, None, 2),
+                    AnimationKey(2, value, None, 2),
+                ),
+            )
+
+        tree = FigaTree(
+            0,
+            0,
+            7.0,
+            (
+                AnimationNode(()),
+                AnimationNode((linear(5, 2.0), linear(6, 4.0), linear(7, 6.0))),
+                *(AnimationNode(()) for _ in range(4)),
+            ),
+        )
+        with (
+            patch.object(data, "_fighter_pose_source", return_value=source),
+            patch.object(data, "_figatree", return_value=tree),
+        ):
+            frame = data.animation_root_frame(
+                melee.Character.FOX,
+                melee.Action.NEUTRAL_ATTACK_1,
+                1,
+                fighter_scale=1.5,
+                facing=-1,
+            )
+        maximum_float32 = struct.unpack(">f", bytes.fromhex("7f7fffff"))[0]
+        with (
+            patch.object(data, "_fighter_pose_source", return_value=source),
+            patch.object(data, "_figatree", return_value=tree),
+            self.assertRaisesRegex(melee.DiscFrameDataError, "effective fighter model scale"),
+        ):
+            data.animation_root_frame(
+                melee.Character.FOX,
+                melee.Action.NEUTRAL_ATTACK_1,
+                1,
+                fighter_scale=maximum_float32,
+            )
+        with (
+            patch.object(data, "_fighter_pose_source", return_value=replace(source, model_scale=1.0)),
+            patch.object(data, "_figatree", return_value=tree),
+            self.assertRaisesRegex(melee.DiscFrameDataError, "animation-root translation"),
+        ):
+            data.animation_root_frame(
+                melee.Character.FOX,
+                melee.Action.NEUTRAL_ATTACK_1,
+                1,
+                fighter_scale=maximum_float32,
+            )
+        delta_nodes = [AnimationNode(()) for _ in range(6)]
+        delta_nodes[1] = AnimationNode(
+            (
+                AnimationTrack(
+                    0,
+                    7,
+                    (
+                        AnimationKey(0, -1.0, None, 2),
+                        AnimationKey(1, 1.0, None, 2),
+                    ),
+                ),
+            )
+        )
+        with (
+            patch.object(data, "_fighter_pose_source", return_value=replace(source, model_scale=1.0)),
+            patch.object(data, "_figatree", return_value=replace(tree, nodes=tuple(delta_nodes))),
+            self.assertRaisesRegex(melee.DiscFrameDataError, "animation-root delta"),
+        ):
+            data.animation_root_frame(
+                melee.Character.FOX,
+                melee.Action.NEUTRAL_ATTACK_1,
+                1,
+                fighter_scale=maximum_float32,
+            )
+        with (
+            patch.object(data, "_fighter_pose_source", return_value=replace(source, model_scale=1.3)),
+            patch.object(data, "_figatree", return_value=tree),
+        ):
+            rounded = data.animation_root_frame(
+                melee.Character.FOX,
+                melee.Action.NEUTRAL_ATTACK_1,
+                1,
+                fighter_scale=1.3,
+            )
+        record = data.action_for_state(melee.Character.FOX, melee.Action.NEUTRAL_ATTACK_1)
+        assert record is not None
+        with (
+            patch.object(
+                data,
+                "_action_and_code_for_state",
+                return_value=(replace(record, raw_flags=record.raw_flags | 0x40000000), "Fx"),
+            ),
+            patch.object(data, "_fighter_pose_source", return_value=source),
+            patch.object(data, "_figatree", return_value=tree),
+        ):
+            looped = data.animation_root_frame(
+                melee.Character.FOX,
+                melee.Action.NEUTRAL_ATTACK_1,
+                7,
+                fighter_scale=1.5,
+            )
+        with (
+            patch.object(
+                data,
+                "_action_and_code_for_state",
+                return_value=(replace(record, raw_flags=record.raw_flags & ~0x80000000), "Fx"),
+            ),
+            patch.object(data, "_fighter_pose_source", return_value=source),
+            patch.object(data, "_figatree", return_value=tree),
+        ):
+            disabled = data.animation_root_frame(
+                melee.Character.FOX,
+                melee.Action.NEUTRAL_ATTACK_1,
+                1,
+                fighter_scale=1.5,
+            )
+
+        self.assertTrue(frame.animation_root_enabled)
+        self.assertFalse(frame.uses_secondary_translation)
+        self.assertTrue(frame.fighter_scale_applied)
+        self.assertEqual(frame.animation_time, 1.0)
+        self.assertEqual(frame.translation, melee.AnimationRootTranslation(3.0, 6.0, 9.0))
+        self.assertEqual(frame.delta, melee.AnimationRootTranslation(3.0, 6.0, 9.0))
+        self.assertEqual(frame.projected_horizontal_delta, -9.0)
+        self.assertEqual(rounded.translation.forward, 5.069999694824219)
+        self.assertEqual(looped.animation_time, 0.0)
+        self.assertEqual(looped.delta, melee.AnimationRootTranslation(-6.0, -12.0, -18.0))
+        self.assertFalse(disabled.animation_root_enabled)
+        self.assertEqual(disabled.translation, melee.AnimationRootTranslation(3.0, 6.0, 9.0))
+        with self.assertRaisesRegex(melee.DiscFrameDataError, "one-indexed"):
+            data.animation_root_frame(melee.Character.FOX, melee.Action.NEUTRAL_ATTACK_1, 0)
+        with self.assertRaisesRegex(melee.DiscFrameDataError, "finite and positive"):
+            data.animation_root_frame(
+                melee.Character.FOX,
+                melee.Action.NEUTRAL_ATTACK_1,
+                1,
+                fighter_scale=0,
+            )
+        with self.assertRaisesRegex(melee.DiscFrameDataError, "finite float32"):
+            data.animation_root_frame(
+                melee.Character.FOX,
+                melee.Action.NEUTRAL_ATTACK_1,
+                1,
+                fighter_scale=sys.float_info.max,
+            )
+        with self.assertRaisesRegex(melee.DiscFrameDataError, "remain positive as float32"):
+            data.animation_root_frame(
+                melee.Character.FOX,
+                melee.Action.NEUTRAL_ATTACK_1,
+                1,
+                fighter_scale=1e-50,
+            )
+        with self.assertRaisesRegex(melee.DiscFrameDataError, "facing must"):
+            data.animation_root_frame(melee.Character.FOX, melee.Action.NEUTRAL_ATTACK_1, 1, facing=0)
+
+    def test_animation_root_frame_selects_transn2_and_model_scale_only(self):
+        data = melee.DiscFrameData(self.iso_path)
+        identity_parts = FighterParts(tuple(range(54)), tuple(range(54)), ())
+        source = FighterPoseSource(
+            tuple(
+                Joint(
+                    None if index == 0 else index - 1,
+                    0,
+                    Vec3(0.0, 0.0, 0.0),
+                    Vec3(1.0, 1.0, 1.0),
+                    Vec3(0.0, 0.0, 0.0),
+                )
+                for index in range(54)
+            ),
+            (identity_parts,) * 33,
+            2.0,
+            5,
+        )
+
+        def linear(value):
+            return AnimationTrack(
+                0,
+                7,
+                (
+                    AnimationKey(0, 0.0, None, 2),
+                    AnimationKey(2, value, None, 2),
+                ),
+            )
+        nodes = [AnimationNode(()) for _ in range(54)]
+        nodes[1] = AnimationNode((linear(2.0),))
+        nodes[53] = AnimationNode((linear(6.0),))
+        tree = FigaTree(0, 0, 8.0, tuple(nodes))
+        record = data.action_for_state(melee.Character.FOX, melee.Action.NEUTRAL_ATTACK_1)
+        assert record is not None
+        record = replace(record, raw_flags=record.raw_flags | 0x06000000)
+        with (
+            patch.object(data, "_action_and_code_for_state", return_value=(record, "Fx")),
+            patch.object(data, "_fighter_pose_source", return_value=source),
+            patch.object(data, "_figatree", return_value=tree),
+        ):
+            frame = data.animation_root_frame(
+                melee.Character.FOX,
+                melee.Action.NEUTRAL_ATTACK_1,
+                1,
+                fighter_scale=3.0,
+            )
+            secondary_pose = data.posed_frame(
+                melee.Character.FOX,
+                melee.Action.NEUTRAL_ATTACK_1,
+                1,
+                fighter_scale=3.0,
+            )
+            primary_record = replace(record, raw_flags=record.raw_flags & ~0x04000000)
+            with patch.object(data, "_action_and_code_for_state", return_value=(primary_record, "Fx")):
+                primary_pose = data.posed_frame(
+                    melee.Character.FOX,
+                    melee.Action.NEUTRAL_ATTACK_1,
+                    1,
+                    fighter_scale=3.0,
+                )
+
+        self.assertTrue(frame.uses_secondary_translation)
+        self.assertFalse(frame.fighter_scale_applied)
+        self.assertEqual(frame.translation.forward, 6.0)
+        self.assertEqual(frame.delta.forward, 6.0)
+        self.assertEqual(len(secondary_pose.hitboxes), 1)
+        self.assertAlmostEqual(secondary_pose.hitboxes[0].x - primary_pose.hitboxes[0].x, -12.0)
+
+    def test_iso_roll_end_position_uses_standard_roll_root_motion_only(self):
+        frame_data = melee.FrameData(iso_path=self.iso_path, _warn_deprecated=False)
+        disc = frame_data._disc_framedata
+        assert disc is not None
+        player = melee.PlayerState(
+            character=melee.Character.FOX,
+            action=melee.Action.ROLL_FORWARD,
+            action_frame=2,
+            facing=True,
+        )
+        player.position.x = 5
+
+        def root_frame(character, action, local_frame, *, facing=1):
+            self.assertEqual(character, melee.Character.FOX)
+            self.assertEqual(action, melee.Action.ROLL_FORWARD)
+            translation = melee.AnimationRootTranslation(0.0, 0.0, float(local_frame * 2))
+            delta = melee.AnimationRootTranslation(0.0, 0.0, 2.0)
+            return melee.AnimationRootFrame(
+                local_frame,
+                float(local_frame),
+                True,
+                False,
+                True,
+                translation,
+                delta,
+                float(facing * 2),
+            )
+
+        with patch.object(disc, "animation_root_frame", side_effect=root_frame) as sampled:
+            self.assertEqual(frame_data.roll_end_position(player, melee.Stage.FINAL_DESTINATION), 15)
+            player.facing = False
+            self.assertEqual(frame_data.roll_end_position(player, melee.Stage.FINAL_DESTINATION), -5)
+
+        self.assertEqual(sampled.call_count, 4)
+        record = disc.action_for_state(melee.Character.FOX, melee.Action.ROLL_FORWARD)
+        assert record is not None
+        flip_timeline = interpret_subaction(
+            _subaction_command(1, (3, 26)) + _subaction_command(20, (0, 26)) + _subaction_command(0),
+            0,
+            animation_frame_count=8,
+        )
+        player.action_frame = 4
+        player.facing = False
+        with (
+            patch.object(disc, "action_for_state", return_value=replace(record, timeline=flip_timeline)),
+            patch.object(disc, "animation_root_frame", side_effect=root_frame),
+        ):
+            self.assertEqual(frame_data.roll_end_position(player, melee.Stage.FINAL_DESTINATION), 11)
+
+        player.action = melee.Action.ROLL_FORWARD
+        player.action_frame = 7
+        player.position.x = 5
+        self.assertEqual(frame_data.roll_end_position(player, melee.Stage.NO_STAGE), 5)
+
+        player.action = melee.Action.FORWARD_TECH
+        with self.assertRaisesRegex(melee.DiscFrameDataError, "tech and ledge-roll"):
+            frame_data.roll_end_position(player, melee.Stage.FINAL_DESTINATION)
 
     def test_fobj_track_evaluation_preserves_slope_commands(self):
         linear = AnimationTrack(
@@ -1680,6 +1985,14 @@ class DiscFrameDataTests(unittest.TestCase):
         self.assertEqual([item.command.opcode for item in unknown_common.commands], [9, 0])
         self.assertEqual(unknown_common.commands[0].command.parameter("param_1"), 0xAB)
         self.assertEqual(unknown_common.commands[0].command.parameter("param_2"), 0x12345)
+
+        facing_flag = interpret_subaction(_subaction_command(20, (0, 26)) + struct.pack(">I", 0), 0)
+        self.assertEqual(facing_flag.commands[0].command.parameter("hit_idx"), 0)
+        maximum_facing_flag = interpret_subaction(
+            _subaction_command(20, ((1 << 26) - 1, 26)) + struct.pack(">I", 0),
+            0,
+        )
+        self.assertEqual(maximum_facing_flag.commands[0].command.parameter("hit_idx"), (1 << 26) - 1)
 
         fighter_lengths = (
             5, 5, 1, 1, 1, 1, 1, 3, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 3,

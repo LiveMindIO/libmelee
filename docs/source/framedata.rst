@@ -22,6 +22,8 @@ runtime and does not extract or write Nintendo data::
    action = data.action_for_state(melee.Character.FOX, melee.Action.NEUTRAL_ATTACK_1)
    assert action is not None
    print(action.symbol, action.animation_frame_count, action.timeline.iasa_frame)
+   root = data.animation_root_frame(melee.Character.FOX, melee.Action.ROLL_FORWARD, 8)
+   print(root.delta.forward, root.projected_horizontal_delta)
    pose = data.posed_frame(melee.Character.FOX, melee.Action.NEUTRAL_ATTACK_1, 2)
    print([(hitbox.x, hitbox.y, hitbox.z, hitbox.size) for hitbox in pose.hitboxes])
 
@@ -76,20 +78,40 @@ prior-pose blending, model-part changes, inverse kinematics, secondary dynamics,
 article bones, or callback mutations. Conditional thrown-owner hitboxes remain
 present with their source condition, like the lower-level timeline.
 
+``DiscFrameData.animation_root_frame`` separately evaluates the character-mapped
+``TransN`` translation used as input to animation-induced physics. FigaTree
+translation channels are absolute local values; ``translation`` is the scaled
+sample at the requested one-indexed frame and ``delta`` is the adjacent-sample
+difference from animation times ``local_frame - 1`` to ``local_frame``. The
+result names its local axes as ``lateral`` (TRAX), ``vertical`` (TRAY), and
+``forward`` (TRAZ). ``projected_horizontal_delta`` applies only the caller's
+fixed ``facing`` value to the forward delta.
+
+The result also reports whether the action enables animation-root extraction,
+selects ``TransN2``, and applies dynamic fighter scale. This remains nominal,
+unit-rate, unblended animation input rather than authoritative runtime
+locomotion: motion-state physics callbacks, current velocity, collision,
+hitlag, animation rate, and callback-driven facing changes can alter or ignore
+it. For that reason ISO ``FrameSegment.locomotion_x``, ``locomotion_y``, and
+``facing_changed`` remain ``None``.
+
 Compatibility geometry methods such as
-``range_forward``, ``range_backward``, ``in_range``, and ``roll_end_position``
-still raise ``DiscFrameDataError`` in this mode rather than presenting the
-static pose as historical runtime geometry before those remaining systems are
-implemented. Construction without ``iso_path`` uses ``MELEE_ISO_PATH`` when set
-and temporarily retains the historical CSV-backed behavior otherwise. Article
-and projectile attacks are not yet included. ISO-backed hitbox-related queries
-raise ``DiscFrameDataError`` for known article-dependent states, including
-special states without fighter hitboxes and the mixed fighter/article hitboxes
-of Link, Young Link, and Samus ground tether grabs. ``frame_count`` remains
-available because it does not require article data. The context-free facade
-omits hitboxes whose creation requires a runtime thrown-hitbox owner; the
-lower-level timeline retains those script-declared candidates and their
-condition flag.
+``range_forward``, ``range_backward``, and ``in_range`` still raise
+``DiscFrameDataError`` in this mode rather than presenting the static pose as
+historical runtime geometry before those remaining systems are implemented.
+``roll_end_position`` supports only standard forward and backward rolls, whose
+root curves and script-driven facing flip reproduce the historical captures;
+tech and ledge-roll displacement still fails explicitly because runtime physics
+and collision diverge from the nominal curve. Construction without ``iso_path``
+uses ``MELEE_ISO_PATH`` when set and temporarily retains the historical
+CSV-backed behavior otherwise. Article and projectile attacks are not yet
+included. ISO-backed hitbox-related queries raise ``DiscFrameDataError`` for
+known article-dependent states, including special states without fighter
+hitboxes and the mixed fighter/article hitboxes of Link, Young Link, and Samus
+ground tether grabs. ``frame_count`` remains available because it does not
+require article data. The context-free facade omits hitboxes whose creation
+requires a runtime thrown-hitbox owner; the lower-level timeline retains those
+script-declared candidates and their condition flag.
 
 Every exported ``local_frame`` and ``FrameSnapshot.local_frame`` is one-indexed
 script time. For a record with a non-empty timeline, ``ActionRecord.frame(1)``

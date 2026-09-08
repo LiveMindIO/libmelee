@@ -332,6 +332,8 @@ def _decode_command(opcode: int, words: tuple[int, ...]) -> tuple[tuple[str, int
         specs = (("hitbox_id", 3, False), ("value", 23, False))
     elif opcode == 14:
         specs = (("hitbox_id", 24, False), ("interaction_type", 1, False), ("value", 1, False))
+    elif opcode == 20:
+        specs = (("hit_idx", 26, False),)
     elif opcode in (15, 26, 27):
         specs = (("value", 26, False),)
     elif opcode == 28:

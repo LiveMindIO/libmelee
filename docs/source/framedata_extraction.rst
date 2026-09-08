@@ -523,6 +523,41 @@ changes, secondary dynamics, inverse kinematics, articles, and compiled callback
 changes remain runtime-dependent and are not represented as exact historical
 poses by this API.
 
+Animation-root translation
+--------------------------
+
+Animation-induced fighter movement begins with common fighter part ``TransN``
+(part ID 1), resolved through the target character's ``part_to_joint`` table.
+FigaTree TRAX/TRAY/TRAZ channels (types 5/6/7) assign absolute local translation
+values. Retail samples that joint, scales it by model scale and normally dynamic
+fighter scale, subtracts the prior scaled sample, stores the difference as the
+animation-root offset, and clears the rendered joint translation. Action flag
+``0x80000000`` enables this extraction. ``0x04000000`` selects ``TransN2``
+(common part 53) as the effective root, while ``0x02000000`` excludes dynamic
+fighter scale and applies only the character model scale. These paths are
+audited against ``ftAnim_8006E054`` in doldecomp revision
+``d15c9cffe939611627b3a7a77a446705d2998f5f``.
+
+``DiscFrameData.animation_root_frame`` exposes that authored absolute sample and
+the adjacent-sample delta under the same static one-indexed, unit-rate clock as
+``posed_frame``. It labels TransN.x as lateral, TransN.y as vertical, and
+TransN.z as forward; a caller-supplied fixed facing can project forward onto
+horizontal world direction. It does not call this value runtime locomotion.
+Animation/physics callbacks, state-entry velocity, momentum, collision, slope,
+hitlag, blending, and rate changes execute around this input and can replace,
+modify, or ignore it. Logical facing likewise belongs to ``Fighter.facing_dir``
+and callback/script behavior, not a universal FigaTree rotation channel.
+
+The standard forward-roll callback consumes throw flag B3 to flip logical
+facing. That flag is subaction opcode 20 with hit index 0, so the ISO-backed
+``FrameData.roll_end_position`` can recover action-entry facing and project the
+remaining root curve without a character-specific frame table. A canonical
+NTSC 1.02 audit sampled 7,932 animation-bearing states without root extraction
+errors. Across 3,458 per-frame comparisons for all 52 standard forward/backward
+rolls, the ISO result matched the historical CSV within ``4.58e-05``. Tech and
+ledge-roll captures differ materially because of runtime physics and collision,
+so those compatibility queries remain explicitly unavailable.
+
 Character attributes missing from libmelee
 ------------------------------------------
 

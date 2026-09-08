@@ -14,8 +14,11 @@ _MAX_FIGHTER_PARTS = 0x8C
 _MAX_FOBJ_KEYS = 65_536
 _COMMON_PART_COUNT = 54
 _PART_TRANS_N = 1
+_PART_TRANS_N2 = 53
 _FULL_TRANSLATION_PARTS = frozenset((0, 1, 2, 3, 4, 53))
 _ANIMATION_ROOT_MOTION = 0x80000000
+_ANIMATION_SECONDARY_ROOT = 0x04000000
+_ANIMATION_ROOT_MODEL_SCALE_ONLY = 0x02000000
 # DESNOTE(jbarber, 2026-09-06): Retail multiplies these script integers by the
 # nearest stored float to 0.003906 rather than exact 1/256. See ftAction_8007121C:
 # https://github.com/doldecomp/melee/blob/d15c9cffe939611627b3a7a77a446705d2998f5f/src/melee/ft/ftaction.c#L289-L347
@@ -321,18 +324,17 @@ def parse_fighter_pose_source(
     return FighterPoseSource(tuple(joints), parts, model_scale, special_bone)
 
 
-def pose_matrices(
+def animated_joints(
     source: FighterPoseSource,
     tree: FigaTree,
     *,
     fighter_kind: int,
     source_kind: int,
     additional_bones: int,
-    raw_action_flags: int,
     animation_time: float,
-    fighter_scale: float = 1.0,
-    facing: int = 1,
-) -> tuple[tuple[tuple[float, float, float, float], ...] | None, ...]:
+) -> tuple[Joint | None, ...]:
+    """Evaluate target-fighter local joints before runtime root adjustments."""
+
     joints = list(source.joints)
     source_parts = source.parts[source_kind]
     target_parts = source.parts[fighter_kind]
@@ -389,10 +391,79 @@ def pose_matrices(
                 scale = replace(scale, z=value)
         flags = joint.flags | _JOBJ_CLASSICAL_SCALING if tree.type & 1 else joint.flags & ~_JOBJ_CLASSICAL_SCALING
         joints[target_part] = replace(joint, flags=flags, rotation=rotation, scale=scale, translation=translation)
+    return tuple(joints)
+
+
+def animation_root_translation(
+    source: FighterPoseSource,
+    tree: FigaTree,
+    *,
+    fighter_kind: int,
+    source_kind: int,
+    additional_bones: int,
+    raw_action_flags: int,
+    animation_time: float,
+    fighter_scale: float = 1.0,
+) -> Vec3:
+    """Return the retail-scaled absolute TransN or TransN2 animation value."""
+
+    # DESNOTE(jbarber, 2026-09-07): Retail extracts character-mapped TransN,
+    # optionally substitutes TransN2, and omits dynamic fighter scale when
+    # action bit 0x02000000 is set. See ftAnim_8006E054:
+    # https://github.com/doldecomp/melee/blob/d15c9cffe939611627b3a7a77a446705d2998f5f/src/melee/ft/ftanim.c#L156-L247
+    joints = animated_joints(
+        source,
+        tree,
+        fighter_kind=fighter_kind,
+        source_kind=source_kind,
+        additional_bones=additional_bones,
+        animation_time=animation_time,
+    )
+    target_parts = source.parts[fighter_kind]
+    common_part = _PART_TRANS_N2 if raw_action_flags & _ANIMATION_SECONDARY_ROOT else _PART_TRANS_N
+    joint_index = target_parts.part_to_joint[common_part]
+    if joint_index == 0xFF or joint_index >= len(joints) or joints[joint_index] is None:
+        name = "TransN2" if common_part == _PART_TRANS_N2 else "TransN"
+        raise DatParseError(f"target fighter has no mapped {name} joint")
+    joint = joints[joint_index]
+    assert joint is not None
+    scale = _positive_float32(source.model_scale, "model scale")
+    if not raw_action_flags & _ANIMATION_ROOT_MODEL_SCALE_ONLY:
+        scale = _effective_model_scale(source.model_scale, fighter_scale)
+    return Vec3(
+        _finite_float32(joint.translation.x * scale, "animation-root translation"),
+        _finite_float32(joint.translation.y * scale, "animation-root translation"),
+        _finite_float32(joint.translation.z * scale, "animation-root translation"),
+    )
+
+
+def pose_matrices(
+    source: FighterPoseSource,
+    tree: FigaTree,
+    *,
+    fighter_kind: int,
+    source_kind: int,
+    additional_bones: int,
+    raw_action_flags: int,
+    animation_time: float,
+    fighter_scale: float = 1.0,
+    facing: int = 1,
+) -> tuple[tuple[tuple[float, float, float, float], ...] | None, ...]:
+    joints = list(
+        animated_joints(
+            source,
+            tree,
+            fighter_kind=fighter_kind,
+            source_kind=source_kind,
+            additional_bones=additional_bones,
+            animation_time=animation_time,
+        )
+    )
+    target_parts = source.parts[fighter_kind]
 
     root = joints[0]
     assert root is not None
-    model_scale = source.model_scale * fighter_scale
+    model_scale = _effective_model_scale(source.model_scale, fighter_scale)
     # DESNOTE(jbarber, 2026-09-06): Motion-state entry resets TopN to +/-90
     # degrees around Y, converting model-forward Z into gameplay X. See
     # https://github.com/doldecomp/melee/blob/d15c9cffe939611627b3a7a77a446705d2998f5f/src/melee/ft/fighter.c#L1168-L1172.
@@ -403,7 +474,7 @@ def pose_matrices(
     )
     special = joints[source.special_bone]
     assert special is not None
-    inverse_model_scale = 1.0 / source.model_scale
+    inverse_model_scale = 1.0 / _positive_float32(source.model_scale, "model scale")
     joints[source.special_bone] = replace(
         special,
         scale=Vec3(inverse_model_scale, inverse_model_scale, inverse_model_scale),
@@ -413,7 +484,20 @@ def pose_matrices(
         if trans_n != 0xFF and trans_n < len(joints) and joints[trans_n] is not None:
             joint = joints[trans_n]
             assert joint is not None
-            joints[trans_n] = replace(joint, translation=Vec3(0.0, 0.0, 0.0))
+            translation = Vec3(0.0, 0.0, 0.0)
+            if raw_action_flags & _ANIMATION_SECONDARY_ROOT:
+                trans_n2 = target_parts.part_to_joint[_PART_TRANS_N2]
+                if trans_n2 == 0xFF or trans_n2 >= len(joints) or joints[trans_n2] is None:
+                    raise DatParseError("target fighter has no mapped TransN2 joint")
+                secondary = joints[trans_n2]
+                assert secondary is not None
+                translation = Vec3(
+                    joint.translation.x - secondary.translation.x,
+                    joint.translation.y - secondary.translation.y,
+                    joint.translation.z - secondary.translation.z,
+                )
+                joints[trans_n2] = replace(secondary, translation=Vec3(0.0, 0.0, 0.0))
+            joints[trans_n] = replace(joint, translation=translation)
 
     matrices: list[tuple[tuple[float, float, float, float], ...] | None] = []
     accumulated_scales: list[Vec3 | None] = []
@@ -549,6 +633,29 @@ def _float32(value: float) -> float:
     return struct.unpack(">f", struct.pack(">f", value))[0]
 
 
+def _finite_float32(value: float, name: str) -> float:
+    try:
+        rounded = _float32(value)
+    except OverflowError as exc:
+        raise DatParseError(f"{name} must fit a finite float32; got {value!r}") from exc
+    if not math.isfinite(rounded):
+        raise DatParseError(f"{name} must fit a finite float32; got {value!r}")
+    return rounded
+
+
+def _positive_float32(value: float, name: str) -> float:
+    rounded = _finite_float32(value, name)
+    if rounded <= 0:
+        raise DatParseError(f"{name} must fit a finite positive float32; got {value!r}")
+    return rounded
+
+
+def _effective_model_scale(model_scale: float, fighter_scale: float) -> float:
+    model_scale = _positive_float32(model_scale, "model scale")
+    fighter_scale = _positive_float32(fighter_scale, "fighter scale")
+    return _positive_float32(fighter_scale * model_scale, "effective fighter model scale")
+
+
 def _multiply_vec(left: Vec3, right: Vec3) -> Vec3:
     return Vec3(left.x * right.x, left.y * right.y, left.z * right.z)
 
@@ -621,6 +728,8 @@ __all__ = [
     "FighterPoseSource",
     "Joint",
     "Vec3",
+    "animated_joints",
+    "animation_root_translation",
     "parse_figatree",
     "parse_fighter_parts",
     "parse_fighter_pose_source",
