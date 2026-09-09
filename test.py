@@ -4530,7 +4530,7 @@ class TechniqueMontageTests(unittest.TestCase):
                 self.assertIsInstance(montage, StatefulInputMontage)
                 self.assertEqual(montage.get_name(), name)
 
-    def test_super_wavedash_accepts_airborne_frame_40_in_both_directions(self):
+    def test_super_wavedash_applies_standard_grounded_route_in_both_directions(self):
         for direction, opposite_axis, desired_axis in (
             (WavedashDirection.Right, StickReferenceAxis.LEFT, StickReferenceAxis.RIGHT),
             (WavedashDirection.Left, StickReferenceAxis.RIGHT, StickReferenceAxis.LEFT),
@@ -4567,8 +4567,30 @@ class TechniqueMontageTests(unittest.TestCase):
                         montage,
                         melee.Action.SAMUS_SPECIAL_AIR_LW_BOMB,
                         character=melee.Character.SAMUS,
-                        action_frame=40,
+                        action_frame=36,
                         on_ground=False,
+                    ),
+                    montage,
+                )
+                self.assertEqual(self.controls.take_calls(), [("release_all",)])
+                self.assertIs(
+                    self.tick(
+                        montage,
+                        melee.Action.SAMUS_SPECIAL_LW_BOMB,
+                        character=melee.Character.SAMUS,
+                        action_frame=37,
+                        on_ground=True,
+                    ),
+                    montage,
+                )
+                self.assertEqual(self.controls.take_calls(), [("release_all",)])
+                self.assertIs(
+                    self.tick(
+                        montage,
+                        melee.Action.SAMUS_SPECIAL_LW_BOMB,
+                        character=melee.Character.SAMUS,
+                        action_frame=40,
+                        on_ground=True,
                     ),
                     montage,
                 )
@@ -4585,6 +4607,7 @@ class TechniqueMontageTests(unittest.TestCase):
                         melee.Action.SAMUS_SPECIAL_LW_BOMB,
                         character=melee.Character.SAMUS,
                         action_frame=41,
+                        on_ground=True,
                     ),
                     montage,
                 )
@@ -4601,6 +4624,7 @@ class TechniqueMontageTests(unittest.TestCase):
                         melee.Action.SAMUS_SPECIAL_LW_BOMB,
                         character=melee.Character.SAMUS,
                         action_frame=42,
+                        on_ground=True,
                     ),
                     montage,
                 )
@@ -4629,6 +4653,37 @@ class TechniqueMontageTests(unittest.TestCase):
             montage,
         )
         self.assertIn(("press_button", melee.Button.BUTTON_B), self.controls.take_calls())
+
+    def test_super_wavedash_rejects_falling_route_at_frame_40_and_neutralizes(self):
+        montage = SuperWavedashMontage(WavedashDirection.Right)
+        self.assertIs(
+            self.tick(montage, melee.Action.STANDING, character=melee.Character.SAMUS),
+            montage,
+        )
+        self.controls.take_calls()
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action.SAMUS_SPECIAL_AIR_LW_BOMB,
+                character=melee.Character.SAMUS,
+                action_frame=20,
+                on_ground=False,
+            ),
+            montage,
+        )
+        self.controls.take_calls()
+
+        result = self.tick(
+            montage,
+            melee.Action.SAMUS_SPECIAL_AIR_LW_BOMB,
+            character=melee.Character.SAMUS,
+            action_frame=40,
+            on_ground=False,
+        )
+
+        self.assertIsInstance(result, Abort)
+        self.assertIn("grounded bomb", result.reason)
+        self.assertEqual(self.controls.take_calls(), [("release_all",), ("release_all",)])
 
     def test_super_wavedash_rejects_missed_frame_40_and_neutralizes(self):
         montage = SuperWavedashMontage(WavedashDirection.Right)
@@ -4659,10 +4714,10 @@ class TechniqueMontageTests(unittest.TestCase):
         self.assertIs(
             self.tick(
                 montage,
-                melee.Action.SAMUS_SPECIAL_AIR_LW_BOMB,
+                melee.Action.SAMUS_SPECIAL_LW_BOMB,
                 character=melee.Character.SAMUS,
                 action_frame=40,
-                on_ground=False,
+                on_ground=True,
             ),
             montage,
         )
@@ -4677,7 +4732,7 @@ class TechniqueMontageTests(unittest.TestCase):
         )
 
         self.assertIsInstance(result, Abort)
-        self.assertIn("airborne", result.reason)
+        self.assertIn("grounded bomb", result.reason)
         self.assertEqual(self.controls.take_calls(), [("release_all",), ("release_all",)])
 
     def test_double_jump_cancel_performs_every_aerial_for_supported_characters(self):
