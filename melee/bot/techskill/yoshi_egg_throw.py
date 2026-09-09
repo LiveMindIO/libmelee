@@ -43,7 +43,14 @@ _EGG_THROW_ACTIONS: Final = frozenset(
         Action.YOSHI_SPECIAL_AIR_HI,
     }
 )
-_COMPLETION_ACTIONS: Final = frozenset({Action.STANDING, Action.FALLING})
+_COMPLETION_ACTIONS: Final = frozenset(
+    {
+        Action.STANDING,
+        Action.FALLING,
+        Action.EDGE_CATCHING,
+        Action.EDGE_HANGING,
+    }
+)
 _START_WAIT_LIMIT: Final = 3
 
 # DESNOTE(jbarber, 2026-09-09): Egg Throw's animation callback increments its
@@ -70,7 +77,7 @@ class YoshiEggThrowMontage(StatefulInputMontage[_YoshiEggThrowState]):
 
     Ground-to-air and air-to-ground transitions preserve the montage across
     Yoshi's action states 364 and 365. Completion is reported only after the
-    action exits normally to standing or falling.
+    action exits normally to standing, falling, or a ledge catch/hang.
     """
 
     def __init__(

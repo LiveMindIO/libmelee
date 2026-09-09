@@ -6026,6 +6026,43 @@ class TechniqueMontageTests(unittest.TestCase):
                 self.assertEqual(self.controls.take_calls(), [("release_all",)])
                 self.assertEqual(montage.get_montage_state(), MontageState.Finished)
 
+    def test_yoshi_egg_throw_completes_on_aerial_ledge_catch_or_hang(self):
+        for completion_action in (
+            melee.Action.EDGE_CATCHING,
+            melee.Action.EDGE_HANGING,
+        ):
+            with self.subTest(completion_action=completion_action):
+                montage = YoshiEggThrowMontage()
+                self.tick(
+                    montage,
+                    melee.Action.FALLING,
+                    character=melee.Character.YOSHI,
+                    on_ground=False,
+                    off_stage=True,
+                )
+                self.controls.take_calls()
+                self.tick(
+                    montage,
+                    melee.Action.YOSHI_SPECIAL_AIR_HI,
+                    character=melee.Character.YOSHI,
+                    on_ground=False,
+                    off_stage=True,
+                )
+                self.controls.take_calls()
+
+                self.assertIs(
+                    self.tick(
+                        montage,
+                        completion_action,
+                        character=melee.Character.YOSHI,
+                        on_ground=False,
+                        off_stage=True,
+                    ),
+                    True,
+                )
+                self.assertEqual(self.controls.take_calls(), [("release_all",)])
+                self.assertEqual(montage.get_montage_state(), MontageState.Finished)
+
     def test_yoshi_egg_throw_aborts_on_damage_or_unexpected_action_exit(self):
         for action, hitstun_frames_left, reason in (
             (melee.Action.DAMAGE_HIGH_1, 10, "player was interrupted"),
