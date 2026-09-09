@@ -19,6 +19,16 @@ uv pip install --python .venv/bin/python .
   test that requires an external Melee ISO.
 - Forgejo is the `origin` remote. The LiveMindIO GitHub fork is `mirror`.
 
+## Player Invulnerability Telemetry
+
+- Slippi post-frame offset `0x34` exposes the current hurtbox collision state:
+  vulnerable, invulnerable, or intangible. `PlayerState.invulnerable` maps the
+  latter two states to `True`.
+- `PlayerState.invulnerability_left` remains only for historical API
+  compatibility. Current Slippi telemetry has no remaining-frame countdown, so
+  parsed states retain its default `0`. Do not restore action-based heuristic
+  countdown tracking; callers must use `PlayerState.invulnerable`.
+
 ## Bot Protocol And Base
 
 - `BotProtocol[A].game_tick` receives `custom: A` as its final argument. The
@@ -281,10 +291,18 @@ uv pip install --python .venv/bin/python .
   framework-owned `released` and `release_frame` lifecycle fields so the token
   cannot be reused. Its returned metadata may still
   name the expected action before a later `PlayerState` confirms startup.
+- JAB commit retries alternate A press and neutral packets until the requested
+  jab is observed. The framework-owned edge phase is excluded from `Hold`
+  equality and hashing; this is retry behavior for one requested jab, not an
+  automatic jab-chain API.
 - `CharacterState.can_jump()` and the module-level `can_jump()` allow actionable
-  ground jumps and remaining aerial jumps. Actionable shield phases are jumpable
-  for the roster; Yoshi can jump only from its character-owned GuardOn_1
-  powershield state. Shield stun is not jumpable.
+  ground jumps, late common `LANDING` frames after each character's NTSC 1.02
+  `NormalLandingLag`, and remaining aerial jumps. `LANDING` is raw zero-indexed
+  except for Peach and Zelda, so convert its decomp threshold to normalized
+  one-indexed `PlayerState.action_frame` before comparing. `LANDING_SPECIAL` and
+  aerial landing lag remain blocked. Actionable shield phases are jumpable for the
+  roster; Yoshi can jump only from its character-owned GuardOn_1 powershield
+  state. Shield stun is not jumpable.
 - `CharacterState.can_shield()` uses direct Guard-transition actions rather than
   the broader ground bucket. It rejects `KNEE_BEND`, turn-run, run brake, and
   landing states; an airborne shoulder input is an air dodge, not a shield.
@@ -329,7 +347,9 @@ uv pip install --python .venv/bin/python .
   remains supported as `DOWN_B`; only its nonexistent aerial form is rejected.
 - `can_jump()` accepts direct common ground jump paths and a remaining aerial
   jump from normal air, tumble, platform drop, and helpless FallSpecial states.
-  It rejects `KNEE_BEND`, landing, shield stun, and hitlag.
+  It accepts common `LANDING` once character-specific normal landing lag expires,
+  but rejects `KNEE_BEND`, `LANDING_SPECIAL`, aerial landing lag, shield stun,
+  and hitlag.
 - `Action.TUMBLING` classifies as `CharacterStatus.Tumbling` after reported
   hitstun clears. DamageFall permits aerial attacks, specials, tether Z-air, and
   aerial jump, but not air dodge or ground grab.

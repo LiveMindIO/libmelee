@@ -14,6 +14,16 @@ Also a list of PlayerState objects that represent the state of the 4 players:
 
 The GameState object should be treated as immutable. Changing it won't have any effect on the game, and you'll receive a new copy each frame anyway.
 
+Invulnerability Telemetry
+=========================
+
+``PlayerState.invulnerable`` reports whether Slippi's current hurtbox collision
+state is invulnerable or intangible. ``PlayerState.invulnerability_left`` is
+retained for historical API compatibility, but the current Slippi protocol does
+not provide a remaining-frame countdown and libmelee leaves it at its
+compatibility default of ``0``. Use ``invulnerable`` for live decisions; do not
+infer a countdown from action states.
+
 Facing Direction
 ================
 

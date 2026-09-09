@@ -79,6 +79,9 @@ Also a list of PlayerState objects that represent the state of the 4 players:
 
 The GameState object should be treated as immutable. Changing it won't have any effect on the game, and you'll receive a new copy each frame anyway.
 
+### Invulnerability Telemetry
+`PlayerState.invulnerable` reports whether Slippi's current hurtbox collision state is invulnerable or intangible. `PlayerState.invulnerability_left` is retained for historical API compatibility, but the current Slippi protocol does not provide a remaining-frame countdown and libmelee leaves it at its compatibility default of `0`. Use `invulnerable` for live decisions; do not infer a countdown from action states.
+
 ### Note About Consistency and Binary Compatibility
 Libmelee tries to create a sensible and intuitive API for Melee. So it may break with some low-level binary structures that the game creates. Some examples:
 - Melee is wildly inconsistent with whether animations start at 0 or 1. For some animations, the first frame is 0, for others the first frame is 1. This is very annoying when trying to program a bot. So libmelee re-indexes all animations to start at 1. This way the math is always simple and consistent. IE: If grab comes out on "frame 7", you can reliably check `character.animation_frame == 7`.
@@ -193,7 +196,9 @@ token as `released` and records `release_frame`; do not reuse it.
 `CharacterState.can_jump()` (also available as `melee.bot.can_jump`) reports
 direct common ground jumps and remaining aerial jumps, including tumble,
 platform drop, Jigglypuff's five character-owned aerial jumps, and helpless
-`DEAD_FALL` / `SPECIAL_FALL_*`. It returns `True`
+`DEAD_FALL` / `SPECIAL_FALL_*`. It also follows each character's NTSC 1.02
+normal-landing attribute and returns `True` during late actionable `LANDING`
+frames. `LANDING_SPECIAL` and aerial landing lag remain blocked. It returns `True`
 throughout common shield start, hold, reflect, and release. Yoshi can jump only
 from its character-owned GuardOn_1 powershield state. Shield stun and hitlag are
 not actionable, and jump squat itself cannot begin another jump.
