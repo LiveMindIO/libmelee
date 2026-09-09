@@ -1923,11 +1923,12 @@ def can_jump(player: LibPlayerState, frame_data: FrameData) -> bool:
             return False
         first_actionable_frame = attributes["NormalLandingLag"]
         # DESNOTE(jbarber, 2026-09-09): Landing begins at raw frame 0 for every
-        # roster entry except Zelda, while PlayerState normalizes both forms to
-        # one-indexed frames. Convert the raw ftCo_Landing_IASA threshold here.
+        # roster entry except Peach and Zelda, while PlayerState normalizes both
+        # forms to one-indexed frames. Convert the raw ftCo_Landing_IASA
+        # threshold here.
         # See melee/actiondata.csv and:
         # https://github.com/doldecomp/melee/blob/a983c0f9cd41d4a46001c493a1929891ac80f9ab/src/melee/ft/chara/ftCommon/ftCo_Landing.c#L139-L163
-        if player.character is not Character.ZELDA:
+        if player.character not in (Character.PEACH, Character.ZELDA):
             first_actionable_frame += 1
         return player.action_frame >= first_actionable_frame
     if not _can_attack_by_combat_state(player, frame_data) or not isinstance(player.action, Action):
