@@ -4,6 +4,11 @@ Public API
 Bot API
 ~~~~~~~
 
+``CharacterState.can_jump()`` and ``melee.bot.can_jump()`` include the late
+interruptible frames of common ``Action.LANDING`` using each character's NTSC
+1.02 normal landing lag. Special and aerial-attack landing lag are not
+jumpable through these APIs.
+
 .. automodule:: melee.bot
    :members:
    :imported-members:
