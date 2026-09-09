@@ -271,6 +271,8 @@ uv pip install --python .venv/bin/python .
   corresponding input view: it shares Popo's controller and frame timing while
   validating and recognizing inputs against Nana's state. Inputs requested through
   either view target the same controller and may overwrite one another in a frame.
+  Console frame-index normalization must process the nested follower alongside each
+  top-level port leader so both views expose the same one-indexed action-frame contract.
 - `FTILT`, `FSMASH`, and `SIDE_B` remain relative to character facing.
   `LTILT`/`RTILT`, `LSMASH`/`RSMASH`, and `LSPECIAL`/`RSPECIAL` request an absolute
   screen direction. Aerials remain facing-relative because fair/back-air behavior

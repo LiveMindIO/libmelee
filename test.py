@@ -942,6 +942,35 @@ class PostFrameParsingTests(unittest.TestCase):
                 self.assertIs(player.invulnerable, expected_invulnerable)
                 self.assertEqual(player.invulnerability_left, 0)
 
+    def test_frame_index_normalization_includes_nana(self) -> None:
+        game_state = melee.GameState(frame=0)
+        payload = self.post_frame_payload()
+        payload[7] = melee.Character.POPO.value
+        payload[8:10] = melee.Action.LANDING.value.to_bytes(2, "big")
+        payload[0x22:0x26] = np.asarray([4.0], dtype=">f4").tobytes()
+        self.parse_post_frame(game_state, payload)
+
+        payload[6] = 1
+        payload[7] = melee.Character.NANA.value
+        self.parse_post_frame(game_state, payload)
+        self.console.zero_indices = {
+            melee.Character.POPO.value: {melee.Action.LANDING.value},
+            melee.Character.NANA.value: {melee.Action.LANDING.value},
+        }
+
+        self.console._Console__fixframeindexing(game_state)
+
+        popo = game_state.players[1]
+        self.assertEqual(popo.action_frame, 5)
+        self.assertIsNotNone(popo.nana)
+        self.assertEqual(popo.nana.action_frame, 5)
+        frame_data = melee.FrameData()
+        popo_state = CharacterState(game_state, 1, frame_data=frame_data)
+        nana_state = popo_state.get_nana()
+        self.assertTrue(popo_state.can_jump())
+        self.assertIsNotNone(nana_state)
+        self.assertTrue(nana_state.can_jump())
+
 
 class SLPFile(unittest.TestCase):
     """
