@@ -328,9 +328,9 @@ class Hold:
         released: ``True`` after :meth:`SimpleControls.release` completes.
         release_frame: ``GameState.frame`` when released, if applicable.
 
-    Smash charge observation fields are framework-owned implementation state.
-    They are excluded from equality and hashing so callers can retain a token
-    while :class:`SimpleControls` advances its charge lifecycle.
+    Smash charge observation and jab input-edge fields are framework-owned
+    implementation state. They are excluded from equality and hashing so callers
+    can retain a token while :class:`SimpleControls` advances its lifecycle.
     """
 
     attack_type: AttackType
@@ -350,6 +350,8 @@ class Hold:
     _smash_last_action_frame: int | None = field(default=None, compare=False, hash=False, repr=False)
     _smash_last_game_frame: int | None = field(default=None, compare=False, hash=False, repr=False)
     _smash_charge_complete: bool = field(default=False, compare=False, hash=False, repr=False)
+    _jab_a_pending: bool = field(default=False, init=False, compare=False, hash=False, repr=False)
+    _jab_last_input_frame: int | None = field(default=None, init=False, compare=False, hash=False, repr=False)
 
 
 def _warn_state_deprecated(name: str, replacement: str | None = None) -> None:
@@ -1119,16 +1121,20 @@ class SimpleControls:
         """
         player = self._player()
         if player is None or self._hold_interrupted(player, hold):
+            self._finish_jab_input(hold)
             return None
 
         if not self.check_hold(hold):
             current = self._attack_frame_data(player, hold.attack_type)
             if current is not None:
+                self._finish_jab_input(hold)
                 return current
+            self._finish_jab_input(hold)
             return None
 
         current = self._attack_frame_data(player, hold.attack_type)
         if current is not None and not hold.charging:
+            self._finish_jab_input(hold)
             return current
 
         if hold.charging:
@@ -1147,7 +1153,10 @@ class SimpleControls:
                 )
             return hold
 
-        self._apply_attack_inputs(hold)
+        if hold.attack_type is AttackType.JAB:
+            self._apply_jab_inputs(player, hold)
+        else:
+            self._apply_attack_inputs(hold)
         current = self._attack_frame_data(player, hold.attack_type)
         if current is not None:
             return current
@@ -1200,12 +1209,52 @@ class SimpleControls:
             port=self._port,
             charging=False,
         )
-        self._apply_attack_inputs(hold)
+        if attack_type is AttackType.JAB:
+            self._apply_jab_inputs(player, hold)
+        else:
+            self._apply_attack_inputs(hold)
         return hold
 
     def _apply_charge_inputs(self, hold: Hold) -> None:
         """Apply one frame of inputs for a charging hold."""
         self._apply_attack_inputs(hold)
+
+    def _apply_jab_inputs(self, player: LibPlayerState, hold: Hold) -> None:
+        """Queue one press or release packet for a jab commit retry."""
+        game_frame = self._game_state.frame
+        if hold._jab_last_input_frame == game_frame:
+            return
+
+        # DESNOTE(jbarber, 2026-09-09): Controller commands do not reach Melee
+        # until Console.step() appends FLUSH. Queuing release_all() and A again
+        # before that boundary leaves A continuously held, so JAB retries must
+        # alternate packets rather than commands. See Controller.flush().
+        if hold._jab_a_pending or self._jab_a_is_active(player):
+            self._controller.release_all()
+            a_pending = False
+        else:
+            self._controller.release_all()
+            self._controller.tilt_analog(Button.BUTTON_MAIN, hold.stick_x, hold.stick_y)
+            self._controller.press_button(Button.BUTTON_A)
+            a_pending = True
+
+        object.__setattr__(hold, "_jab_a_pending", a_pending)
+        object.__setattr__(hold, "_jab_last_input_frame", game_frame)
+
+    def _jab_a_is_active(self, player: LibPlayerState) -> bool:
+        """Return whether runtime state proves A is pending or held."""
+        return bool(
+            self._controller.current.button.get(Button.BUTTON_A, False)
+            or self._controller.prev.button.get(Button.BUTTON_A, False)
+            or player.controller_state.button.get(Button.BUTTON_A, False)
+        )
+
+    def _finish_jab_input(self, hold: Hold) -> None:
+        """Release A when a JAB hold owns a pending press."""
+        if hold.attack_type is not AttackType.JAB or not hold._jab_a_pending:
+            return
+        self._controller.release_button(Button.BUTTON_A)
+        object.__setattr__(hold, "_jab_a_pending", False)
 
     def _apply_attack_inputs(self, hold: Hold) -> None:
         """Write stick and button state for ``hold.attack_type`` to the controller.
