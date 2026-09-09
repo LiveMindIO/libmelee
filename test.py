@@ -4207,7 +4207,7 @@ class TechniqueMontageTests(unittest.TestCase):
                 self.assertIsInstance(montage, StatefulInputMontage)
                 self.assertEqual(montage.get_name(), name)
 
-    def test_super_wavedash_applies_frame_exact_inputs_in_both_directions(self):
+    def test_super_wavedash_accepts_airborne_frame_40_in_both_directions(self):
         for direction, opposite_axis, desired_axis in (
             (WavedashDirection.Right, StickReferenceAxis.LEFT, StickReferenceAxis.RIGHT),
             (WavedashDirection.Left, StickReferenceAxis.RIGHT, StickReferenceAxis.LEFT),
@@ -4242,9 +4242,10 @@ class TechniqueMontageTests(unittest.TestCase):
                 self.assertIs(
                     self.tick(
                         montage,
-                        melee.Action.SAMUS_SPECIAL_LW_BOMB,
+                        melee.Action.SAMUS_SPECIAL_AIR_LW_BOMB,
                         character=melee.Character.SAMUS,
                         action_frame=40,
+                        on_ground=False,
                     ),
                     montage,
                 )
@@ -4306,29 +4307,55 @@ class TechniqueMontageTests(unittest.TestCase):
         )
         self.assertIn(("press_button", melee.Button.BUTTON_B), self.controls.take_calls())
 
-    def test_super_wavedash_rejects_missed_or_airborne_frame_41_window(self):
-        for action_frame, on_ground, reason in (
-            (41, True, "opposite-direction window"),
-            (40, False, "airborne"),
-        ):
-            with self.subTest(action_frame=action_frame, on_ground=on_ground):
-                montage = SuperWavedashMontage(WavedashDirection.Right)
-                self.assertIs(
-                    self.tick(montage, melee.Action.STANDING, character=melee.Character.SAMUS),
-                    montage,
-                )
-                self.controls.take_calls()
+    def test_super_wavedash_rejects_missed_frame_40_and_neutralizes(self):
+        montage = SuperWavedashMontage(WavedashDirection.Right)
+        self.assertIs(
+            self.tick(montage, melee.Action.STANDING, character=melee.Character.SAMUS),
+            montage,
+        )
+        self.controls.take_calls()
 
-                result = self.tick(
-                    montage,
-                    melee.Action.SAMUS_SPECIAL_LW_BOMB,
-                    character=melee.Character.SAMUS,
-                    action_frame=action_frame,
-                    on_ground=on_ground,
-                )
+        result = self.tick(
+            montage,
+            melee.Action.SAMUS_SPECIAL_LW_BOMB,
+            character=melee.Character.SAMUS,
+            action_frame=41,
+        )
 
-                self.assertIsInstance(result, Abort)
-                self.assertIn(reason, result.reason)
+        self.assertIsInstance(result, Abort)
+        self.assertIn("opposite-direction window", result.reason)
+        self.assertEqual(self.controls.take_calls(), [("release_all",), ("release_all",)])
+
+    def test_super_wavedash_rejects_airborne_frame_41_and_neutralizes(self):
+        montage = SuperWavedashMontage(WavedashDirection.Right)
+        self.assertIs(
+            self.tick(montage, melee.Action.STANDING, character=melee.Character.SAMUS),
+            montage,
+        )
+        self.controls.take_calls()
+        self.assertIs(
+            self.tick(
+                montage,
+                melee.Action.SAMUS_SPECIAL_AIR_LW_BOMB,
+                character=melee.Character.SAMUS,
+                action_frame=40,
+                on_ground=False,
+            ),
+            montage,
+        )
+        self.controls.take_calls()
+
+        result = self.tick(
+            montage,
+            melee.Action.SAMUS_SPECIAL_AIR_LW_BOMB,
+            character=melee.Character.SAMUS,
+            action_frame=41,
+            on_ground=False,
+        )
+
+        self.assertIsInstance(result, Abort)
+        self.assertIn("airborne", result.reason)
+        self.assertEqual(self.controls.take_calls(), [("release_all",), ("release_all",)])
 
     def test_double_jump_cancel_performs_every_aerial_for_supported_characters(self):
         aerial_actions = {

@@ -169,17 +169,12 @@ class SuperWavedashMontage(StatefulInputMontage[_SuperWavedashPhase]):
         if player_state_value.action_frame > 40:
             controls.release_all()
             return _SuperWavedashPhase.BombRequested, Abort("frame-41 opposite-direction window was missed")
-        if not player_state_value.on_ground:
-            controls.release_all()
-            return _SuperWavedashPhase.BombRequested, Abort(
-                "Samus was airborne during the frame-41 opposite-direction window"
-            )
 
-        # DESNOTE(jbarber, 2026-08-26): Bot input is committed by the next
+        # DESNOTE(jbarber, 2026-09-09): Bot input is committed by the next
         # Console.step. Observed animation frames 40 and 41 therefore schedule
-        # the opposite/desired inputs for Samus bomb frames 41 and 42. A crouched
-        # bomb begins its displayed animation two frames later but uses the same
-        # underlying animation-frame window.
+        # the opposite/desired inputs for Samus bomb frames 41 and 42. Frame 40
+        # may already report airborne; the frame-41 callback is the required
+        # grounded validation. A crouched bomb uses the same underlying window.
         # See https://www.ssbwiki.com/Super_wavedash and
         # https://github.com/doldecomp/melee/blob/master/src/melee/ft/chara/ftSamus/ftSs_SpecialLw_1.c
         opposite = WavedashDirection.Left if self._direction is WavedashDirection.Right else WavedashDirection.Right
