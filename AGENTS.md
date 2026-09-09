@@ -19,6 +19,16 @@ uv pip install --python .venv/bin/python .
   test that requires an external Melee ISO.
 - Forgejo is the `origin` remote. The LiveMindIO GitHub fork is `mirror`.
 
+## Player Invulnerability Telemetry
+
+- Slippi post-frame offset `0x34` exposes the current hurtbox collision state:
+  vulnerable, invulnerable, or intangible. `PlayerState.invulnerable` maps the
+  latter two states to `True`.
+- `PlayerState.invulnerability_left` remains only for historical API
+  compatibility. Current Slippi telemetry has no remaining-frame countdown, so
+  parsed states retain its default `0`. Do not restore action-based heuristic
+  countdown tracking; callers must use `PlayerState.invulnerable`.
+
 ## Bot Protocol And Base
 
 - `BotProtocol[A].game_tick` receives `custom: A` as its final argument. The
