@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-import math
+from collections.abc import Callable
 from dataclasses import dataclass, replace
 from enum import Enum, auto
 from typing import Final, Self
@@ -14,14 +14,6 @@ from melee.bot.stateful_input_montage import StatefulInputMontage
 from melee.bot.techskill.common import is_interrupted, player
 from melee.enums import Action, Button, Character
 from melee.gamestate import GameState
-
-
-class YoshiEggThrowAim(Enum):
-    """Absolute horizontal aim for Yoshi's Egg Throw."""
-
-    LEFT = auto()
-    NEUTRAL = auto()
-    RIGHT = auto()
 
 
 class _YoshiEggThrowPhase(Enum):
@@ -66,10 +58,9 @@ class YoshiEggThrowMontage(StatefulInputMontage[_YoshiEggThrowState]):
 
     Egg Throw commits one neutral frame before cardinal up+B so a previously
     held B cannot suppress the required button edge. While its grounded or aerial
-    action is active, ``aim`` applies an absolute horizontal main-stick direction
-    at the requested stick ``magnitude``. The neutral aim leaves the stick
-    centered, so its magnitude has no effect. Call :meth:`set_aim` before a tick,
-    including from a pre-tick listener, to retarget from the current game state.
+    action is active, ``aim`` receives the current player, opponent, and game
+    states and returns raw normalized main-stick ``(x, y)`` coordinates. It is
+    evaluated on every active tick so callers can continuously retarget the throw.
 
     B remains held on every action tick until :meth:`release_charge` is called.
     That sticky request releases B on the next active tick but retains aim through
@@ -85,13 +76,10 @@ class YoshiEggThrowMontage(StatefulInputMontage[_YoshiEggThrowState]):
 
     def __init__(
         self,
-        aim: YoshiEggThrowAim = YoshiEggThrowAim.NEUTRAL,
-        magnitude: float = 1.0,
+        aim: Callable[[CharacterState, CharacterState, GameState], tuple[float, float]],
         frame_limit: int = 96,
         cancel_montage: InputMontage | None = None,
     ) -> None:
-        if not math.isfinite(magnitude) or not 0.0 <= magnitude <= 1.0:
-            raise ValueError("magnitude must be finite and between 0 and 1 inclusive")
         super().__init__(
             frame_limit,
             _YoshiEggThrowState(),
@@ -99,21 +87,7 @@ class YoshiEggThrowMontage(StatefulInputMontage[_YoshiEggThrowState]):
             name="Yoshi Egg Throw",
         )
         self._aim = aim
-        self._magnitude = magnitude
         self._release_requested = False
-
-    def set_aim(
-        self,
-        aim: YoshiEggThrowAim,
-        magnitude: float = 1.0,
-    ) -> Self:
-        """Set the absolute aim applied by the next active throw tick."""
-        if not math.isfinite(magnitude) or not 0.0 <= magnitude <= 1.0:
-            raise ValueError("magnitude must be finite and between 0 and 1 inclusive")
-        if self.get_montage_state() in {MontageState.Waiting, MontageState.Active}:
-            self._aim = aim
-            self._magnitude = magnitude
-        return self
 
     def release_charge(self) -> Self:
         """Stop adding charge on the next active tick and return ``self``.
@@ -167,7 +141,6 @@ class YoshiEggThrowMontage(StatefulInputMontage[_YoshiEggThrowState]):
         state: GameState,
         input_state: _YoshiEggThrowState,
     ) -> tuple[_YoshiEggThrowState, InputMontage | bool | Abort]:
-        del opponent_state, state
         player_state_value = player(player_state)
         if player_state_value is None:
             return input_state, Abort("player state became unavailable")
@@ -185,7 +158,7 @@ class YoshiEggThrowMontage(StatefulInputMontage[_YoshiEggThrowState]):
                 )
             case _YoshiEggThrowPhase.StartInput:
                 if player_state_value.action in _EGG_THROW_ACTIONS:
-                    self._apply_throw_input(controls)
+                    self._apply_throw_input(controls, player_state, opponent_state, state)
                     return replace(input_state, phase=_YoshiEggThrowPhase.Throwing), self
                 if not player_state.can_attack(AttackType.UP_B):
                     return input_state, Abort("Yoshi Egg Throw did not start")
@@ -200,12 +173,9 @@ class YoshiEggThrowMontage(StatefulInputMontage[_YoshiEggThrowState]):
                 )
             case _YoshiEggThrowPhase.AwaitingAction:
                 if player_state_value.action in _EGG_THROW_ACTIONS:
-                    self._apply_throw_input(controls)
+                    self._apply_throw_input(controls, player_state, opponent_state, state)
                     return replace(input_state, phase=_YoshiEggThrowPhase.Throwing), self
-                if (
-                    input_state.start_wait_frames < _START_WAIT_LIMIT
-                    and player_state.can_attack(AttackType.UP_B)
-                ):
+                if input_state.start_wait_frames < _START_WAIT_LIMIT and player_state.can_attack(AttackType.UP_B):
                     controls.release_all()
                     return (
                         replace(
@@ -218,7 +188,7 @@ class YoshiEggThrowMontage(StatefulInputMontage[_YoshiEggThrowState]):
                 return input_state, Abort("Yoshi Egg Throw did not start")
             case _YoshiEggThrowPhase.Throwing:
                 if player_state_value.action in _EGG_THROW_ACTIONS:
-                    self._apply_throw_input(controls)
+                    self._apply_throw_input(controls, player_state, opponent_state, state)
                     return input_state, self
                 if player_state_value.action in _COMPLETION_ACTIONS:
                     controls.release_all()
@@ -231,17 +201,18 @@ class YoshiEggThrowMontage(StatefulInputMontage[_YoshiEggThrowState]):
         controls.tilt_stick(StickReferenceAxis.UP, 0.0)
         controls.press_button(Button.BUTTON_B)
 
-    def _apply_throw_input(self, controls: SimpleControls) -> None:
+    def _apply_throw_input(
+        self,
+        controls: SimpleControls,
+        player_state: CharacterState,
+        opponent_state: CharacterState,
+        state: GameState,
+    ) -> None:
         controls.release_all()
-        match self._aim:
-            case YoshiEggThrowAim.LEFT:
-                controls.tilt_stick(StickReferenceAxis.LEFT, 0.0, magnitude=self._magnitude)
-            case YoshiEggThrowAim.NEUTRAL:
-                pass
-            case YoshiEggThrowAim.RIGHT:
-                controls.tilt_stick(StickReferenceAxis.RIGHT, 0.0, magnitude=self._magnitude)
+        x, y = self._aim(player_state, opponent_state, state)
+        controls.tilt_analog(Button.BUTTON_MAIN, x, y)
         if not self._release_requested:
             controls.press_button(Button.BUTTON_B)
 
 
-__all__ = ["YoshiEggThrowAim", "YoshiEggThrowMontage"]
+__all__ = ["YoshiEggThrowMontage"]

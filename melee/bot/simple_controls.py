@@ -498,6 +498,32 @@ class SimpleControls:
             angle_degrees,
             magnitude=magnitude,
         )
+        self.tilt_analog(stick, x, y)
+
+    def tilt_analog(
+        self,
+        stick: Button,
+        x: float,
+        y: float,
+    ) -> None:
+        """Request raw normalized coordinates for the main stick or C-stick.
+
+        This mutates only the selected stick's pending controller state and does
+        not call ``release_all()`` or ``flush()``.
+
+        Args:
+            stick: :attr:`Button.BUTTON_MAIN` or :attr:`Button.BUTTON_C`.
+            x: Horizontal request coordinate from ``0.0`` through ``1.0``.
+            y: Vertical request coordinate from ``0.0`` through ``1.0``.
+
+        Raises:
+            ValueError: If ``stick`` is not the main stick or C-stick, or either
+                coordinate is non-finite or outside ``[0, 1]``.
+        """
+        if stick not in {Button.BUTTON_MAIN, Button.BUTTON_C}:
+            raise ValueError(f"Invalid button type {stick} for tilt_analog.")
+        if not math.isfinite(x) or not math.isfinite(y) or not 0.0 <= x <= 1.0 or not 0.0 <= y <= 1.0:
+            raise ValueError("stick coordinates must be finite and between 0 and 1 inclusive")
         self._controller.tilt_analog(stick, x, y)
 
     def tilt_turn(self) -> None:

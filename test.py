@@ -72,7 +72,6 @@ from melee.bot import (
     SwordDanceMontage,
     WavedashDirection,
     WavedashMontage,
-    YoshiEggThrowAim,
     YoshiEggThrowMontage,
     can_air_attack,
     can_airdodge,
@@ -1597,7 +1596,7 @@ class AngularStickTests(unittest.TestCase):
             with self.subTest(angle=angle), self.assertRaisesRegex(ValueError, "must be finite"):
                 stick_coordinates(StickReferenceAxis.UP, angle)
 
-    def test_tilt_stick_selects_stick_without_resetting_other_inputs(self) -> None:
+    def test_stick_helpers_select_stick_without_resetting_other_inputs(self) -> None:
         class RecordingController:
             def __init__(self) -> None:
                 self.tilts = []
@@ -1631,12 +1630,14 @@ class AngularStickTests(unittest.TestCase):
             -90.0,
             stick=melee.Button.BUTTON_C,
         )
+        controls.tilt_analog(melee.Button.BUTTON_MAIN, 0.2, 0.8)
 
         self.assertEqual(
             controller.tilts,
             [
                 (melee.Button.BUTTON_MAIN, 0.25, 0.5),
                 (melee.Button.BUTTON_C, 0.5, 1.0),
+                (melee.Button.BUTTON_MAIN, 0.2, 0.8),
             ],
         )
         self.assertEqual(controller.release_count, 0)
@@ -1648,7 +1649,24 @@ class AngularStickTests(unittest.TestCase):
                 0.0,
                 stick=melee.Button.BUTTON_A,
             )
-        self.assertEqual(len(controller.tilts), 2)
+        self.assertEqual(len(controller.tilts), 3)
+
+        for stick, x, y in (
+            (melee.Button.BUTTON_A, 0.5, 0.5),
+            (melee.Button.BUTTON_MAIN, -0.01, 0.5),
+            (melee.Button.BUTTON_MAIN, 1.01, 0.5),
+            (melee.Button.BUTTON_MAIN, math.nan, 0.5),
+            (melee.Button.BUTTON_MAIN, 0.5, math.inf),
+        ):
+            with (
+                self.subTest(stick=stick, x=x, y=y),
+                self.assertRaisesRegex(
+                    ValueError,
+                    "Invalid button type|stick coordinates must be finite",
+                ),
+            ):
+                controls.tilt_analog(stick, x, y)
+        self.assertEqual(len(controller.tilts), 3)
 
         controls.press_button(melee.Button.BUTTON_A)
         controls.release_all()
@@ -4472,6 +4490,10 @@ class RecordingTechniqueControls:
         )
 
     def tilt_analog(self, button, x, y):
+        if button not in {melee.Button.BUTTON_MAIN, melee.Button.BUTTON_C}:
+            raise ValueError(f"Invalid button type {button} for tilt_analog.")
+        if not math.isfinite(x) or not math.isfinite(y) or not 0.0 <= x <= 1.0 or not 0.0 <= y <= 1.0:
+            raise ValueError("stick coordinates must be finite and between 0 and 1 inclusive")
         self.calls.append(("tilt_analog", button, x, y))
 
     def platform_drop(self):
@@ -4493,6 +4515,10 @@ class TechniqueMontageTests(unittest.TestCase):
         self.controls = RecordingTechniqueControls()
         self.frame = 0
 
+    @staticmethod
+    def egg_aim(x=0.5, y=0.5):
+        return lambda player_state, opponent_state, game_state: (x, y)
+
     def test_technique_montages_use_stateful_base_and_human_readable_names(self):
         montages = (
             (InitiateDashMontage(StickReferenceAxis.RIGHT), "Initiate Dash"),
@@ -4506,7 +4532,7 @@ class TechniqueMontageTests(unittest.TestCase):
             (LuigiGreenMissileMontage(StickReferenceAxis.RIGHT), "Green Missile"),
             (MultishineMontage(), "Multishine"),
             (WavedashMontage(WavedashDirection.Right, angle_degrees=45.0), "Wavedash"),
-            (YoshiEggThrowMontage(), "Yoshi Egg Throw"),
+            (YoshiEggThrowMontage(self.egg_aim()), "Yoshi Egg Throw"),
             (LedgedashMontage(angle_degrees=45.0), "Ledgedash"),
             (SDIMontage(StickReferenceAxis.RIGHT), "SDI"),
             (SamusChargeShotMontage(), "Charge Shot"),
@@ -6091,7 +6117,7 @@ class TechniqueMontageTests(unittest.TestCase):
             (melee.Action.FALLING, False),
         ):
             with self.subTest(action=action):
-                montage = YoshiEggThrowMontage()
+                montage = YoshiEggThrowMontage(self.egg_aim())
 
                 self.assertIs(
                     self.tick(
@@ -6134,7 +6160,7 @@ class TechniqueMontageTests(unittest.TestCase):
         controller = PacketRecordingSimpleController()
         controller.press_button(melee.Button.BUTTON_B)
         controller.flush()
-        montage = YoshiEggThrowMontage()
+        montage = YoshiEggThrowMontage(self.egg_aim())
 
         for frame in range(4):
             game_state = melee.GameState(frame=frame)
@@ -6178,7 +6204,7 @@ class TechniqueMontageTests(unittest.TestCase):
             (melee.Character.YOSHI, melee.Action.DAMAGE_HIGH_1, 10),
         ):
             with self.subTest(character=character, action=action):
-                montage = YoshiEggThrowMontage()
+                montage = YoshiEggThrowMontage(self.egg_aim())
 
                 self.assertIs(
                     self.tick(
@@ -6192,15 +6218,15 @@ class TechniqueMontageTests(unittest.TestCase):
                 self.assertEqual(montage.get_montage_state(), MontageState.Waiting)
                 self.assertEqual(self.controls.take_calls(), [])
 
-    def test_yoshi_egg_throw_applies_each_absolute_aim(self):
+    def test_yoshi_egg_throw_applies_raw_aim_coordinates(self):
         cases = (
-            (YoshiEggThrowAim.LEFT, StickReferenceAxis.LEFT),
-            (YoshiEggThrowAim.NEUTRAL, None),
-            (YoshiEggThrowAim.RIGHT, StickReferenceAxis.RIGHT),
+            (0.0, 0.2),
+            (0.5, 0.5),
+            (1.0, 0.8),
         )
-        for aim, expected_axis in cases:
-            with self.subTest(aim=aim):
-                montage = YoshiEggThrowMontage(aim, magnitude=0.35)
+        for x, y in cases:
+            with self.subTest(x=x, y=y):
+                montage = YoshiEggThrowMontage(self.egg_aim(x, y))
                 self.tick(montage, melee.Action.STANDING, character=melee.Character.YOSHI)
                 self.controls.take_calls()
 
@@ -6212,24 +6238,19 @@ class TechniqueMontageTests(unittest.TestCase):
                     ),
                     montage,
                 )
-                expected_calls = [("release_all",)]
-                if expected_axis is not None:
-                    expected_calls.append(
-                        (
-                            "tilt_stick",
-                            expected_axis,
-                            0.0,
-                            0.35,
-                            melee.Button.BUTTON_MAIN,
-                        )
-                    )
-                expected_calls.append(("press_button", melee.Button.BUTTON_B))
-                self.assertEqual(self.controls.take_calls(), expected_calls)
+                self.assertEqual(
+                    self.controls.take_calls(),
+                    [
+                        ("release_all",),
+                        ("tilt_analog", melee.Button.BUTTON_MAIN, x, y),
+                        ("press_button", melee.Button.BUTTON_B),
+                    ],
+                )
 
-    def test_yoshi_egg_throw_accepts_magnitude_boundaries(self):
-        for magnitude in (0.0, 1.0):
-            with self.subTest(magnitude=magnitude):
-                montage = YoshiEggThrowMontage(YoshiEggThrowAim.RIGHT, magnitude=magnitude)
+    def test_yoshi_egg_throw_accepts_coordinate_boundaries(self):
+        for x, y in ((0.0, 0.0), (0.0, 1.0), (1.0, 0.0), (1.0, 1.0)):
+            with self.subTest(x=x, y=y):
+                montage = YoshiEggThrowMontage(self.egg_aim(x, y))
                 self.tick(montage, melee.Action.STANDING, character=melee.Character.YOSHI)
                 self.controls.take_calls()
                 self.tick(
@@ -6239,53 +6260,62 @@ class TechniqueMontageTests(unittest.TestCase):
                 )
 
                 self.assertIn(
-                    (
-                        "tilt_stick",
-                        StickReferenceAxis.RIGHT,
-                        0.0,
-                        magnitude,
-                        melee.Button.BUTTON_MAIN,
-                    ),
+                    ("tilt_analog", melee.Button.BUTTON_MAIN, x, y),
                     self.controls.take_calls(),
                 )
 
-    def test_yoshi_egg_throw_rejects_invalid_magnitudes(self):
-        for magnitude in (-0.01, 1.01, math.nan, math.inf, -math.inf):
-            with (
-                self.subTest(magnitude=magnitude),
-                self.assertRaisesRegex(
+    def test_yoshi_egg_throw_rejects_invalid_callback_coordinates(self):
+        for x, y in (
+            (-0.01, 0.5),
+            (1.01, 0.5),
+            (math.nan, 0.5),
+            (0.5, math.inf),
+            (0.5, -math.inf),
+        ):
+            with self.subTest(x=x, y=y):
+                montage = YoshiEggThrowMontage(self.egg_aim(x, y))
+                self.tick(montage, melee.Action.STANDING, character=melee.Character.YOSHI)
+                self.controls.take_calls()
+                with self.assertRaisesRegex(
                     ValueError,
-                    "magnitude must be finite and between 0 and 1 inclusive",
-                ),
-            ):
-                YoshiEggThrowMontage(magnitude=magnitude)
+                    "stick coordinates must be finite and between 0 and 1 inclusive",
+                ):
+                    self.tick(
+                        montage,
+                        melee.Action.YOSHI_SPECIAL_HI,
+                        character=melee.Character.YOSHI,
+                    )
 
-    def test_yoshi_egg_throw_retargets_each_tick_after_charge_release(self):
-        montage = YoshiEggThrowMontage()
+    def test_yoshi_egg_throw_evaluates_aim_each_tick_after_charge_release(self):
+        aim_calls = []
 
-        def retarget(controls, player_state, opponent_state, game_state):
-            del controls, player_state, opponent_state
+        def aim(player_state, opponent_state, game_state):
+            aim_calls.append(
+                (
+                    game_state.frame,
+                    player_state.player().character,
+                    opponent_state.player().character,
+                )
+            )
             if game_state.frame == 2:
-                montage.set_aim(YoshiEggThrowAim.LEFT, magnitude=0.25)
-            elif game_state.frame == 3:
-                montage.set_aim(YoshiEggThrowAim.RIGHT, magnitude=0.75)
+                return 0.25, 0.4
+            if game_state.frame == 3:
                 montage.release_charge()
-            elif game_state.frame == 4:
-                montage.set_aim(YoshiEggThrowAim.NEUTRAL)
-            return PreTickResult.CONTINUE
+                return 0.75, 0.6
+            return 0.5, 0.5
 
-        montage.add_pre_tick_listener(retarget)
+        montage = YoshiEggThrowMontage(aim)
         self.tick(montage, melee.Action.STANDING, character=melee.Character.YOSHI)
         self.controls.take_calls()
         self.tick(montage, melee.Action.STANDING, character=melee.Character.YOSHI)
         self.controls.take_calls()
 
-        expected_axes = (
-            (StickReferenceAxis.LEFT, 0.25, True),
-            (StickReferenceAxis.RIGHT, 0.75, False),
-            (None, 1.0, False),
+        expected_aims = (
+            (0.25, 0.4, True),
+            (0.75, 0.6, False),
+            (0.5, 0.5, False),
         )
-        for axis, magnitude, holds_b in expected_axes:
+        for x, y, holds_b in expected_aims:
             self.assertIs(
                 self.tick(
                     montage,
@@ -6294,53 +6324,24 @@ class TechniqueMontageTests(unittest.TestCase):
                 ),
                 montage,
             )
-            expected_calls = [("release_all",)]
-            if axis is not None:
-                expected_calls.append(
-                    (
-                        "tilt_stick",
-                        axis,
-                        0.0,
-                        magnitude,
-                        melee.Button.BUTTON_MAIN,
-                    )
-                )
+            expected_calls = [
+                ("release_all",),
+                ("tilt_analog", melee.Button.BUTTON_MAIN, x, y),
+            ]
             if holds_b:
                 expected_calls.append(("press_button", melee.Button.BUTTON_B))
             self.assertEqual(self.controls.take_calls(), expected_calls)
-
-    def test_yoshi_egg_throw_set_aim_rejects_invalid_magnitudes(self):
-        montage = YoshiEggThrowMontage(YoshiEggThrowAim.LEFT, magnitude=0.4)
-        for magnitude in (-0.01, 1.01, math.nan, math.inf, -math.inf):
-            with (
-                self.subTest(magnitude=magnitude),
-                self.assertRaisesRegex(
-                    ValueError,
-                    "magnitude must be finite and between 0 and 1 inclusive",
-                ),
-            ):
-                montage.set_aim(YoshiEggThrowAim.RIGHT, magnitude=magnitude)
-
-        self.tick(montage, melee.Action.STANDING, character=melee.Character.YOSHI)
-        self.controls.take_calls()
-        self.tick(
-            montage,
-            melee.Action.YOSHI_SPECIAL_HI,
-            character=melee.Character.YOSHI,
-        )
-        self.assertIn(
-            (
-                "tilt_stick",
-                StickReferenceAxis.LEFT,
-                0.0,
-                0.4,
-                melee.Button.BUTTON_MAIN,
-            ),
-            self.controls.take_calls(),
+        self.assertEqual(
+            aim_calls,
+            [
+                (2, melee.Character.YOSHI, melee.Character.MARTH),
+                (3, melee.Character.YOSHI, melee.Character.MARTH),
+                (4, melee.Character.YOSHI, melee.Character.MARTH),
+            ],
         )
 
     def test_yoshi_egg_throw_holds_b_until_sticky_charge_release(self):
-        montage = YoshiEggThrowMontage(YoshiEggThrowAim.LEFT, magnitude=0.6)
+        montage = YoshiEggThrowMontage(self.egg_aim(0.2, 0.7))
         self.tick(montage, melee.Action.STANDING, character=melee.Character.YOSHI)
         self.controls.take_calls()
 
@@ -6368,18 +6369,12 @@ class TechniqueMontageTests(unittest.TestCase):
             self.controls.take_calls(),
             [
                 ("release_all",),
-                (
-                    "tilt_stick",
-                    StickReferenceAxis.LEFT,
-                    0.0,
-                    0.6,
-                    melee.Button.BUTTON_MAIN,
-                ),
+                ("tilt_analog", melee.Button.BUTTON_MAIN, 0.2, 0.7),
             ],
         )
 
     def test_yoshi_egg_throw_prequeued_release_still_commits_initial_up_b(self):
-        montage = YoshiEggThrowMontage(YoshiEggThrowAim.RIGHT).release_charge()
+        montage = YoshiEggThrowMontage(self.egg_aim(0.9, 0.3)).release_charge()
 
         self.assertIs(
             self.tick(
@@ -6414,18 +6409,12 @@ class TechniqueMontageTests(unittest.TestCase):
             self.controls.take_calls(),
             [
                 ("release_all",),
-                (
-                    "tilt_stick",
-                    StickReferenceAxis.RIGHT,
-                    0.0,
-                    1.0,
-                    melee.Button.BUTTON_MAIN,
-                ),
+                ("tilt_analog", melee.Button.BUTTON_MAIN, 0.9, 0.3),
             ],
         )
 
     def test_yoshi_egg_throw_preserves_inputs_across_ground_air_transitions(self):
-        montage = YoshiEggThrowMontage(YoshiEggThrowAim.LEFT, magnitude=0.4)
+        montage = YoshiEggThrowMontage(self.egg_aim(0.3, 0.6))
         self.tick(montage, melee.Action.STANDING, character=melee.Character.YOSHI)
         self.controls.take_calls()
 
@@ -6448,13 +6437,7 @@ class TechniqueMontageTests(unittest.TestCase):
                     self.controls.take_calls(),
                     [
                         ("release_all",),
-                        (
-                            "tilt_stick",
-                            StickReferenceAxis.LEFT,
-                            0.0,
-                            0.4,
-                            melee.Button.BUTTON_MAIN,
-                        ),
+                        ("tilt_analog", melee.Button.BUTTON_MAIN, 0.3, 0.6),
                         ("press_button", melee.Button.BUTTON_B),
                     ],
                 )
@@ -6465,7 +6448,7 @@ class TechniqueMontageTests(unittest.TestCase):
             (melee.Action.YOSHI_SPECIAL_AIR_HI, melee.Action.FALLING, False),
         ):
             with self.subTest(egg_action=egg_action):
-                montage = YoshiEggThrowMontage()
+                montage = YoshiEggThrowMontage(self.egg_aim())
                 self.tick(
                     montage,
                     completion_action,
@@ -6499,7 +6482,7 @@ class TechniqueMontageTests(unittest.TestCase):
             melee.Action.EDGE_HANGING,
         ):
             with self.subTest(completion_action=completion_action):
-                montage = YoshiEggThrowMontage()
+                montage = YoshiEggThrowMontage(self.egg_aim())
                 self.tick(
                     montage,
                     melee.Action.FALLING,
@@ -6536,7 +6519,7 @@ class TechniqueMontageTests(unittest.TestCase):
             (melee.Action.NEUTRAL_ATTACK_1, 0, "Yoshi Egg Throw was interrupted"),
         ):
             with self.subTest(action=action):
-                montage = YoshiEggThrowMontage()
+                montage = YoshiEggThrowMontage(self.egg_aim())
                 self.tick(montage, melee.Action.STANDING, character=melee.Character.YOSHI)
                 self.controls.take_calls()
                 self.tick(
@@ -6559,7 +6542,7 @@ class TechniqueMontageTests(unittest.TestCase):
                 self.assertEqual(self.controls.take_calls(), [("release_all",)])
 
     def test_yoshi_egg_throw_aborts_if_the_captured_character_changes(self):
-        montage = YoshiEggThrowMontage()
+        montage = YoshiEggThrowMontage(self.egg_aim())
         self.tick(montage, melee.Action.STANDING, character=melee.Character.YOSHI)
         self.controls.take_calls()
 
@@ -6571,7 +6554,7 @@ class TechniqueMontageTests(unittest.TestCase):
         self.assertEqual(self.controls.take_calls(), [("release_all",)])
 
     def test_yoshi_egg_throw_timeout_neutralizes_and_is_single_use(self):
-        montage = YoshiEggThrowMontage(frame_limit=2)
+        montage = YoshiEggThrowMontage(self.egg_aim(), frame_limit=2)
         self.tick(montage, melee.Action.STANDING, character=melee.Character.YOSHI)
         self.controls.take_calls()
         self.tick(

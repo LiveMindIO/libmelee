@@ -89,7 +89,6 @@ from melee.bot.techskill import (
     SwordDanceMontage,
     WavedashDirection,
     WavedashMontage,
-    YoshiEggThrowAim,
     YoshiEggThrowMontage,
 )
 
@@ -156,7 +155,6 @@ __all__ = [
     "SwordDanceMontage",
     "WavedashDirection",
     "WavedashMontage",
-    "YoshiEggThrowAim",
     "YoshiEggThrowMontage",
     "attack_is_holdable",
     "can_air_attack",
