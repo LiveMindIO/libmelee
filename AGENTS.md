@@ -207,6 +207,16 @@ uv pip install --python .venv/bin/python .
   become available on the first safe release frame and return unavailable after
   release. Power includes the final counter increment applied when the queued
   release reaches the bow IASA callback.
+  `YoshiEggThrowMontage(aim)` supports Yoshi's grounded and aerial Up-B as one
+  stateful action across raw states 364/365. It commits a B-release packet before
+  cardinal up+B and before each retry so a previously held B cannot suppress the
+  required edge. Running starts keep full forward stick during those release
+  packets because normal Dash-to-Run has no neutral-stick grace. The aim callback
+  receives the current player, opponent, and game states
+  and returns raw normalized main-stick `(x, y)` coordinates on every active tick,
+  including after sticky `release_charge()` stops private charge accumulation.
+  The animation script owns egg launch, so the montage retains aim and exposes no
+  estimated power.
   `JigglypuffRolloutMontage` uses the same caller-release queries and keeps full
   Rollout held through a one-minute safety window. `LuigiGreenMissileMontage`
   and `SkullBashMontage` accept an absolute horizontal direction. Their default
@@ -251,6 +261,9 @@ uv pip install --python .venv/bin/python .
 
 ## Simple Controls
 
+- `SimpleControls.tilt_analog(stick, x, y)` validates raw normalized coordinates
+  for the main stick or C-stick and forwards them without resetting other pending
+  inputs or flushing the controller.
 - `FTILT`, `FSMASH`, and `SIDE_B` remain relative to character facing.
   `LTILT`/`RTILT`, `LSMASH`/`RSMASH`, and `LSPECIAL`/`RSPECIAL` request an absolute
   screen direction. Aerials remain facing-relative because fair/back-air behavior

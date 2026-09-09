@@ -110,7 +110,9 @@ Or tilt one of the analog sticks by:
 
 Bots can express an absolute direction and radial strength with
 `melee.bot.stick_coordinates(reference_axis, angle_degrees, magnitude=...)`, or
-apply it with `SimpleControls.tilt_stick`. Positive angles rotate
+apply it with `SimpleControls.tilt_stick`. `SimpleControls.tilt_analog` accepts
+raw normalized `(x, y)` coordinates for either stick and validates both values
+before forwarding them to the controller. Positive angles rotate
 counter-clockwise from the reference axis, following the conventional signed
 angle direction (`RIGHT=0°`, `UP=90°`, `LEFT=180°`, `DOWN=270°`). `magnitude`
 is keyword-only, finite, and ranges from `0.0`
@@ -408,6 +410,17 @@ Libmelee includes concrete technique montages:
   the game's final IASA counter increment.
   Full power does not force release; the montage can hold through its one-minute
   safety window.
+- `YoshiEggThrowMontage(aim)` starts Yoshi's grounded or aerial Up-B with one
+  B-release packet before cardinal up+B to guarantee a fresh edge. Running starts
+  retain their forward stick during that packet so RunBrake cannot consume the
+  setup. `aim` receives
+  `(player_state, opponent_state, game_state)` and returns raw normalized
+  main-stick `(x, y)` coordinates. It is evaluated on every active tick through
+  action states 364 and 365, so a lambda can continuously retarget the egg from
+  current state. B remains held until sticky `release_charge()` stops further
+  charge accumulation; the callback continues running and its aim remains applied
+  through the script-owned egg launch. No current-power API is exposed because
+  libmelee does not report Egg Throw's private charge counter.
 - `JigglypuffRolloutMontage()` gives grounded and aerial Rollout the same sticky
   `release()`, `can_release()`, and normalized `current_power()` interface. Full
   Rollout remains held until release, with the same one-minute safety window.

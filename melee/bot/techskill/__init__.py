@@ -30,6 +30,7 @@ from melee.bot.techskill.storable_chargeable_special import (
 from melee.bot.techskill.super_wavedash import SuperWavedashMontage
 from melee.bot.techskill.sword_dance import SwordDanceMontage
 from melee.bot.techskill.wavedash import WavedashMontage
+from melee.bot.techskill.yoshi_egg_throw import YoshiEggThrowMontage
 
 __all__ = [
     "ChargeStoreInput",
@@ -59,4 +60,5 @@ __all__ = [
     "SwordDanceMontage",
     "WavedashDirection",
     "WavedashMontage",
+    "YoshiEggThrowMontage",
 ]
