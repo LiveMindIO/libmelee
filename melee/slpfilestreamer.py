@@ -29,7 +29,7 @@ class SLPFileStreamer:
         This is for supporting older SLP files that don't have frame bookends
         """
         if EventType(event_bytes[0]) in [EventType.POST_FRAME, EventType.PRE_FRAME]:
-            frame = np.ndarray((1,), ">i", event_bytes, 0x1)[0]
+            frame = int(np.ndarray((1,), ">i", event_bytes, 0x1)[0])
             if frame > self._frame:
                 self._frame = frame
                 return True

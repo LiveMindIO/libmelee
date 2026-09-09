@@ -19,6 +19,12 @@ uv pip install --python .venv/bin/python .
   test that requires an external Melee ISO.
 - Forgejo is the `origin` remote. The LiveMindIO GitHub fork is `mirror`.
 
+## Frame Parsing
+
+- Decode signed SLP frame numbers to built-in Python `int` values at the pre-frame,
+  post-frame, item, and old-file streaming boundaries. Do not normalize them later;
+  negative startup frames are valid and must remain negative.
+
 ## Bot Protocol And Base
 
 - `BotProtocol[A].game_tick` receives `custom: A` as its final argument. The

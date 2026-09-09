@@ -91,6 +91,8 @@ from melee.bot.techskill.common import (
     clamp_wavedash_angle,
 )
 from melee.controller import fix_analog_stick
+from melee.slpfilestreamer import SLPFileStreamer
+from melee.slippstream import EventType
 
 
 class RecordingBot(BaseBot[object]):
@@ -887,6 +889,41 @@ class BotProtocolTests(unittest.TestCase):
         )
 
 
+class FrameParsingTests(unittest.TestCase):
+    def setUp(self):
+        self.console = object.__new__(melee.Console)
+        self.console._costumes = {0: 0, 1: 0, 2: 0, 3: 0}
+        self.console._cpu_level = {0: 0, 1: 0, 2: 0, 3: 0}
+        self.console._team_id = {0: 0, 1: 0, 2: 0, 3: 0}
+        self.console._use_manual_bookends = False
+
+    def test_pre_frame_numbers_are_native_ints(self):
+        for expected_frame in (-123, 297):
+            with self.subTest(frame=expected_frame):
+                payload = bytearray(0x41)
+                payload[0] = EventType.PRE_FRAME.value
+                payload[1:5] = expected_frame.to_bytes(4, "big", signed=True)
+                game_state = melee.GameState()
+
+                self.console._Console__pre_frame(game_state, payload)
+
+                self.assertEqual(game_state.frame, expected_frame)
+                self.assertIs(type(game_state.frame), int)
+
+    def test_old_file_stream_frame_numbers_are_native_ints(self):
+        streamer = SLPFileStreamer("unused.slp")
+
+        for expected_frame in (-123, 301):
+            with self.subTest(frame=expected_frame):
+                payload = bytearray(5)
+                payload[0] = EventType.PRE_FRAME.value
+                payload[1:5] = expected_frame.to_bytes(4, "big", signed=True)
+
+                self.assertTrue(streamer._is_new_frame(payload))
+                self.assertEqual(streamer._frame, expected_frame)
+                self.assertIs(type(streamer._frame), int)
+
+
 class PostFrameParsingTests(unittest.TestCase):
     def setUp(self):
         self.console = object.__new__(melee.Console)
@@ -979,11 +1016,14 @@ class SLPFile(unittest.TestCase):
             if gamestate is None:
                 self.assertEqual(framecount, 3840)
                 break
+            self.assertIs(type(gamestate.frame), int)
             if gamestate.frame == -123:
                 self.assertEqual(console.slp_version_tuple, (2, 0, 1))
+                self.assertEqual(gamestate.frame, -123)
                 self.assertEqual(gamestate.players[2].character.value, 3)
                 self.assertEqual(gamestate.players[3].character.value, 18)
             if gamestate.frame == 301:
+                self.assertEqual(gamestate.frame, 301)
                 self.assertEqual(gamestate.players[2].action.value, 88)
                 self.assertEqual(gamestate.players[3].action.value, 56)
                 self.assertEqual(int(gamestate.players[2].percent), 25)

@@ -1180,7 +1180,7 @@ class Console:
                 self._connect_codes[i] = connect_code.replace(shift_jis_hash, '#')
 
     def __pre_frame(self, gamestate: GameState, event_bytes):
-        gamestate.frame = np.ndarray((1,), ">i", event_bytes, 0x1)[0]
+        gamestate.frame = int(np.ndarray((1,), ">i", event_bytes, 0x1)[0])
 
         # Grab the physical controller state and put that into the controller state
         controller_port = np.ndarray((1,), ">B", event_bytes, 0x5)[0] + 1
@@ -1255,7 +1255,7 @@ class Console:
     def __post_frame(self, gamestate: GameState, event_bytes):
         gamestate.stage = self._current_stage
         gamestate.is_teams = self._is_teams
-        assert gamestate.frame == np.ndarray((1,), ">i", event_bytes, 0x1)[0]
+        assert gamestate.frame == int(np.ndarray((1,), ">i", event_bytes, 0x1)[0])
         controller_port = np.ndarray((1,), ">B", event_bytes, 0x5)[0] + 1
 
         if controller_port not in gamestate.players:
@@ -1455,7 +1455,7 @@ class Console:
         gamestate.distance = math.sqrt((xdist**2) + (ydist**2))
 
     def __item_update(self, gamestate: GameState, event_bytes: bytes):
-        assert np.ndarray((1,), ">i", event_bytes, 0x1)[0] == gamestate.frame
+        assert int(np.ndarray((1,), ">i", event_bytes, 0x1)[0]) == gamestate.frame
 
         projectile = Projectile()
         projectile.position.x = np.ndarray((1,), ">f", event_bytes, 0x14)[0]
