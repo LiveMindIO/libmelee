@@ -1068,6 +1068,34 @@ class SLPFile(unittest.TestCase):
         self.assertIs(raw_369, melee.Action.MARTH_SPECIAL_LW)
         self.assertEqual(raw_369.name, "MARTH_COUNTER")
 
+    def test_kong_karry_aliases_preserve_canonical_members(self) -> None:
+        expected = {
+            "KONG_KARRY_WAIT": 351,
+            "KONG_KARRY_WALK_SLOW": 352,
+            "KONG_KARRY_WALK_MIDDLE": 353,
+            "KONG_KARRY_WALK_FAST": 354,
+            "KONG_KARRY_TURN": 355,
+            "KONG_KARRY_JUMP_SQUAT": 356,
+            "KONG_KARRY_FALL": 357,
+            "KONG_KARRY_JUMP": 358,
+            "KONG_KARRY_LANDING": 359,
+            "KONG_KARRY_WAIT_2": 360,
+            "KONG_KARRY_GROUND_THROW_FORWARD": 361,
+            "KONG_KARRY_GROUND_THROW_BACKWARD": 362,
+            "KONG_KARRY_GROUND_THROW_UP": 363,
+            "KONG_KARRY_GROUND_THROW_DOWN": 364,
+            "KONG_KARRY_AIR_THROW_FORWARD": 365,
+            "KONG_KARRY_AIR_THROW_BACKWARD": 366,
+            "KONG_KARRY_AIR_THROW_UP": 367,
+            "KONG_KARRY_AIR_THROW_DOWN": 368,
+        }
+
+        for name, action_id in expected.items():
+            with self.subTest(name=name, action_id=action_id):
+                canonical = melee.Action(action_id)
+                self.assertIs(melee.Action.__members__[name], canonical)
+                self.assertFalse(canonical.name.startswith("KONG_KARRY_"))
+
     def test_special_slot_resolution_filters_to_available_framedata(self) -> None:
         framedata = melee.FrameData()
 
@@ -2719,6 +2747,227 @@ class SimpleControlsInputTests(unittest.TestCase):
                     controls.character_state.can_attack(attack_type),
                     expected,
                 )
+
+    def test_dk_cargo_actions_are_character_aware(self) -> None:
+        for action_id in range(351, 361):
+            with self.subTest(character=melee.Character.DK, action_id=action_id):
+                player = melee.PlayerState(
+                    character=melee.Character.DK,
+                    action=melee.Action(action_id),
+                )
+                controls, _ = self.controls(player)
+                self.assertIs(
+                    controls.character_state.get_state(),
+                    CharacterStatus.CarryingEnemy,
+                )
+                self.assertTrue(controls.character_state.is_carrying_enemy())
+                self.assertTrue(controls.character_state.is_grabbing())
+
+        for action_id in range(361, 369):
+            with self.subTest(character=melee.Character.DK, action_id=action_id):
+                player = melee.PlayerState(
+                    character=melee.Character.DK,
+                    action=melee.Action(action_id),
+                )
+                controls, _ = self.controls(player)
+                self.assertIs(
+                    controls.character_state.get_state(),
+                    CharacterStatus.GrabbingEnemy,
+                )
+                self.assertFalse(controls.character_state.is_carrying_enemy())
+                self.assertTrue(controls.character_state.is_grabbing())
+
+        for action_id in range(351, 369):
+            with self.subTest(character=melee.Character.FOX, action_id=action_id):
+                player = melee.PlayerState(
+                    character=melee.Character.FOX,
+                    action=melee.Action(action_id),
+                )
+                controls, _ = self.controls(player)
+                self.assertNotIn(
+                    controls.character_state.get_state(),
+                    {CharacterStatus.CarryingEnemy, CharacterStatus.GrabbingEnemy},
+                )
+                self.assertFalse(controls.character_state.is_carrying_enemy())
+                self.assertFalse(controls.character_state.is_grabbing())
+
+    def test_grab_jump_remains_a_compatible_cargo_state(self) -> None:
+        for character in (melee.Character.DK, melee.Character.FOX):
+            with self.subTest(character=character):
+                player = melee.PlayerState(
+                    character=character,
+                    action=melee.Action.GRAB_JUMP,
+                )
+                controls, _ = self.controls(player)
+                self.assertIs(
+                    controls.character_state.get_state(),
+                    CharacterStatus.CarryingEnemy,
+                )
+                self.assertTrue(controls.character_state.is_carrying_enemy())
+                self.assertTrue(controls.character_state.is_grabbing())
+
+    def test_dk_cargo_throw_eligibility_excludes_recovery_states(self) -> None:
+        for action_id in range(351, 361):
+            player = melee.PlayerState(
+                character=melee.Character.DK,
+                action=melee.Action(action_id),
+            )
+            controls, _ = self.controls(player)
+            for attack_type in (
+                AttackType.FTHROW,
+                AttackType.BTHROW,
+                AttackType.UTHROW,
+                AttackType.DTHROW,
+            ):
+                with self.subTest(action_id=action_id, attack_type=attack_type):
+                    self.assertEqual(
+                        controls.character_state.can_attack(attack_type),
+                        action_id <= 358,
+                    )
+
+        for character in (melee.Character.FOX, melee.Character.MARTH):
+            for action_id in range(351, 359):
+                player = melee.PlayerState(
+                    character=character,
+                    action=melee.Action(action_id),
+                )
+                controls, _ = self.controls(player)
+                with self.subTest(character=character, action_id=action_id):
+                    self.assertFalse(
+                        controls.character_state.can_attack(AttackType.FTHROW)
+                    )
+
+    def test_dk_cargo_releases_use_fresh_a_edge_and_direction(self) -> None:
+        self.assertNotIn("_cargo_release", inspect.signature(Hold).parameters)
+        cases = (
+            (AttackType.FTHROW, True, (1.0, 0.5)),
+            (AttackType.FTHROW, False, (0.0, 0.5)),
+            (AttackType.BTHROW, True, (0.0, 0.5)),
+            (AttackType.BTHROW, False, (1.0, 0.5)),
+            (AttackType.UTHROW, True, (0.5, 1.0)),
+            (AttackType.DTHROW, True, (0.5, 0.0)),
+        )
+        for attack_type, facing, expected_stick in cases:
+            with self.subTest(attack_type=attack_type, facing=facing):
+                player = melee.PlayerState(
+                    character=melee.Character.DK,
+                    action=melee.Action.KONG_KARRY_WAIT,
+                    facing=facing,
+                )
+                controller = RecordingSimpleController()
+                controller.buttons.add(melee.Button.BUTTON_A)
+                controls, _ = self.controls(player, controller)
+
+                hold = controls.attack(attack_type)
+                self.assertIsInstance(hold, Hold)
+                assert isinstance(hold, Hold)
+                self.assertEqual(controller.main_stick, (0.5, 0.5))
+                self.assertNotIn(melee.Button.BUTTON_A, controller.buttons)
+
+                self.assertIs(controls.attack(attack_type, hold=hold), hold)
+                self.assertEqual(controller.main_stick, (0.5, 0.5))
+                self.assertNotIn(melee.Button.BUTTON_A, controller.buttons)
+
+                next_controls, _ = self.controls(player, controller, frame=1)
+                self.assertIs(next_controls.attack(attack_type, hold=hold), hold)
+                self.assertEqual(controller.main_stick, expected_stick)
+                self.assertEqual(controller.buttons, {melee.Button.BUTTON_A})
+
+    def test_dk_cargo_throw_recognition_covers_ground_and_air(self) -> None:
+        actions = {
+            AttackType.FTHROW: (361, 365),
+            AttackType.BTHROW: (362, 366),
+            AttackType.UTHROW: (363, 367),
+            AttackType.DTHROW: (364, 368),
+        }
+        for attack_type, action_ids in actions.items():
+            for action_id in action_ids:
+                with self.subTest(attack_type=attack_type, action_id=action_id):
+                    action = melee.Action(action_id)
+                    cargo = melee.PlayerState(
+                        character=melee.Character.DK,
+                        action=melee.Action.KONG_KARRY_WAIT,
+                    )
+                    start_controls, controller = self.controls(cargo)
+                    hold = start_controls.attack(attack_type)
+                    self.assertIsInstance(hold, Hold)
+                    assert isinstance(hold, Hold)
+                    input_controls, _ = self.controls(cargo, controller, frame=1)
+                    self.assertIs(input_controls.attack(attack_type, hold=hold), hold)
+
+                    throwing = melee.PlayerState(
+                        character=melee.Character.DK,
+                        action=action,
+                        on_ground=action_id <= 364,
+                    )
+                    active_controls, _ = self.controls(throwing, controller, frame=2)
+                    result = active_controls.attack(attack_type, hold=hold)
+                    self.assertIsInstance(result, AttackFrameData)
+                    assert isinstance(result, AttackFrameData)
+                    self.assertIs(result.action, action)
+                    for other_type in actions.keys() - {attack_type}:
+                        self.assertIsNone(
+                            active_controls._current_attack_action(
+                                throwing,
+                                other_type,
+                            )
+                        )
+
+    def test_normal_throws_and_dk_cargo_entry_remain_stick_only(self) -> None:
+        normal_throws = {
+            AttackType.FTHROW: (melee.Action.THROW_FORWARD, (1.0, 0.5)),
+            AttackType.BTHROW: (melee.Action.THROW_BACK, (0.0, 0.5)),
+            AttackType.UTHROW: (melee.Action.THROW_UP, (0.5, 1.0)),
+            AttackType.DTHROW: (melee.Action.THROW_DOWN, (0.5, 0.0)),
+        }
+        for attack_type, (action, expected_stick) in normal_throws.items():
+            with self.subTest(attack_type=attack_type):
+                grabbed = melee.PlayerState(
+                    character=melee.Character.FOX,
+                    action=melee.Action.GRAB_WAIT,
+                    on_ground=True,
+                    facing=True,
+                )
+                controls, controller = self.controls(grabbed)
+                hold = controls.attack(attack_type)
+                self.assertIsInstance(hold, Hold)
+                assert isinstance(hold, Hold)
+                self.assertEqual(controller.main_stick, expected_stick)
+                self.assertNotIn(melee.Button.BUTTON_A, controller.buttons)
+
+                throwing = melee.PlayerState(
+                    character=melee.Character.FOX,
+                    action=action,
+                    on_ground=True,
+                    facing=True,
+                )
+                active_controls, _ = self.controls(throwing, controller, frame=1)
+                result = active_controls.attack(attack_type, hold=hold)
+                self.assertIsInstance(result, AttackFrameData)
+                assert isinstance(result, AttackFrameData)
+                self.assertIs(result.action, action)
+
+        grabbed = melee.PlayerState(
+            character=melee.Character.DK,
+            action=melee.Action.GRAB_WAIT,
+            on_ground=True,
+            facing=True,
+        )
+        controls, controller = self.controls(grabbed)
+        hold = controls.attack(AttackType.FTHROW)
+        self.assertIsInstance(hold, Hold)
+        assert isinstance(hold, Hold)
+        self.assertEqual(controller.main_stick, (1.0, 0.5))
+        self.assertNotIn(melee.Button.BUTTON_A, controller.buttons)
+
+        cargo = melee.PlayerState(
+            character=melee.Character.DK,
+            action=melee.Action.KONG_KARRY_WAIT,
+            on_ground=True,
+            facing=True,
+        )
+        cargo_controls, _ = self.controls(cargo, controller, frame=1)
+        self.assertIsNone(cargo_controls.attack(AttackType.FTHROW, hold=hold))
 
     def test_can_shield_requires_grounded_actionable_state(self) -> None:
         cases = (

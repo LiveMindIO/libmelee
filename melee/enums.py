@@ -1306,7 +1306,7 @@ PSI Magnet yoyo strike). Classifies as the attacking state via frame data."""
     """Kirby's drink-shot star projectile (swallowed enemy spit as star)."""
     THROWN_KIRBY_SPIT_S_SHOT = 0x17E
     """Kirby's regular spit star projectile (without swallow)."""
-    # --- Donkey Kong side-B (Hand Slap; Classifies as the attacking state) ---
+    # --- Donkey Kong down-B (Hand Slap; Classifies as the attacking state) ---
     DK_GROUND_POUND_START = 0x17F
     """DK's Ground Pound (Hand Slap) - startup (the leap before the slam)."""
     DK_GROUND_POUND = 0x180
@@ -1496,6 +1496,24 @@ PSI Magnet yoyo strike). Classifies as the attacking state via frame data."""
     # MotionState identifiers. Python Enum aliases share the first-declared
     # member's identity, so Action(raw).name keeps its existing canonical name.
     # See https://github.com/doldecomp/melee/tree/a983c0f9cd41d4a46001c493a1929891ac80f9ab/src/melee/ft/chara
+    KONG_KARRY_WAIT = 351
+    KONG_KARRY_WALK_SLOW = 352
+    KONG_KARRY_WALK_MIDDLE = 353
+    KONG_KARRY_WALK_FAST = 354
+    KONG_KARRY_TURN = 355
+    KONG_KARRY_JUMP_SQUAT = 356
+    KONG_KARRY_FALL = 357
+    KONG_KARRY_JUMP = 358
+    KONG_KARRY_LANDING = 359
+    KONG_KARRY_WAIT_2 = 360
+    KONG_KARRY_GROUND_THROW_FORWARD = 361
+    KONG_KARRY_GROUND_THROW_BACKWARD = 362
+    KONG_KARRY_GROUND_THROW_UP = 363
+    KONG_KARRY_GROUND_THROW_DOWN = 364
+    KONG_KARRY_AIR_THROW_FORWARD = 365
+    KONG_KARRY_AIR_THROW_BACKWARD = 366
+    KONG_KARRY_AIR_THROW_UP = 367
+    KONG_KARRY_AIR_THROW_DOWN = 368
     MARIO_SPECIAL_N = 343
     MARIO_SPECIAL_AIR_N = 344
     MARIO_SPECIAL_S = 345

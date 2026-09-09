@@ -320,6 +320,11 @@ uv pip install --python .venv/bin/python .
   normals, Samus/Link/Young Link tether-grab states, and Dr. Mario/Young
   Link/Fox/Falco character-owned taunts. Active grab and Z-air holds are
   recognized before start-only eligibility is reapplied.
+- DK raw actions 351-360 are character-scoped Kong Karry states; 351-358 accept
+  cargo releases while landing/wait recovery 359-360 do not. Cargo releases use
+  the existing throw types, commit a neutral frame for a fresh A edge, and
+  recognize ground/air throw actions 361-368. Grounded Hand Slap remains
+  supported as `DOWN_B`; only its nonexistent aerial form is rejected.
 - `can_jump()` accepts direct common ground jump paths and a remaining aerial
   jump from normal air, tumble, platform drop, and helpless FallSpecial states.
   It rejects `KNEE_BEND`, landing, shield stun, and hitlag.

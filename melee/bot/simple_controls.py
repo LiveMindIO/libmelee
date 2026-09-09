@@ -45,9 +45,9 @@ from enum import Enum, auto
 from typing import TYPE_CHECKING, Final
 
 from melee.bot.character_state import (
-    _ACTIONS_FOR_TYPE,
     _AERIAL_ATTACKS,
     _CHARACTER_ALL_NORMAL_ACTIONS,
+    _DK_ACTIONABLE_CARGO_CARRY_ACTIONS,
     _GRAB_THROW_ATTACKS,
     _GRAB_THROW_INPUT_ACTIONS,
     _GRABBER_ACTIONS,
@@ -350,6 +350,7 @@ class Hold:
     _smash_last_action_frame: int | None = field(default=None, compare=False, hash=False, repr=False)
     _smash_last_game_frame: int | None = field(default=None, compare=False, hash=False, repr=False)
     _smash_charge_complete: bool = field(default=False, compare=False, hash=False, repr=False)
+    _cargo_release: bool = field(default=False, init=False, compare=False, hash=False, repr=False)
 
 
 def _warn_state_deprecated(name: str, replacement: str | None = None) -> None:
@@ -1131,6 +1132,10 @@ class SimpleControls:
         if current is not None and not hold.charging:
             return current
 
+        if hold._cargo_release and self._game_state.frame <= hold.started_frame:
+            self._controller.release_all()
+            return hold
+
         if hold.charging:
             self._apply_charge_inputs(hold)
             charging_action = self._current_attack_action(player, hold.attack_type)
@@ -1200,6 +1205,16 @@ class SimpleControls:
             port=self._port,
             charging=False,
         )
+        cargo_release = (
+            player.character is Character.DK
+            and attack_type in _GRAB_THROW_ATTACKS
+            and isinstance(player.action, Action)
+            and player.action in _DK_ACTIONABLE_CARGO_CARRY_ACTIONS
+        )
+        object.__setattr__(hold, "_cargo_release", cargo_release)
+        if cargo_release:
+            self._controller.release_all()
+            return hold
         self._apply_attack_inputs(hold)
         return hold
 
@@ -1223,6 +1238,8 @@ class SimpleControls:
         if hold.attack_type in _GRAB_THROW_ATTACKS:
             self._controller.release_all()
             self._controller.tilt_analog(Button.BUTTON_MAIN, hold.stick_x, hold.stick_y)
+            if hold._cargo_release:
+                self._controller.press_button(Button.BUTTON_A)
             return
 
         if hold.attack_type in _AERIAL_ATTACKS:
@@ -1270,7 +1287,12 @@ class SimpleControls:
                 return True
             if player.action in _GRAB_THROW_INPUT_ACTIONS:
                 return False
-            return player.action not in _ACTIONS_FOR_TYPE[hold.attack_type]
+            if hold._cargo_release and player.action in _DK_ACTIONABLE_CARGO_CARRY_ACTIONS:
+                return False
+            return player.action not in _actions_for_attack_type(
+                player.character,
+                hold.attack_type,
+            )
         if player.action in _GRABBER_ACTIONS and hold.attack_type not in {
             AttackType.GRAB,
             AttackType.Z_AIR,
