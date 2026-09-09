@@ -168,8 +168,9 @@ uv pip install --python .venv/bin/python .
   `SuperWavedashMontage(direction)` supports Samus's standard grounded bomb
   route. Observed bomb frames 40 and 41 schedule opposite and desired horizontal
   input for engine frames 41 and 42; frame 42 schedules neutral. Standing and
-  crouched starts share that underlying animation window. The falling variant is
-  outside its contract.
+  crouched starts share that underlying animation window. The standard route has
+  landed in grounded bomb state 355 by observed frame 40; airborne bomb state 356
+  at that frame is the unsupported falling variant.
   `DoubleJumpCancelMontage(attack_type, attack_delay_frames=0)` supports Yoshi,
   Ness, Peach, and Mewtwo standard aerials from grounded or airborne starts. It
   resets airborne jump input for one committed frame before requesting the double
