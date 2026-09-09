@@ -3679,6 +3679,7 @@ class SimpleControlsInputTests(unittest.TestCase):
     def test_can_jump_during_late_normal_landing_iasa(self) -> None:
         boundaries = (
             (melee.Character.FOX, 4, 5),
+            (melee.Character.PEACH, 3, 4),
             (melee.Character.ZELDA, 3, 4),
             (melee.Character.PICHU, 2, 3),
             (melee.Character.DK, 5, 6),

@@ -298,9 +298,9 @@ uv pip install --python .venv/bin/python .
 - `CharacterState.can_jump()` and the module-level `can_jump()` allow actionable
   ground jumps, late common `LANDING` frames after each character's NTSC 1.02
   `NormalLandingLag`, and remaining aerial jumps. `LANDING` is raw zero-indexed
-  except for Zelda, so convert its decomp threshold to normalized one-indexed
-  `PlayerState.action_frame` before comparing. `LANDING_SPECIAL` and aerial
-  landing lag remain blocked. Actionable shield phases are jumpable for the
+  except for Peach and Zelda, so convert its decomp threshold to normalized
+  one-indexed `PlayerState.action_frame` before comparing. `LANDING_SPECIAL` and
+  aerial landing lag remain blocked. Actionable shield phases are jumpable for the
   roster; Yoshi can jump only from its character-owned GuardOn_1 powershield
   state. Shield stun is not jumpable.
 - `CharacterState.can_shield()` uses direct Guard-transition actions rather than
