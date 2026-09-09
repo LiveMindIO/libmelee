@@ -320,9 +320,13 @@ class PlayerState:
     neutral_b_charge: Optional[int] = None
     """Character-specific stored neutral-B charge, or None without current Gecko telemetry."""
     invulnerable: bool = False
-    """(bool): Is the player invulnerable?"""
+    """Whether Slippi reports the player's current hurtbox as invulnerable or intangible."""
     invulnerability_left: int = 0
-    """(int): How many frames of invulnerability are left."""
+    """Compatibility attribute that remains ``0`` when populated from Slippi.
+
+    The current Slippi protocol exposes only the current hurtbox collision state,
+    not a remaining-frame countdown. Use :attr:`invulnerable` for live telemetry.
+    """
     hitlag_left: int = 0
     """(bool): How many more frames of hitlag there is"""
     hitstun_frames_left: int = 0

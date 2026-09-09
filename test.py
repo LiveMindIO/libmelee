@@ -928,6 +928,19 @@ class PostFrameParsingTests(unittest.TestCase):
 
         self.assertFalse(game_state.players[1].is_defender_in_hitlag)
 
+    def test_hurtbox_state_sets_boolean_without_countdown(self):
+        for hurtbox_state, expected_invulnerable in ((0, False), (1, True), (2, True)):
+            with self.subTest(hurtbox_state=hurtbox_state):
+                game_state = melee.GameState(frame=0)
+                payload = self.post_frame_payload()
+                payload[0x34] = hurtbox_state
+
+                self.parse_post_frame(game_state, payload)
+
+                player = game_state.players[1]
+                self.assertIs(player.invulnerable, expected_invulnerable)
+                self.assertEqual(player.invulnerability_left, 0)
+
 
 class SLPFile(unittest.TestCase):
     """

@@ -1317,6 +1317,10 @@ class Console:
         except TypeError:
             playerstate.jumps_left = 1
 
+        # DESNOTE(jbarber, 2026-09-09): Slippi reports only the current hurtbox
+        # collision state here. Do not reconstruct the historical
+        # invulnerability_left countdown from action-state heuristics.
+        # See https://github.com/project-slippi/slippi-wiki/blob/master/SPEC.md#post-frame-update
         try:
             playerstate.invulnerable = int(np.ndarray((1,), ">B", event_bytes, 0x34)[0]) != 0
         except TypeError:
