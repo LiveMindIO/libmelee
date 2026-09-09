@@ -1009,6 +1009,23 @@ class SLPFile(unittest.TestCase):
             )
         )
 
+    def test_character_data_has_ntsc_102_normal_landing_lag(self) -> None:
+        framedata = melee.FrameData()
+        expected_exceptions = {
+            melee.Character.PICHU: 2,
+            melee.Character.DK: 5,
+            melee.Character.GANONDORF: 5,
+            melee.Character.BOWSER: 6,
+        }
+
+        self.assertEqual(len(framedata.characterdata), 27)
+        for character, attributes in framedata.characterdata.items():
+            with self.subTest(character=character):
+                self.assertEqual(
+                    attributes["NormalLandingLag"],
+                    expected_exceptions.get(character, 4),
+                )
+
     def test_special_slot_table_covers_framedata_roster(self) -> None:
         framedata = melee.FrameData()
         expected_slots = {
@@ -3399,6 +3416,66 @@ class SimpleControlsInputTests(unittest.TestCase):
         self.assertTrue(can_jump(falling, self.frame_data))
         self.assertFalse(can_jump(no_jumps, self.frame_data))
         self.assertFalse(can_jump(hitstun, self.frame_data))
+
+    def test_can_jump_during_late_normal_landing_iasa(self) -> None:
+        boundaries = (
+            (melee.Character.FOX, 4, 5),
+            (melee.Character.ZELDA, 3, 4),
+            (melee.Character.PICHU, 2, 3),
+            (melee.Character.DK, 5, 6),
+            (melee.Character.GANONDORF, 5, 6),
+            (melee.Character.BOWSER, 6, 7),
+        )
+        for character, last_blocked_frame, first_actionable_frame in boundaries:
+            for action_frame, expected in (
+                (last_blocked_frame, False),
+                (first_actionable_frame, True),
+            ):
+                with self.subTest(character=character, action_frame=action_frame):
+                    player = melee.PlayerState(
+                        character=character,
+                        action=melee.Action.LANDING,
+                        action_frame=action_frame,
+                        on_ground=True,
+                    )
+                    controls, _ = self.controls(player)
+
+                    self.assertEqual(can_jump(player, self.frame_data), expected)
+                    self.assertEqual(controls.character_state.can_jump(), expected)
+
+    def test_can_jump_rejects_other_landing_actions(self) -> None:
+        for action in (
+            melee.Action.LANDING_SPECIAL,
+            melee.Action.NAIR_LANDING,
+            melee.Action.FAIR_LANDING,
+            melee.Action.BAIR_LANDING,
+            melee.Action.UAIR_LANDING,
+            melee.Action.DAIR_LANDING,
+        ):
+            with self.subTest(action=action):
+                player = melee.PlayerState(
+                    character=melee.Character.FOX,
+                    action=action,
+                    action_frame=100,
+                    on_ground=True,
+                )
+                controls, _ = self.controls(player)
+
+                self.assertFalse(can_jump(player, self.frame_data))
+                self.assertFalse(controls.character_state.can_jump())
+
+    def test_can_jump_during_normal_landing_keeps_hitlag_gate(self) -> None:
+        player = melee.PlayerState(
+            character=melee.Character.FOX,
+            action=melee.Action.LANDING,
+            action_frame=5,
+            on_ground=True,
+            hitlag_left=1,
+        )
+        controls, _ = self.controls(player)
+
+        self.assertFalse(can_jump(player, self.frame_data))
+        self.assertFalse(controls.character_state.can_jump())
 
 
 class RecordingMontage(InputMontage):

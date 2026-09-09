@@ -282,9 +282,13 @@ uv pip install --python .venv/bin/python .
   cannot be reused. Its returned metadata may still
   name the expected action before a later `PlayerState` confirms startup.
 - `CharacterState.can_jump()` and the module-level `can_jump()` allow actionable
-  ground jumps and remaining aerial jumps. Actionable shield phases are jumpable
-  for the roster; Yoshi can jump only from its character-owned GuardOn_1
-  powershield state. Shield stun is not jumpable.
+  ground jumps, late common `LANDING` frames after each character's NTSC 1.02
+  `NormalLandingLag`, and remaining aerial jumps. `LANDING` is raw zero-indexed
+  except for Zelda, so convert its decomp threshold to normalized one-indexed
+  `PlayerState.action_frame` before comparing. `LANDING_SPECIAL` and aerial
+  landing lag remain blocked. Actionable shield phases are jumpable for the
+  roster; Yoshi can jump only from its character-owned GuardOn_1 powershield
+  state. Shield stun is not jumpable.
 - `CharacterState.can_shield()` uses direct Guard-transition actions rather than
   the broader ground bucket. It rejects `KNEE_BEND`, turn-run, run brake, and
   landing states; an airborne shoulder input is an air dodge, not a shield.
@@ -322,7 +326,9 @@ uv pip install --python .venv/bin/python .
   recognized before start-only eligibility is reapplied.
 - `can_jump()` accepts direct common ground jump paths and a remaining aerial
   jump from normal air, tumble, platform drop, and helpless FallSpecial states.
-  It rejects `KNEE_BEND`, landing, shield stun, and hitlag.
+  It accepts common `LANDING` once character-specific normal landing lag expires,
+  but rejects `KNEE_BEND`, `LANDING_SPECIAL`, aerial landing lag, shield stun,
+  and hitlag.
 - `Action.TUMBLING` classifies as `CharacterStatus.Tumbling` after reported
   hitstun clears. DamageFall permits aerial attacks, specials, tether Z-air, and
   aerial jump, but not air dodge or ground grab.
