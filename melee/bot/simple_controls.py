@@ -45,9 +45,9 @@ from enum import Enum, auto
 from typing import TYPE_CHECKING, Final
 
 from melee.bot.character_state import (
-    _ACTIONS_FOR_TYPE,
     _AERIAL_ATTACKS,
     _CHARACTER_ALL_NORMAL_ACTIONS,
+    _DK_ACTIONABLE_CARGO_CARRY_ACTIONS,
     _GRAB_THROW_ATTACKS,
     _GRAB_THROW_INPUT_ACTIONS,
     _GRABBER_ACTIONS,
@@ -320,15 +320,18 @@ class Hold:
             smashes, 120 for chargeable neutral-B). ``0`` for commit-only holds
             (tilts, jabs, etc.).
         started_frame: ``GameState.frame`` when the sequence began.
-        stick_x: Main-stick X sent with the input (``0.0`` left, ``1.0`` right).
-        stick_y: Main-stick Y or C-stick Y for aerials (``0.0`` down, ``1.0`` up).
+        stick_x: Initial main-stick X planned for the input (``0.0`` left,
+            ``1.0`` right). Facing-relative cargo throws resolve it again when
+            their A edge is committed.
+        stick_y: Initial main-stick Y or C-stick Y planned for the input
+            (``0.0`` down, ``1.0`` up).
         port: Controller port driving the input.
         charging: ``True`` for smash and chargeable neutral-B holds; ``False`` for
             short commit windows (tilts, jabs, grabs, most specials).
         released: ``True`` after :meth:`SimpleControls.release` completes.
         release_frame: ``GameState.frame`` when released, if applicable.
 
-    Smash charge observation and jab input-edge fields are framework-owned
+    Smash charge observation and input-edge fields are framework-owned
     implementation state. They are excluded from equality and hashing so callers
     can retain a token while :class:`SimpleControls` advances its lifecycle.
     """
@@ -350,6 +353,8 @@ class Hold:
     _smash_last_action_frame: int | None = field(default=None, compare=False, hash=False, repr=False)
     _smash_last_game_frame: int | None = field(default=None, compare=False, hash=False, repr=False)
     _smash_charge_complete: bool = field(default=False, compare=False, hash=False, repr=False)
+    _cargo_release: bool = field(default=False, init=False, compare=False, hash=False, repr=False)
+    _cargo_last_input_frame: int | None = field(default=None, init=False, compare=False, hash=False, repr=False)
     _jab_a_pending: bool = field(default=False, init=False, compare=False, hash=False, repr=False)
     _jab_last_input_frame: int | None = field(default=None, init=False, compare=False, hash=False, repr=False)
 
@@ -1153,7 +1158,12 @@ class SimpleControls:
                 )
             return hold
 
-        if hold.attack_type is AttackType.JAB:
+        if hold._cargo_release:
+            if hold._cargo_last_input_frame == self._game_state.frame:
+                return hold
+            self._apply_cargo_release_inputs(player, hold)
+            object.__setattr__(hold, "_cargo_last_input_frame", self._game_state.frame)
+        elif hold.attack_type is AttackType.JAB:
             self._apply_jab_inputs(player, hold)
         else:
             self._apply_attack_inputs(hold)
@@ -1209,6 +1219,25 @@ class SimpleControls:
             port=self._port,
             charging=False,
         )
+        cargo_release = (
+            player.character is Character.DK
+            and attack_type in _GRAB_THROW_ATTACKS
+            and isinstance(player.action, Action)
+            and player.action in _DK_ACTIONABLE_CARGO_CARRY_ACTIONS
+        )
+        object.__setattr__(hold, "_cargo_release", cargo_release)
+        if cargo_release:
+            # DESNOTE(jbarber, 2026-09-09): Cargo IASA reads a pressed A/B edge,
+            # so neutral is needed only when A is already pending or held. An
+            # unconditional neutral packet can lose the final airborne release
+            # frame before landing. See ftCo_CargoThrow.c inlineA0:
+            # https://github.com/doldecomp/melee/blob/a983c0f9cd41d4a46001c493a1929891ac80f9ab/src/melee/ft/chara/ftCommon/ftCo_CargoThrow.c#L60-L88
+            if self._a_is_active(player):
+                self._controller.release_all()
+            else:
+                self._apply_cargo_release_inputs(player, hold)
+            object.__setattr__(hold, "_cargo_last_input_frame", self._game_state.frame)
+            return hold
         if attack_type is AttackType.JAB:
             self._apply_jab_inputs(player, hold)
         else:
@@ -1229,7 +1258,7 @@ class SimpleControls:
         # until Console.step() appends FLUSH. Queuing release_all() and A again
         # before that boundary leaves A continuously held, so JAB retries must
         # alternate packets rather than commands. See Controller.flush().
-        if hold._jab_a_pending or self._jab_a_is_active(player):
+        if hold._jab_a_pending or self._a_is_active(player):
             self._controller.release_all()
             a_pending = False
         else:
@@ -1241,13 +1270,20 @@ class SimpleControls:
         object.__setattr__(hold, "_jab_a_pending", a_pending)
         object.__setattr__(hold, "_jab_last_input_frame", game_frame)
 
-    def _jab_a_is_active(self, player: LibPlayerState) -> bool:
+    def _a_is_active(self, player: LibPlayerState) -> bool:
         """Return whether runtime state proves A is pending or held."""
         return bool(
             self._controller.current.button.get(Button.BUTTON_A, False)
             or self._controller.prev.button.get(Button.BUTTON_A, False)
             or player.controller_state.button.get(Button.BUTTON_A, False)
         )
+
+    def _apply_cargo_release_inputs(self, player: LibPlayerState, hold: Hold) -> None:
+        """Apply a cargo release using the currently observed facing direction."""
+        stick_x, stick_y = self._stick_for_attack(player, hold.attack_type)
+        self._controller.release_all()
+        self._controller.tilt_analog(Button.BUTTON_MAIN, stick_x, stick_y)
+        self._controller.press_button(Button.BUTTON_A)
 
     def _finish_jab_input(self, hold: Hold) -> None:
         """Release A when a JAB hold owns a pending press."""
@@ -1319,7 +1355,12 @@ class SimpleControls:
                 return True
             if player.action in _GRAB_THROW_INPUT_ACTIONS:
                 return False
-            return player.action not in _ACTIONS_FOR_TYPE[hold.attack_type]
+            if hold._cargo_release and player.action in _DK_ACTIONABLE_CARGO_CARRY_ACTIONS:
+                return False
+            return player.action not in _actions_for_attack_type(
+                player.character,
+                hold.attack_type,
+            )
         if player.action in _GRABBER_ACTIONS and hold.attack_type not in {
             AttackType.GRAB,
             AttackType.Z_AIR,

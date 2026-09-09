@@ -172,9 +172,13 @@ Z-air, and jump-cancel options. During `KNEE_BEND`, only `UP_B`, `USMASH`, and
 turning excludes neutral-B, dash permits horizontal smash and side-B, running
 permits dash attack and specials, and full crouch/crouch release permit normals
 plus up/down-special but not grab. Landing states remain locked. Throws start
-from `GRAB_WAIT`, not the pummel animation. Character-owned action states are
-reported conservatively. The no-argument `can_attack()`, `can_air_attack()`, and
-`can_grab()` forms are deprecated; pass the intended `AttackType` instead.
+from `GRAB_WAIT`, not the pummel animation. DK's `FTHROW` enters Kong Karry;
+from actionable cargo states, all four throw types release with a fresh A edge
+and a facing-relative or vertical direction. Character-owned action states are
+reported conservatively. Grounded DK Hand Slap is supported as `DOWN_B`; its
+nonexistent aerial form is rejected. The no-argument `can_attack()`,
+`can_air_attack()`, and `can_grab()` forms are deprecated; pass the intended
+`AttackType` instead.
 
 `LEFT_B` and `RIGHT_B` remain deprecated aliases for `LSPECIAL` and `RSPECIAL`.
 

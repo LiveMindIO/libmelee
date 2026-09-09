@@ -280,6 +280,12 @@ _RUN_ACTIONS: Final = frozenset(
     }
 )
 _CARRYING_ENEMY_ACTIONS: Final = frozenset({Action.GRAB_JUMP})
+_DK_CARGO_CARRY_ACTIONS: Final = frozenset(
+    Action(action_id) for action_id in range(351, 361)
+)
+_DK_ACTIONABLE_CARGO_CARRY_ACTIONS: Final = frozenset(
+    Action(action_id) for action_id in range(351, 359)
+)
 _GRABBING_ENEMY_ACTIONS: Final = frozenset(
     {
         Action.GRAB,
@@ -352,13 +358,14 @@ class AttackType(Enum):
     ``UP_B``, ``DOWN_B``. ``LEFT_B`` and ``RIGHT_B`` are deprecated aliases for
     ``LSPECIAL`` and ``RSPECIAL``.
 
-    Grab throws (requires ``GRAB_WAIT``): ``FTHROW``, ``BTHROW``,
-    ``UTHROW``, ``DTHROW``. Throws are stick-only; ``A`` pummels during a grab.
+    Grab throws: ``FTHROW``, ``BTHROW``, ``UTHROW``, ``DTHROW``. Normal throws
+    require ``GRAB_WAIT`` and are stick-only; DK cargo releases require an
+    actionable Kong Karry state and use a fresh ``A`` edge plus direction.
     ``Z_AIR`` is air-only for tether-grab characters (Samus, Link, Young Link).
 
-    Directional throws use the player's facing direction for forward/back; up/down are
-    absolute. DK forward-grab behavior (cargo carry) is not implemented by the
-    standard :class:`SimpleControls` path and must be handled by bot logic for now.
+    Directional throws use the player's facing direction for forward/back; up/down
+    are absolute. DK's initial ``FTHROW`` enters Kong Karry, where any throw type
+    can release the opponent from an actionable ground or air cargo state.
     """
 
     JAB = auto()
@@ -392,6 +399,17 @@ class AttackType(Enum):
     BTHROW = auto()
     UTHROW = auto()
     DTHROW = auto()
+
+
+_DK_CARGO_THROW_ACTIONS: Final[dict[AttackType, frozenset[Action]]] = {
+    AttackType.FTHROW: frozenset({Action(361), Action(365)}),
+    AttackType.BTHROW: frozenset({Action(362), Action(366)}),
+    AttackType.UTHROW: frozenset({Action(363), Action(367)}),
+    AttackType.DTHROW: frozenset({Action(364), Action(368)}),
+}
+_DK_ALL_CARGO_THROW_ACTIONS: Final = frozenset(
+    action for actions in _DK_CARGO_THROW_ACTIONS.values() for action in actions
+)
 
 
 class CharacterStatus(Enum):
@@ -468,12 +486,13 @@ class CharacterStatus(Enum):
     """Grabbing or throwing an opponent (``GRAB`` / ``GRAB_PULLING`` /
     ``GRAB_RUNNING`` / ``GRAB_RUNNING_PULLING`` / ``GRAB_WAIT`` /
     ``GRAB_PUMMEL`` / ``GRAB_BREAK`` / ``GRAB_PULLING_HIGH`` /
-    ``THROW_FORWARD`` / ``THROW_BACK`` / ``THROW_UP`` / ``THROW_DOWN``).
-    Blocks new grab input; allows pummel/throw direction."""
+    ``THROW_FORWARD`` / ``THROW_BACK`` / ``THROW_UP`` / ``THROW_DOWN``),
+    including DK's character-owned ground and air cargo throws. Blocks new grab
+    input; allows pummel/throw direction."""
 
     CarryingEnemy = auto()
-    """Cargo-carrying a grabbed opponent (``GRAB_JUMP``, used by DK's
-    forward-throw cargo carry). A specialized grab state."""
+    """Cargo-carrying a grabbed opponent (legacy ``GRAB_JUMP`` or DK's
+    character-owned Kong Karry states). A specialized grab state."""
 
     Downed = auto()
     """On the ground after a knockdown, in a vulnerable or recovering state:
@@ -937,6 +956,11 @@ def _actions_for_attack_type(
 ) -> frozenset[Action]:
     """Return active actions for a move, including character-specific aliases."""
     relative_attack_type = _relative_attack_type(attack_type)
+    if character is Character.DK and relative_attack_type in _GRAB_THROW_ATTACKS:
+        return (
+            _ACTIONS_FOR_TYPE[relative_attack_type]
+            | _DK_CARGO_THROW_ACTIONS[relative_attack_type]
+        )
     if relative_attack_type is AttackType.Z_AIR:
         return _CHARACTER_Z_AIR_ACTIONS.get(character, frozenset())
     character_normals = _CHARACTER_NORMAL_ACTIONS.get(character)
@@ -1586,7 +1610,10 @@ def get_state(player: LibPlayerState, frame_data: FrameData) -> CharacterStatus:
         return CharacterStatus.GrabbedByEnemy
     if isinstance(player.action, Action) and player.action in _LEDGE_HANG_ACTIONS:
         return CharacterStatus.GrabbingLedge
-    if isinstance(player.action, Action) and player.action in _CARRYING_ENEMY_ACTIONS:
+    if isinstance(player.action, Action) and (
+        player.action in _CARRYING_ENEMY_ACTIONS
+        or (player.character is Character.DK and player.action in _DK_CARGO_CARRY_ACTIONS)
+    ):
         return CharacterStatus.CarryingEnemy
     if isinstance(player.action, Action) and player.action in _SHIELD_BREAK_ACTIONS:
         return CharacterStatus.ShieldBroken
@@ -1618,7 +1645,10 @@ def get_state(player: LibPlayerState, frame_data: FrameData) -> CharacterStatus:
     # See https://github.com/doldecomp/melee/blob/a983c0f9cd41d4a46001c493a1929891ac80f9ab/src/melee/ft/ftmotionstates.c#L2736-L2745
     if player.action is Action.AIRDODGE:
         return CharacterStatus.Dodging
-    if isinstance(player.action, Action) and player.action in _GRABBING_ENEMY_ACTIONS:
+    if isinstance(player.action, Action) and (
+        player.action in _GRABBING_ENEMY_ACTIONS
+        or (player.character is Character.DK and player.action in _DK_ALL_CARGO_THROW_ACTIONS)
+    ):
         return CharacterStatus.GrabbingEnemy
     if isinstance(player.action, Action) and (
         (player.character is Character.JIGGLYPUFF and player.action.value in _JIGGLYPUFF_AERIAL_JUMP_IDS)
@@ -1784,9 +1814,17 @@ def can_attack(
         case _:
             pass
 
-    if not _can_attack_by_combat_state(player, frame_data):
-        return False
     if not isinstance(player.action, Action):
+        return False
+    if attack_type in _GRAB_THROW_ATTACKS:
+        cargo_actionable = (
+            player.character is Character.DK
+            and player.action in _DK_ACTIONABLE_CARGO_CARRY_ACTIONS
+        )
+        return _can_attack_by_combat_state(player, frame_data) and (
+            player.action in _GRAB_THROW_INPUT_ACTIONS or cargo_actionable
+        )
+    if not _can_attack_by_combat_state(player, frame_data):
         return False
     if attack_type in _SPECIAL_ATTACKS and not _special_is_available(player, attack_type):
         return False
@@ -1797,8 +1835,6 @@ def can_attack(
     # See https://github.com/doldecomp/melee/blob/a983c0f9cd41d4a46001c493a1929891ac80f9ab/src/melee/ft/chara/ftCommon/ftCo_KneeBend.c#L61-L68
     # See https://github.com/doldecomp/melee/blob/a983c0f9cd41d4a46001c493a1929891ac80f9ab/src/melee/ft/chara/ftCommon/ftCo_Attack100.c#L154-L164
     match attack_type, player.action, player.on_ground:
-        case attack, action, _ if attack in _GRAB_THROW_ATTACKS:
-            return action in _GRAB_THROW_INPUT_ACTIONS
         case _, action, _ if action in _GRABBER_ACTIONS:
             return False
         case attack, Action.KNEE_BEND, True:
