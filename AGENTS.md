@@ -322,9 +322,11 @@ uv pip install --python .venv/bin/python .
   recognized before start-only eligibility is reapplied.
 - DK raw actions 351-360 are character-scoped Kong Karry states; 351-358 accept
   cargo releases while landing/wait recovery 359-360 do not. Cargo releases use
-  the existing throw types, commit a neutral frame for a fresh A edge, and
-  recognize ground/air throw actions 361-368. Grounded Hand Slap remains
-  supported as `DOWN_B`; only its nonexistent aerial form is rejected.
+  the existing throw types, commit immediately when A is released, insert one
+  neutral packet when a fresh A edge is required, and recognize ground/air throw
+  actions 361-368. Facing-relative direction is resolved from the commit packet
+  so a cargo-turn flip cannot invert the requested throw. Grounded Hand Slap
+  remains supported as `DOWN_B`; only its nonexistent aerial form is rejected.
 - `can_jump()` accepts direct common ground jump paths and a remaining aerial
   jump from normal air, tumble, platform drop, and helpless FallSpecial states.
   It rejects `KNEE_BEND`, landing, shield stun, and hitlag.

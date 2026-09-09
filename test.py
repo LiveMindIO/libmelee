@@ -1671,6 +1671,8 @@ class AngularStickTests(unittest.TestCase):
 class RecordingSimpleController:
     def __init__(self, *, analog_input_correction_enabled: bool = True) -> None:
         self.analog_input_correction_enabled = analog_input_correction_enabled
+        self.current = melee.ControllerState()
+        self.prev = melee.ControllerState()
         self.main_stick = (0.5, 0.5)
         self.c_stick = (0.5, 0.5)
         self.buttons = set()
@@ -1680,6 +1682,7 @@ class RecordingSimpleController:
         }
 
     def release_all(self) -> None:
+        self.current = melee.ControllerState()
         self.main_stick = (0.5, 0.5)
         self.c_stick = (0.5, 0.5)
         self.buttons.clear()
@@ -1688,17 +1691,25 @@ class RecordingSimpleController:
 
     def tilt_analog(self, button, x, y) -> None:
         if button is melee.Button.BUTTON_MAIN:
+            self.current.main_stick = (x, y)
             self.main_stick = (x, y)
         elif button is melee.Button.BUTTON_C:
+            self.current.c_stick = (x, y)
             self.c_stick = (x, y)
 
     def press_button(self, button) -> None:
+        self.current.button[button] = True
         self.buttons.add(button)
 
     def release_button(self, button) -> None:
+        self.current.button[button] = False
         self.buttons.discard(button)
 
     def press_shoulder(self, button, amount) -> None:
+        if button is melee.Button.BUTTON_L:
+            self.current.l_shoulder = amount
+        elif button is melee.Button.BUTTON_R:
+            self.current.r_shoulder = amount
         self.shoulders[button] = amount
 
 
@@ -2839,6 +2850,7 @@ class SimpleControlsInputTests(unittest.TestCase):
 
     def test_dk_cargo_releases_use_fresh_a_edge_and_direction(self) -> None:
         self.assertNotIn("_cargo_release", inspect.signature(Hold).parameters)
+        self.assertNotIn("_cargo_last_input_frame", inspect.signature(Hold).parameters)
         cases = (
             (AttackType.FTHROW, True, (1.0, 0.5)),
             (AttackType.FTHROW, False, (0.0, 0.5)),
@@ -2855,7 +2867,7 @@ class SimpleControlsInputTests(unittest.TestCase):
                     facing=facing,
                 )
                 controller = RecordingSimpleController()
-                controller.buttons.add(melee.Button.BUTTON_A)
+                controller.press_button(melee.Button.BUTTON_A)
                 controls, _ = self.controls(player, controller)
 
                 hold = controls.attack(attack_type)
@@ -2872,6 +2884,56 @@ class SimpleControlsInputTests(unittest.TestCase):
                 self.assertIs(next_controls.attack(attack_type, hold=hold), hold)
                 self.assertEqual(controller.main_stick, expected_stick)
                 self.assertEqual(controller.buttons, {melee.Button.BUTTON_A})
+
+    def test_dk_cargo_release_uses_last_airborne_frame_when_a_is_released(self) -> None:
+        for action in (
+            melee.Action.KONG_KARRY_FALL,
+            melee.Action.KONG_KARRY_JUMP,
+        ):
+            with self.subTest(action=action):
+                player = melee.PlayerState(
+                    character=melee.Character.DK,
+                    action=action,
+                    on_ground=False,
+                )
+                controller = RecordingSimpleController()
+                controls, _ = self.controls(player, controller)
+
+                hold = controls.attack(AttackType.DTHROW)
+                self.assertIsInstance(hold, Hold)
+                assert isinstance(hold, Hold)
+                self.assertEqual(controller.main_stick, (0.5, 0.0))
+                self.assertEqual(controller.buttons, {melee.Button.BUTTON_A})
+
+                self.assertIs(controls.attack(AttackType.DTHROW, hold=hold), hold)
+                self.assertEqual(controller.main_stick, (0.5, 0.0))
+                self.assertEqual(controller.buttons, {melee.Button.BUTTON_A})
+
+    def test_dk_cargo_release_recomputes_direction_after_turn(self) -> None:
+        controller = RecordingSimpleController()
+        controller.press_button(melee.Button.BUTTON_A)
+        turning_right = melee.PlayerState(
+            character=melee.Character.DK,
+            action=melee.Action.KONG_KARRY_TURN,
+            facing=True,
+            on_ground=True,
+        )
+        controls, _ = self.controls(turning_right, controller)
+        hold = controls.attack(AttackType.FTHROW)
+        self.assertIsInstance(hold, Hold)
+        assert isinstance(hold, Hold)
+
+        turning_left = melee.PlayerState(
+            character=melee.Character.DK,
+            action=melee.Action.KONG_KARRY_TURN,
+            facing=False,
+            on_ground=True,
+        )
+        next_controls, _ = self.controls(turning_left, controller, frame=1)
+
+        self.assertIs(next_controls.attack(AttackType.FTHROW, hold=hold), hold)
+        self.assertEqual(controller.main_stick, (0.0, 0.5))
+        self.assertEqual(controller.buttons, {melee.Button.BUTTON_A})
 
     def test_dk_cargo_throw_recognition_covers_ground_and_air(self) -> None:
         actions = {

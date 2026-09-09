@@ -320,8 +320,11 @@ class Hold:
             smashes, 120 for chargeable neutral-B). ``0`` for commit-only holds
             (tilts, jabs, etc.).
         started_frame: ``GameState.frame`` when the sequence began.
-        stick_x: Main-stick X sent with the input (``0.0`` left, ``1.0`` right).
-        stick_y: Main-stick Y or C-stick Y for aerials (``0.0`` down, ``1.0`` up).
+        stick_x: Initial main-stick X planned for the input (``0.0`` left,
+            ``1.0`` right). Facing-relative cargo throws resolve it again when
+            their A edge is committed.
+        stick_y: Initial main-stick Y or C-stick Y planned for the input
+            (``0.0`` down, ``1.0`` up).
         port: Controller port driving the input.
         charging: ``True`` for smash and chargeable neutral-B holds; ``False`` for
             short commit windows (tilts, jabs, grabs, most specials).
@@ -351,6 +354,7 @@ class Hold:
     _smash_last_game_frame: int | None = field(default=None, compare=False, hash=False, repr=False)
     _smash_charge_complete: bool = field(default=False, compare=False, hash=False, repr=False)
     _cargo_release: bool = field(default=False, init=False, compare=False, hash=False, repr=False)
+    _cargo_last_input_frame: int | None = field(default=None, init=False, compare=False, hash=False, repr=False)
 
 
 def _warn_state_deprecated(name: str, replacement: str | None = None) -> None:
@@ -1132,10 +1136,6 @@ class SimpleControls:
         if current is not None and not hold.charging:
             return current
 
-        if hold._cargo_release and self._game_state.frame <= hold.started_frame:
-            self._controller.release_all()
-            return hold
-
         if hold.charging:
             self._apply_charge_inputs(hold)
             charging_action = self._current_attack_action(player, hold.attack_type)
@@ -1152,7 +1152,13 @@ class SimpleControls:
                 )
             return hold
 
-        self._apply_attack_inputs(hold)
+        if hold._cargo_release:
+            if hold._cargo_last_input_frame == self._game_state.frame:
+                return hold
+            self._apply_cargo_release_inputs(player, hold)
+            object.__setattr__(hold, "_cargo_last_input_frame", self._game_state.frame)
+        else:
+            self._apply_attack_inputs(hold)
         current = self._attack_frame_data(player, hold.attack_type)
         if current is not None:
             return current
@@ -1213,7 +1219,16 @@ class SimpleControls:
         )
         object.__setattr__(hold, "_cargo_release", cargo_release)
         if cargo_release:
-            self._controller.release_all()
+            # DESNOTE(jbarber, 2026-09-09): Cargo IASA reads a pressed A/B edge,
+            # so neutral is needed only when A is already pending or held. An
+            # unconditional neutral packet can lose the final airborne release
+            # frame before landing. See ftCo_CargoThrow.c inlineA0:
+            # https://github.com/doldecomp/melee/blob/a983c0f9cd41d4a46001c493a1929891ac80f9ab/src/melee/ft/chara/ftCommon/ftCo_CargoThrow.c#L60-L88
+            if self._a_is_active(player):
+                self._controller.release_all()
+            else:
+                self._apply_cargo_release_inputs(player, hold)
+            object.__setattr__(hold, "_cargo_last_input_frame", self._game_state.frame)
             return hold
         self._apply_attack_inputs(hold)
         return hold
@@ -1221,6 +1236,21 @@ class SimpleControls:
     def _apply_charge_inputs(self, hold: Hold) -> None:
         """Apply one frame of inputs for a charging hold."""
         self._apply_attack_inputs(hold)
+
+    def _a_is_active(self, player: LibPlayerState) -> bool:
+        """Return whether runtime state proves A is pending or held."""
+        return bool(
+            self._controller.current.button.get(Button.BUTTON_A, False)
+            or self._controller.prev.button.get(Button.BUTTON_A, False)
+            or player.controller_state.button.get(Button.BUTTON_A, False)
+        )
+
+    def _apply_cargo_release_inputs(self, player: LibPlayerState, hold: Hold) -> None:
+        """Apply a cargo release using the currently observed facing direction."""
+        stick_x, stick_y = self._stick_for_attack(player, hold.attack_type)
+        self._controller.release_all()
+        self._controller.tilt_analog(Button.BUTTON_MAIN, stick_x, stick_y)
+        self._controller.press_button(Button.BUTTON_A)
 
     def _apply_attack_inputs(self, hold: Hold) -> None:
         """Write stick and button state for ``hold.attack_type`` to the controller.
@@ -1238,8 +1268,6 @@ class SimpleControls:
         if hold.attack_type in _GRAB_THROW_ATTACKS:
             self._controller.release_all()
             self._controller.tilt_analog(Button.BUTTON_MAIN, hold.stick_x, hold.stick_y)
-            if hold._cargo_release:
-                self._controller.press_button(Button.BUTTON_A)
             return
 
         if hold.attack_type in _AERIAL_ATTACKS:
