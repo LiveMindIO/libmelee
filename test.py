@@ -1926,6 +1926,89 @@ class SimpleControlsInputTests(unittest.TestCase):
                 self.assertIs(character_state.forward_axis(), forward)
                 self.assertIs(character_state.backward_axis(), backward)
 
+    def test_character_state_get_nana_wraps_follower_state(self) -> None:
+        nana = melee.PlayerState(
+            character=melee.Character.NANA,
+            action=melee.Action.DAMAGE_HIGH_1,
+            position=melee.Position(x=-12.0, y=8.0),
+            speed_air_x_self=-1.5,
+            hitstun_frames_left=8,
+        )
+        popo = melee.PlayerState(
+            character=melee.Character.POPO,
+            action=melee.Action.STANDING,
+            position=melee.Position(x=10.0, y=0.0),
+            nana=nana,
+        )
+        game_state = melee.GameState(players={1: popo})
+        popo_state = CharacterState(game_state, 1, frame_data=self.frame_data)
+
+        nana_state = popo_state.get_nana()
+
+        self.assertIsNotNone(nana_state)
+        self.assertIs(nana_state.game_state, game_state)
+        self.assertEqual(nana_state.port, 1)
+        self.assertIs(nana_state.frame_data, self.frame_data)
+        self.assertIs(nana_state.player(), nana)
+        self.assertEqual(nana_state.position_x, -12.0)
+        self.assertEqual(nana_state.position_y, 8.0)
+        self.assertEqual(nana_state.speed_air_x_self, -1.5)
+        self.assertIs(nana_state.get_state(), CharacterStatus.Hitstun)
+        self.assertIsNone(nana_state.get_nana())
+
+    def test_get_nana_returns_none_without_follower_state(self) -> None:
+        for game_state in (
+            melee.GameState(),
+            melee.GameState(
+                players={1: melee.PlayerState(character=melee.Character.FOX)}
+            ),
+            melee.GameState(
+                players={1: melee.PlayerState(character=melee.Character.POPO)}
+            ),
+        ):
+            with self.subTest(game_state=game_state):
+                character_state = CharacterState(
+                    game_state,
+                    1,
+                    frame_data=self.frame_data,
+                )
+                controls = SimpleControls(
+                    game_state,
+                    1,
+                    RecordingSimpleController(),
+                    frame_data=self.frame_data,
+                )
+
+                self.assertIsNone(character_state.get_nana())
+                self.assertIsNone(controls.get_nana())
+
+    def test_simple_controls_get_nana_uses_follower_state_and_shared_controller(self) -> None:
+        nana = melee.PlayerState(
+            character=melee.Character.NANA,
+            action=melee.Action.STANDING,
+            on_ground=True,
+        )
+        popo = melee.PlayerState(
+            character=melee.Character.POPO,
+            action=melee.Action.DAMAGE_HIGH_1,
+            hitstun_frames_left=8,
+            nana=nana,
+        )
+        controller = RecordingSimpleController()
+        controls, _ = self.controls(popo, controller)
+
+        self.assertIsNone(controls.attack(AttackType.JAB))
+        nana_controls = controls.get_nana()
+        self.assertIsNotNone(nana_controls)
+
+        result = nana_controls.attack(AttackType.JAB)
+
+        self.assertIsInstance(result, Hold)
+        self.assertIs(result.character, melee.Character.NANA)
+        self.assertIn(melee.Button.BUTTON_A, controller.buttons)
+        self.assertIs(nana_controls.character_state.player(), nana)
+        self.assertIsNone(nana_controls.get_nana())
+
     def test_axis_types_restrict_facing_and_dodge_apis(self) -> None:
         self.assertEqual(
             set(get_args(HorizontalStickReferenceAxis)),

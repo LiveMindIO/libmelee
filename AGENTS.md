@@ -264,6 +264,13 @@ uv pip install --python .venv/bin/python .
 - `SimpleControls.tilt_analog(stick, x, y)` validates raw normalized coordinates
   for the main stick or C-stick and forwards them without resetting other pending
   inputs or flushing the controller.
+- `CharacterState.get_nana()` returns a follower-state view for Ice Climbers and
+  `None` when Nana is absent. The view retains Popo's port, frame snapshot, stage
+  geometry, and shared `FrameData`, but every property and classification query
+  reads the nested `PlayerState.nana`. `SimpleControls.get_nana()` returns the
+  corresponding input view: it shares Popo's controller and frame timing while
+  validating and recognizing inputs against Nana's state. Inputs requested through
+  either view target the same controller and may overwrite one another in a frame.
 - `FTILT`, `FSMASH`, and `SIDE_B` remain relative to character facing.
   `LTILT`/`RTILT`, `LSMASH`/`RSMASH`, and `LSPECIAL`/`RSPECIAL` request an absolute
   screen direction. Aerials remain facing-relative because fair/back-air behavior
