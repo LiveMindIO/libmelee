@@ -281,6 +281,10 @@ uv pip install --python .venv/bin/python .
   framework-owned `released` and `release_frame` lifecycle fields so the token
   cannot be reused. Its returned metadata may still
   name the expected action before a later `PlayerState` confirms startup.
+- JAB commit retries alternate A press and neutral packets until the requested
+  jab is observed. The framework-owned edge phase is excluded from `Hold`
+  equality and hashing; this is retry behavior for one requested jab, not an
+  automatic jab-chain API.
 - `CharacterState.can_jump()` and the module-level `can_jump()` allow actionable
   ground jumps, late common `LANDING` frames after each character's NTSC 1.02
   `NormalLandingLag`, and remaining aerial jumps. `LANDING` is raw zero-indexed

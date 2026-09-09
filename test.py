@@ -1660,6 +1660,8 @@ class AngularStickTests(unittest.TestCase):
 class RecordingSimpleController:
     def __init__(self, *, analog_input_correction_enabled: bool = True) -> None:
         self.analog_input_correction_enabled = analog_input_correction_enabled
+        self.current = melee.ControllerState()
+        self.prev = melee.ControllerState()
         self.main_stick = (0.5, 0.5)
         self.c_stick = (0.5, 0.5)
         self.buttons = set()
@@ -1669,6 +1671,7 @@ class RecordingSimpleController:
         }
 
     def release_all(self) -> None:
+        self.current = melee.ControllerState()
         self.main_stick = (0.5, 0.5)
         self.c_stick = (0.5, 0.5)
         self.buttons.clear()
@@ -1677,18 +1680,59 @@ class RecordingSimpleController:
 
     def tilt_analog(self, button, x, y) -> None:
         if button is melee.Button.BUTTON_MAIN:
+            self.current.main_stick = (x, y)
             self.main_stick = (x, y)
         elif button is melee.Button.BUTTON_C:
+            self.current.c_stick = (x, y)
             self.c_stick = (x, y)
 
     def press_button(self, button) -> None:
+        self.current.button[button] = True
         self.buttons.add(button)
 
     def release_button(self, button) -> None:
+        self.current.button[button] = False
         self.buttons.discard(button)
 
     def press_shoulder(self, button, amount) -> None:
+        if button is melee.Button.BUTTON_L:
+            self.current.l_shoulder = amount
+        elif button is melee.Button.BUTTON_R:
+            self.current.r_shoulder = amount
         self.shoulders[button] = amount
+
+
+class PacketRecordingSimpleController(RecordingSimpleController):
+    def __init__(self) -> None:
+        super().__init__()
+        self.pending_operations = []
+        self.packets = []
+
+    def release_all(self) -> None:
+        super().release_all()
+        self.pending_operations.append(("release_all",))
+
+    def tilt_analog(self, button, x, y) -> None:
+        super().tilt_analog(button, x, y)
+        self.pending_operations.append(("tilt_analog", button, x, y))
+
+    def press_button(self, button) -> None:
+        super().press_button(button)
+        self.pending_operations.append(("press_button", button))
+
+    def release_button(self, button) -> None:
+        super().release_button(button)
+        self.pending_operations.append(("release_button", button))
+
+    def flush(self) -> None:
+        self.prev = copy.deepcopy(self.current)
+        self.packets.append(
+            (
+                frozenset(self.buttons),
+                tuple(self.pending_operations),
+            )
+        )
+        self.pending_operations.clear()
 
 
 class RecordingMenuController(RecordingSimpleController):
@@ -2307,6 +2351,208 @@ class SimpleControlsInputTests(unittest.TestCase):
                 self.assertIsInstance(smash_controls.attack(smash), Hold)
                 self.assertEqual(tilt_controller.main_stick, tilt_stick)
                 self.assertEqual(smash_controller.main_stick, smash_stick)
+
+    def test_jab_retry_commits_press_release_press_packets(self) -> None:
+        player = melee.PlayerState(
+            character=melee.Character.FOX,
+            action=melee.Action.STANDING,
+            on_ground=True,
+        )
+        controller = PacketRecordingSimpleController()
+        controls, _ = self.controls(player, controller)
+        hold = controls.attack(AttackType.JAB)
+        self.assertIsInstance(hold, Hold)
+        assert isinstance(hold, Hold)
+        controller.flush()
+
+        retry_controls, _ = self.controls(player, controller, frame=1)
+        self.assertIs(retry_controls.attack(AttackType.JAB, hold=hold), hold)
+        self.assertNotIn(melee.Button.BUTTON_A, controller.buttons)
+        self.assertNotIn(
+            ("press_button", melee.Button.BUTTON_A),
+            controller.pending_operations,
+        )
+        controller.flush()
+
+        second_retry_controls, _ = self.controls(player, controller, frame=2)
+        self.assertIs(second_retry_controls.attack(AttackType.JAB, hold=hold), hold)
+        controller.flush()
+
+        self.assertEqual(
+            [melee.Button.BUTTON_A in buttons for buttons, _ in controller.packets],
+            [True, False, True],
+        )
+
+    def test_jab_start_neutralizes_pending_or_held_a_before_pressing(self) -> None:
+        for initial_a_state in ("pending", "held", "observed"):
+            with self.subTest(initial_a_state=initial_a_state):
+                player = melee.PlayerState(
+                    character=melee.Character.FOX,
+                    action=melee.Action.STANDING,
+                    on_ground=True,
+                )
+                controller = PacketRecordingSimpleController()
+                if initial_a_state in {"pending", "held"}:
+                    controller.press_button(melee.Button.BUTTON_A)
+                if initial_a_state == "held":
+                    controller.flush()
+                elif initial_a_state == "pending":
+                    controller.pending_operations.clear()
+                else:
+                    player.controller_state.button[melee.Button.BUTTON_A] = True
+
+                controls, _ = self.controls(player, controller)
+                hold = controls.attack(AttackType.JAB)
+                self.assertIsInstance(hold, Hold)
+                assert isinstance(hold, Hold)
+                self.assertNotIn(melee.Button.BUTTON_A, controller.buttons)
+                self.assertNotIn(
+                    ("press_button", melee.Button.BUTTON_A),
+                    controller.pending_operations,
+                )
+                controller.flush()
+
+                retry_controls, _ = self.controls(player, controller, frame=1)
+                self.assertIs(retry_controls.attack(AttackType.JAB, hold=hold), hold)
+                controller.flush()
+                if initial_a_state == "observed":
+                    self.assertNotIn(melee.Button.BUTTON_A, controller.buttons)
+                    player.controller_state.button[melee.Button.BUTTON_A] = False
+                    retry_controls, _ = self.controls(player, controller, frame=2)
+                    self.assertIs(retry_controls.attack(AttackType.JAB, hold=hold), hold)
+                    controller.flush()
+                self.assertEqual(
+                    [melee.Button.BUTTON_A in buttons for buttons, _ in controller.packets[-2:]],
+                    [False, True],
+                )
+
+    def test_observed_jab_finishes_with_a_released(self) -> None:
+        standing = melee.PlayerState(
+            character=melee.Character.FOX,
+            action=melee.Action.STANDING,
+            on_ground=True,
+        )
+        controller = PacketRecordingSimpleController()
+        controls, _ = self.controls(standing, controller)
+        hold = controls.attack(AttackType.JAB)
+        self.assertIsInstance(hold, Hold)
+        assert isinstance(hold, Hold)
+        controller.flush()
+
+        jabbing = melee.PlayerState(
+            character=melee.Character.FOX,
+            action=melee.Action.NEUTRAL_ATTACK_1,
+            on_ground=True,
+        )
+        active_controls, _ = self.controls(jabbing, controller, frame=1)
+        self.assertIsInstance(
+            active_controls.attack(AttackType.JAB, hold=hold),
+            AttackFrameData,
+        )
+        self.assertNotIn(melee.Button.BUTTON_A, controller.buttons)
+        controller.flush()
+        self.assertEqual(
+            [melee.Button.BUTTON_A in buttons for buttons, _ in controller.packets],
+            [True, False],
+        )
+
+    def test_jab_same_frame_retry_does_not_release_and_repress(self) -> None:
+        player = melee.PlayerState(
+            character=melee.Character.FOX,
+            action=melee.Action.STANDING,
+            on_ground=True,
+        )
+        controller = PacketRecordingSimpleController()
+        controls, _ = self.controls(player, controller, frame=7)
+        hold = controls.attack(AttackType.JAB)
+        self.assertIsInstance(hold, Hold)
+        assert isinstance(hold, Hold)
+        initial_operations = tuple(controller.pending_operations)
+
+        self.assertIs(controls.attack(AttackType.JAB, hold=hold), hold)
+
+        self.assertEqual(tuple(controller.pending_operations), initial_operations)
+        self.assertEqual(
+            controller.pending_operations.count(("press_button", melee.Button.BUTTON_A)),
+            1,
+        )
+
+    def test_jab_timeout_and_interruption_release_pending_a(self) -> None:
+        standing = melee.PlayerState(
+            character=melee.Character.FOX,
+            action=melee.Action.STANDING,
+            on_ground=True,
+        )
+        interrupted = melee.PlayerState(
+            character=melee.Character.FOX,
+            action=melee.Action.DAMAGE_HIGH_1,
+            on_ground=True,
+            hitstun_frames_left=5,
+        )
+        for terminal_player, frame in ((standing, 12), (interrupted, 1)):
+            with self.subTest(frame=frame, action=terminal_player.action):
+                controller = PacketRecordingSimpleController()
+                controls, _ = self.controls(standing, controller)
+                hold = controls.attack(AttackType.JAB)
+                self.assertIsInstance(hold, Hold)
+                assert isinstance(hold, Hold)
+                controller.flush()
+
+                terminal_controls, _ = self.controls(terminal_player, controller, frame=frame)
+                self.assertIsNone(terminal_controls.attack(AttackType.JAB, hold=hold))
+                self.assertNotIn(melee.Button.BUTTON_A, controller.buttons)
+                controller.flush()
+                self.assertEqual(
+                    [melee.Button.BUTTON_A in buttons for buttons, _ in controller.packets],
+                    [True, False],
+                )
+
+    def test_jab_private_edge_state_preserves_hold_equality_and_hash(self) -> None:
+        player = melee.PlayerState(
+            character=melee.Character.FOX,
+            action=melee.Action.STANDING,
+            on_ground=True,
+        )
+        controller = PacketRecordingSimpleController()
+        controls, _ = self.controls(player, controller)
+        hold = controls.attack(AttackType.JAB)
+        self.assertIsInstance(hold, Hold)
+        assert isinstance(hold, Hold)
+        equivalent = dataclasses.replace(hold)
+        original_hash = hash(hold)
+        controller.flush()
+
+        retry_controls, _ = self.controls(player, controller, frame=1)
+        self.assertIs(retry_controls.attack(AttackType.JAB, hold=hold), hold)
+
+        self.assertNotIn("_jab_a_pending", inspect.signature(Hold).parameters)
+        self.assertNotIn("_jab_last_input_frame", inspect.signature(Hold).parameters)
+        self.assertEqual(hold, equivalent)
+        self.assertEqual(hash(hold), original_hash)
+        self.assertEqual(hash(hold), hash(equivalent))
+
+    def test_non_jab_commit_retry_remains_continuously_held(self) -> None:
+        player = melee.PlayerState(
+            character=melee.Character.FOX,
+            action=melee.Action.STANDING,
+            on_ground=True,
+            facing=True,
+        )
+        controller = PacketRecordingSimpleController()
+        controls, _ = self.controls(player, controller)
+        hold = controls.attack(AttackType.FTILT)
+        self.assertIsInstance(hold, Hold)
+        assert isinstance(hold, Hold)
+        controller.flush()
+
+        retry_controls, _ = self.controls(player, controller, frame=1)
+        self.assertIs(retry_controls.attack(AttackType.FTILT, hold=hold), hold)
+        controller.flush()
+
+        self.assertEqual(
+            [melee.Button.BUTTON_A in buttons for buttons, _ in controller.packets],
+            [True, True],
+        )
 
     def test_ground_tilts_have_quantization_margin_from_each_smash_threshold(
         self,
