@@ -895,6 +895,9 @@ class PostFrameParsingTests(unittest.TestCase):
         self.console._is_teams = False
         self.console._prev_gamestate = melee.GameState()
         self.console._use_manual_bookends = False
+        self.console._costumes = [0, 1, 2, 3]
+        self.console._cpu_level = [1, 2, 3, 4]
+        self.console._team_id = [0, 1, 0, 1]
 
     def post_frame_payload(self):
         payload = bytearray(0x6D)
@@ -906,6 +909,28 @@ class PostFrameParsingTests(unittest.TestCase):
 
     def parse_post_frame(self, game_state, payload):
         self.console._Console__post_frame(game_state, payload)
+
+    def test_nana_post_frame_preserves_pre_frame_state(self) -> None:
+        game_state = melee.GameState(frame=0)
+        pre_payload = bytearray(0x41)
+        pre_payload[1:5] = (0).to_bytes(4, "big", signed=True)
+        pre_payload[5] = 0
+        pre_payload[6] = 1
+        pre_payload[0x31:0x33] = (0x0100).to_bytes(2, "big")
+        self.console._Console__pre_frame(game_state, pre_payload)
+        nana = game_state.players[1].nana
+        self.assertIsNotNone(nana)
+
+        post_payload = self.post_frame_payload()
+        post_payload[6] = 1
+        post_payload[7] = melee.Character.NANA.value
+        self.parse_post_frame(game_state, post_payload)
+
+        self.assertIs(game_state.players[1].nana, nana)
+        self.assertTrue(nana.controller_state.button[melee.Button.BUTTON_A])
+        self.assertEqual(nana.costume, 0)
+        self.assertEqual(nana.cpu_level, 1)
+        self.assertEqual(nana.team_id, 0)
 
     def test_defender_hitlag_flag_sets_and_clears_on_reused_player(self):
         game_state = melee.GameState(frame=0)

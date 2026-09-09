@@ -271,6 +271,9 @@ uv pip install --python .venv/bin/python .
   corresponding input view: it shares Popo's controller and frame timing while
   validating and recognizing inputs against Nana's state. Inputs requested through
   either view target the same controller and may overwrite one another in a frame.
+  Console parsing reuses the same nested follower `PlayerState` for PRE_FRAME and
+  POST_FRAME packets so pre-frame controller input and player metadata survive
+  post-frame field updates.
   Console frame-index normalization must process the nested follower alongside each
   top-level port leader so both views expose the same one-indexed action-frame contract.
 - `FTILT`, `FSMASH`, and `SIDE_B` remain relative to character facing.

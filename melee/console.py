@@ -1191,7 +1191,8 @@ class Console:
 
         # Is this Nana?
         if np.ndarray((1,), ">B", event_bytes, 0x6)[0] == 1:
-            playerstate.nana = PlayerState()
+            if playerstate.nana is None:
+                playerstate.nana = PlayerState()
             playerstate = playerstate.nana
 
         playerstate.costume = self._costumes[controller_port-1]
@@ -1264,7 +1265,8 @@ class Console:
 
         # Is this Nana?
         if np.ndarray((1,), ">B", event_bytes, 0x6)[0] == 1:
-            playerstate.nana = PlayerState()
+            if playerstate.nana is None:
+                playerstate.nana = PlayerState()
             playerstate = playerstate.nana
 
         playerstate.position.x = np.ndarray((1,), ">f", event_bytes, 0xa)[0]
