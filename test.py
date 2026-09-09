@@ -6156,6 +6156,47 @@ class TechniqueMontageTests(unittest.TestCase):
                     ],
                 )
 
+    def test_yoshi_egg_throw_keeps_running_during_start_release_packets(self):
+        for facing, forward_axis in (
+            (True, StickReferenceAxis.RIGHT),
+            (False, StickReferenceAxis.LEFT),
+        ):
+            with self.subTest(facing=facing):
+                montage = YoshiEggThrowMontage(self.egg_aim())
+                expected_release_calls = [
+                    ("release_all",),
+                    (
+                        "tilt_stick",
+                        forward_axis,
+                        0.0,
+                        1.0,
+                        melee.Button.BUTTON_MAIN,
+                    ),
+                ]
+
+                for _ in range(2):
+                    self.assertIs(
+                        self.tick(
+                            montage,
+                            melee.Action.RUNNING,
+                            character=melee.Character.YOSHI,
+                            facing=facing,
+                        ),
+                        montage,
+                    )
+                    self.assertEqual(self.controls.take_calls(), expected_release_calls)
+
+                    self.assertIs(
+                        self.tick(
+                            montage,
+                            melee.Action.RUNNING,
+                            character=melee.Character.YOSHI,
+                            facing=facing,
+                        ),
+                        montage,
+                    )
+                    self.controls.take_calls()
+
     def test_yoshi_egg_throw_commits_fresh_b_edges_for_start_and_retry(self):
         controller = PacketRecordingSimpleController()
         controller.press_button(melee.Button.BUTTON_B)

@@ -403,9 +403,11 @@ Libmelee includes concrete technique montages:
   the game's final IASA counter increment.
   Full power does not force release; the montage can hold through its one-minute
   safety window.
-- `YoshiEggThrowMontage(aim)` starts Yoshi's grounded or aerial Up-B after one
-  neutral input frame guarantees a fresh B edge. `aim` is a callback receiving
-  `(player_state, opponent_state, game_state)` and returning raw normalized
+- `YoshiEggThrowMontage(aim)` starts Yoshi's grounded or aerial Up-B with one
+  B-release packet before cardinal up+B to guarantee a fresh edge. Running starts
+  retain their forward stick during that packet so RunBrake cannot consume the
+  setup. `aim` receives
+  `(player_state, opponent_state, game_state)` and returns raw normalized
   main-stick `(x, y)` coordinates. It is evaluated on every active tick through
   action states 364 and 365, so a lambda can continuously retarget the egg from
   current state. B remains held until sticky `release_charge()` stops further

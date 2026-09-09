@@ -197,9 +197,11 @@ uv pip install --python .venv/bin/python .
   release. Power includes the final counter increment applied when the queued
   release reaches the bow IASA callback.
   `YoshiEggThrowMontage(aim)` supports Yoshi's grounded and aerial Up-B as one
-  stateful action across raw states 364/365. It commits neutral before cardinal
-  up+B and before each retry so a previously held B cannot suppress the required
-  edge. The aim callback receives the current player, opponent, and game states
+  stateful action across raw states 364/365. It commits a B-release packet before
+  cardinal up+B and before each retry so a previously held B cannot suppress the
+  required edge. Running starts keep full forward stick during those release
+  packets because normal Dash-to-Run has no neutral-stick grace. The aim callback
+  receives the current player, opponent, and game states
   and returns raw normalized main-stick `(x, y)` coordinates on every active tick,
   including after sticky `release_charge()` stops private charge accumulation.
   The animation script owns egg launch, so the montage retains aim and exposes no

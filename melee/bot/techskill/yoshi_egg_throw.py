@@ -56,11 +56,13 @@ _START_WAIT_LIMIT: Final = 3
 class YoshiEggThrowMontage(StatefulInputMontage[_YoshiEggThrowState]):
     """Aim and charge Yoshi's grounded or aerial Egg Throw.
 
-    Egg Throw commits one neutral frame before cardinal up+B so a previously
-    held B cannot suppress the required button edge. While its grounded or aerial
-    action is active, ``aim`` receives the current player, opponent, and game
-    states and returns raw normalized main-stick ``(x, y)`` coordinates. It is
-    evaluated on every active tick so callers can continuously retarget the throw.
+    Egg Throw commits one B-release frame before cardinal up+B so a previously
+    held B cannot suppress the required button edge. A running start retains its
+    forward stick during that frame so it remains actionable. While its grounded
+    or aerial action is active, ``aim`` receives the current player, opponent, and
+    game states and returns raw normalized main-stick ``(x, y)`` coordinates. It
+    is evaluated on every active tick so callers can continuously retarget the
+    throw.
 
     B remains held on every action tick until :meth:`release_charge` is called.
     That sticky request releases B on the next active tick but retains aim through
@@ -147,7 +149,7 @@ class YoshiEggThrowMontage(StatefulInputMontage[_YoshiEggThrowState]):
 
         match input_state.phase:
             case _YoshiEggThrowPhase.NeutralizingStartInput:
-                controls.release_all()
+                self._apply_start_release_input(controls, player_state)
                 return (
                     replace(
                         input_state,
@@ -176,7 +178,7 @@ class YoshiEggThrowMontage(StatefulInputMontage[_YoshiEggThrowState]):
                     self._apply_throw_input(controls, player_state, opponent_state, state)
                     return replace(input_state, phase=_YoshiEggThrowPhase.Throwing), self
                 if input_state.start_wait_frames < _START_WAIT_LIMIT and player_state.can_attack(AttackType.UP_B):
-                    controls.release_all()
+                    self._apply_start_release_input(controls, player_state)
                     return (
                         replace(
                             input_state,
@@ -194,6 +196,17 @@ class YoshiEggThrowMontage(StatefulInputMontage[_YoshiEggThrowState]):
                     controls.release_all()
                     return input_state, True
                 return input_state, Abort("Yoshi Egg Throw was interrupted")
+
+    @staticmethod
+    def _apply_start_release_input(controls: SimpleControls, player_state: CharacterState) -> None:
+        controls.release_all()
+        player_state_value = player(player_state)
+        if player_state_value is not None and player_state_value.action is Action.RUNNING:
+            # DESNOTE(jbarber, 2026-09-09): A normal Dash-to-Run transition starts
+            # Run's stick-neutral grace counter at zero, so one neutral packet
+            # enters RunBrake before the following up+B packet can be consumed.
+            # See https://github.com/doldecomp/melee/blob/a983c0f9cd41d4a46001c493a1929891ac80f9ab/src/melee/ft/chara/ftCommon/ftCo_Run.c
+            controls.tilt_stick(player_state.forward_axis(), 0.0)
 
     @staticmethod
     def _apply_start_input(controls: SimpleControls) -> None:
