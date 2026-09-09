@@ -192,7 +192,9 @@ token as `released` and records `release_frame`; do not reuse it.
 `CharacterState.can_jump()` (also available as `melee.bot.can_jump`) reports
 direct common ground jumps and remaining aerial jumps, including tumble,
 platform drop, Jigglypuff's five character-owned aerial jumps, and helpless
-`DEAD_FALL` / `SPECIAL_FALL_*`. It returns `True`
+`DEAD_FALL` / `SPECIAL_FALL_*`. It also follows each character's NTSC 1.02
+normal-landing attribute and returns `True` during late actionable `LANDING`
+frames. `LANDING_SPECIAL` and aerial landing lag remain blocked. It returns `True`
 throughout common shield start, hold, reflect, and release. Yoshi can jump only
 from its character-owned GuardOn_1 powershield state. Shield stun and hitlag are
 not actionable, and jump squat itself cannot begin another jump.

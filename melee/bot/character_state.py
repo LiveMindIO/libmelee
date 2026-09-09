@@ -1896,8 +1896,9 @@ def can_jump(player: LibPlayerState, frame_data: FrameData) -> bool:
 
     Actionable shield phases permit jump-canceling for the roster. Yoshi's unique
     shield permits it only from GuardOn_1 (the powershield state); shield stun does
-    not. Outside shield, the player must be in an actionable ground or air state
-    and retain an aerial jump when airborne.
+    not. Common ``LANDING`` permits jumping once the character's normal landing
+    lag expires. Outside those states, the player must be in an actionable ground
+    or air state and retain an aerial jump when airborne.
     """
     # GuardSetOff (SHIELD_STUN) has an empty IASA; other common actionable shield
     # phases check jump. Yoshi's GuardOn_1 delegates to the common GuardReflect
@@ -1916,6 +1917,19 @@ def can_jump(player: LibPlayerState, frame_data: FrameData) -> bool:
         return True
     if is_shielding(player, frame_data):
         return False
+    if player.on_ground and player.action is Action.LANDING:
+        attributes = frame_data.characterdata.get(player.character)
+        if attributes is None:
+            return False
+        first_actionable_frame = attributes["NormalLandingLag"]
+        # DESNOTE(jbarber, 2026-09-09): Landing begins at raw frame 0 for every
+        # roster entry except Zelda, while PlayerState normalizes both forms to
+        # one-indexed frames. Convert the raw ftCo_Landing_IASA threshold here.
+        # See melee/actiondata.csv and:
+        # https://github.com/doldecomp/melee/blob/a983c0f9cd41d4a46001c493a1929891ac80f9ab/src/melee/ft/chara/ftCommon/ftCo_Landing.c#L139-L163
+        if player.character is not Character.ZELDA:
+            first_actionable_frame += 1
+        return player.action_frame >= first_actionable_frame
     if not _can_attack_by_combat_state(player, frame_data) or not isinstance(player.action, Action):
         return False
     if player.on_ground:
