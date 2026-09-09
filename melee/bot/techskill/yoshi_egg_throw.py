@@ -25,6 +25,7 @@ class YoshiEggThrowAim(Enum):
 
 
 class _YoshiEggThrowPhase(Enum):
+    NeutralizingStartInput = auto()
     StartInput = auto()
     AwaitingAction = auto()
     Throwing = auto()
@@ -32,7 +33,7 @@ class _YoshiEggThrowPhase(Enum):
 
 @dataclass(frozen=True)
 class _YoshiEggThrowState:
-    phase: _YoshiEggThrowPhase = _YoshiEggThrowPhase.StartInput
+    phase: _YoshiEggThrowPhase = _YoshiEggThrowPhase.NeutralizingStartInput
     character: Character | None = None
     start_wait_frames: int = 0
 
@@ -63,10 +64,12 @@ _START_WAIT_LIMIT: Final = 3
 class YoshiEggThrowMontage(StatefulInputMontage[_YoshiEggThrowState]):
     """Aim and charge Yoshi's grounded or aerial Egg Throw.
 
-    Egg Throw begins with cardinal up+B. While its grounded or aerial action is
-    active, ``aim`` applies an absolute horizontal main-stick direction at the
-    requested stick ``magnitude``. The neutral aim leaves the stick centered, so
-    its magnitude has no effect.
+    Egg Throw commits one neutral frame before cardinal up+B so a previously
+    held B cannot suppress the required button edge. While its grounded or aerial
+    action is active, ``aim`` applies an absolute horizontal main-stick direction
+    at the requested stick ``magnitude``. The neutral aim leaves the stick
+    centered, so its magnitude has no effect. Call :meth:`set_aim` before a tick,
+    including from a pre-tick listener, to retarget from the current game state.
 
     B remains held on every action tick until :meth:`release_charge` is called.
     That sticky request releases B on the next active tick but retains aim through
@@ -98,6 +101,19 @@ class YoshiEggThrowMontage(StatefulInputMontage[_YoshiEggThrowState]):
         self._aim = aim
         self._magnitude = magnitude
         self._release_requested = False
+
+    def set_aim(
+        self,
+        aim: YoshiEggThrowAim,
+        magnitude: float = 1.0,
+    ) -> Self:
+        """Set the absolute aim applied by the next active throw tick."""
+        if not math.isfinite(magnitude) or not 0.0 <= magnitude <= 1.0:
+            raise ValueError("magnitude must be finite and between 0 and 1 inclusive")
+        if self.get_montage_state() in {MontageState.Waiting, MontageState.Active}:
+            self._aim = aim
+            self._magnitude = magnitude
+        return self
 
     def release_charge(self) -> Self:
         """Stop adding charge on the next active tick and return ``self``.
@@ -157,7 +173,22 @@ class YoshiEggThrowMontage(StatefulInputMontage[_YoshiEggThrowState]):
             return input_state, Abort("player state became unavailable")
 
         match input_state.phase:
+            case _YoshiEggThrowPhase.NeutralizingStartInput:
+                controls.release_all()
+                return (
+                    replace(
+                        input_state,
+                        phase=_YoshiEggThrowPhase.StartInput,
+                        character=player_state_value.character,
+                    ),
+                    self,
+                )
             case _YoshiEggThrowPhase.StartInput:
+                if player_state_value.action in _EGG_THROW_ACTIONS:
+                    self._apply_throw_input(controls)
+                    return replace(input_state, phase=_YoshiEggThrowPhase.Throwing), self
+                if not player_state.can_attack(AttackType.UP_B):
+                    return input_state, Abort("Yoshi Egg Throw did not start")
                 self._apply_start_input(controls)
                 return (
                     replace(
@@ -175,8 +206,15 @@ class YoshiEggThrowMontage(StatefulInputMontage[_YoshiEggThrowState]):
                     input_state.start_wait_frames < _START_WAIT_LIMIT
                     and player_state.can_attack(AttackType.UP_B)
                 ):
-                    self._apply_start_input(controls)
-                    return replace(input_state, start_wait_frames=input_state.start_wait_frames + 1), self
+                    controls.release_all()
+                    return (
+                        replace(
+                            input_state,
+                            phase=_YoshiEggThrowPhase.StartInput,
+                            start_wait_frames=input_state.start_wait_frames + 1,
+                        ),
+                        self,
+                    )
                 return input_state, Abort("Yoshi Egg Throw did not start")
             case _YoshiEggThrowPhase.Throwing:
                 if player_state_value.action in _EGG_THROW_ACTIONS:
