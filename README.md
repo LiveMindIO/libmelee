@@ -399,6 +399,13 @@ Libmelee includes concrete technique montages:
   the game's final IASA counter increment.
   Full power does not force release; the montage can hold through its one-minute
   safety window.
+- `YoshiEggThrowMontage(aim, magnitude)` starts Yoshi's grounded or aerial Up-B
+  with cardinal up+B, then holds an absolute `YoshiEggThrowAim.LEFT`, `NEUTRAL`,
+  or `RIGHT` main-stick aim through action states 364 and 365. Directional
+  magnitude is validated from zero through one. B remains held on every action
+  tick until sticky `release_charge()` stops further charge accumulation; aim is
+  retained through the script-owned egg launch. No current-power API is exposed
+  because libmelee does not report Egg Throw's private charge counter.
 - `JigglypuffRolloutMontage()` gives grounded and aerial Rollout the same sticky
   `release()`, `can_release()`, and normalized `current_power()` interface. Full
   Rollout remains held until release, with the same one-minute safety window.

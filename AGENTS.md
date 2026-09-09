@@ -196,6 +196,12 @@ uv pip install --python .venv/bin/python .
   become available on the first safe release frame and return unavailable after
   release. Power includes the final counter increment applied when the queued
   release reaches the bow IASA callback.
+  `YoshiEggThrowMontage(aim, magnitude)` supports Yoshi's grounded and aerial
+  Up-B as one stateful action across raw states 364/365. It initiates cardinal
+  up+B, holds absolute left/right/neutral aim throughout the action, and keeps B
+  held on every action tick until sticky `release_charge()` is requested. B
+  release stops only private charge accumulation; the animation script owns egg
+  launch, so the montage retains aim and exposes no estimated power.
   `JigglypuffRolloutMontage` uses the same caller-release queries and keeps full
   Rollout held through a one-minute safety window. `LuigiGreenMissileMontage`
   and `SkullBashMontage` accept an absolute horizontal direction. Their default
