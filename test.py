@@ -2063,6 +2063,54 @@ class SimpleControlsInputTests(unittest.TestCase):
         self.assertIs(nana_controls.character_state.player(), nana)
         self.assertIsNone(nana_controls.get_nana())
 
+    def test_popo_and_nana_reject_each_others_holds(self) -> None:
+        for source_character in (melee.Character.POPO, melee.Character.NANA):
+            with self.subTest(source_character=source_character):
+                nana = melee.PlayerState(
+                    character=melee.Character.NANA,
+                    action=melee.Action.STANDING,
+                    on_ground=True,
+                )
+                popo = melee.PlayerState(
+                    character=melee.Character.POPO,
+                    action=melee.Action.STANDING,
+                    on_ground=True,
+                    nana=nana,
+                )
+                controller = RecordingSimpleController()
+                controls, _ = self.controls(popo, controller)
+                nana_controls = controls.get_nana()
+                self.assertIsNotNone(nana_controls)
+                source_controls = (
+                    controls
+                    if source_character is melee.Character.POPO
+                    else nana_controls
+                )
+                hold = source_controls.attack(AttackType.JAB)
+                self.assertIsInstance(hold, Hold)
+
+                active_nana = melee.PlayerState(
+                    character=melee.Character.NANA,
+                    action=melee.Action.NEUTRAL_ATTACK_1,
+                    on_ground=True,
+                )
+                active_popo = melee.PlayerState(
+                    character=melee.Character.POPO,
+                    action=melee.Action.NEUTRAL_ATTACK_1,
+                    on_ground=True,
+                    nana=active_nana,
+                )
+                active_controls, _ = self.controls(active_popo, controller, frame=1)
+                active_nana_controls = active_controls.get_nana()
+                self.assertIsNotNone(active_nana_controls)
+                target_controls = (
+                    active_nana_controls
+                    if source_character is melee.Character.POPO
+                    else active_controls
+                )
+
+                self.assertIsNone(target_controls.attack(AttackType.JAB, hold=hold))
+
     def test_axis_types_restrict_facing_and_dodge_apis(self) -> None:
         self.assertEqual(
             set(get_args(HorizontalStickReferenceAxis)),

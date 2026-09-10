@@ -1158,8 +1158,15 @@ class SimpleControls:
             self._controller.press_button(Button.BUTTON_Y)
 
     def _hold_matches(self, hold: Hold, attack_type: AttackType) -> bool:
-        """Return whether ``hold`` belongs to this port and ``attack_type``."""
-        return hold.attack_type == attack_type and hold.port == self._port and not hold.released
+        """Return whether ``hold`` belongs to this character view and attack."""
+        player = self._player()
+        return bool(
+            player is not None
+            and hold.character is player.character
+            and hold.attack_type is attack_type
+            and hold.port == self._port
+            and not hold.released
+        )
 
     def _continue_attack(self, hold: Hold) -> None | Hold | AttackFrameData:
         """Apply the next frame of inputs for an in-progress ``hold``.

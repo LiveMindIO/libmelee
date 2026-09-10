@@ -315,7 +315,9 @@ uv pip install --python .venv/bin/python .
   errors; new code follows the move-specific API documented here.
 - `Hold` is externally immutable and hash-compatible; successful `release()` sets
   framework-owned `released` and `release_frame` lifecycle fields so the token
-  cannot be reused. Its returned metadata may still
+  cannot be reused. Continuation ownership includes the originating character
+  view as well as its controller port and attack type, so Popo and Nana cannot
+  consume one another's holds. Its returned metadata may still
   name the expected action before a later `PlayerState` confirms startup.
 - JAB commit retries alternate A press and neutral packets until the requested
   jab is observed. The framework-owned edge phase is excluded from `Hold`
