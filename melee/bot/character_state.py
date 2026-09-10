@@ -1092,6 +1092,7 @@ class CharacterState:
         port: int,
         *,
         frame_data: FrameData | None = None,
+        _player_state: LibPlayerState | None = None,
     ) -> None:
         """Bind a frame snapshot and port for state classification.
 
@@ -1106,6 +1107,7 @@ class CharacterState:
         self._game_state = game_state
         self._port = port
         self._frame_data = frame_data or FrameData()
+        self._player_state = _player_state
 
     @property
     def game_state(self) -> GameState:
@@ -1123,7 +1125,7 @@ class CharacterState:
 
         Returns 0.0 when the port is absent from the snapshot.
         """
-        player = self._game_state.players.get(self._port)
+        player = self.player()
         if player is None:
             return 0.0
         return float(player.position.x)
@@ -1134,7 +1136,7 @@ class CharacterState:
 
         Returns 0.0 when the port is absent from the snapshot.
         """
-        player = self._game_state.players.get(self._port)
+        player = self.player()
         if player is None:
             return 0.0
         return float(player.position.y)
@@ -1145,7 +1147,7 @@ class CharacterState:
 
         Returns 0.0 when the port is absent from the snapshot.
         """
-        player = self._game_state.players.get(self._port)
+        player = self.player()
         if player is None:
             return 0.0
         return float(player.speed_air_x_self)
@@ -1156,7 +1158,7 @@ class CharacterState:
 
         Returns 0.0 when the port is absent from the snapshot.
         """
-        player = self._game_state.players.get(self._port)
+        player = self.player()
         if player is None:
             return 0.0
         return float(player.speed_ground_x_self)
@@ -1167,7 +1169,7 @@ class CharacterState:
 
         Negative values are downward. Returns 0.0 when the port is absent.
         """
-        player = self._game_state.players.get(self._port)
+        player = self.player()
         if player is None:
             return 0.0
         return float(player.speed_y_self)
@@ -1178,7 +1180,7 @@ class CharacterState:
 
         Returns 0.0 when the port is absent from the snapshot.
         """
-        player = self._game_state.players.get(self._port)
+        player = self.player()
         if player is None:
             return 0.0
         return float(player.speed_x_attack)
@@ -1189,7 +1191,7 @@ class CharacterState:
 
         Returns 0.0 when the port is absent from the snapshot.
         """
-        player = self._game_state.players.get(self._port)
+        player = self.player()
         if player is None:
             return 0.0
         return float(player.speed_y_attack)
@@ -1200,14 +1202,37 @@ class CharacterState:
         return self._frame_data
 
     def player(self) -> LibPlayerState | None:
-        """Return the raw libmelee :class:`PlayerState` for the bound port.
+        """Return the raw libmelee :class:`PlayerState` for this character view.
 
-        Returns ``None`` when the port is absent from the current snapshot.
+        A normal view returns the leader at the bound port; a view returned by
+        :meth:`get_nana` returns the nested follower. Returns ``None`` when the
+        port is absent from the current snapshot.
         Bots that need per-frame fields (``position``, ``facing``, ``percent``,
         ``action``, ...) should go through this rather than reconstructing a
         ``PlayerState`` lookup.
         """
+        if self._player_state is not None:
+            return self._player_state
         return self._game_state.players.get(self._port)
+
+    def get_nana(self) -> CharacterState | None:
+        """Return Nana's state while preserving this controller-port context.
+
+        Ice Climbers expose the follower as a nested ``PlayerState`` on the
+        leader. The returned view uses that nested state for every property and
+        classification query while retaining the same game snapshot, port,
+        stage geometry, and shared :class:`FrameData` helper. Returns ``None``
+        for non-Ice-Climbers, Sopo, absent ports, and Nana herself.
+        """
+        player = self.player()
+        if player is None or player.nana is None:
+            return None
+        return CharacterState(
+            self._game_state,
+            self._port,
+            frame_data=self._frame_data,
+            _player_state=player.nana,
+        )
 
     @property
     def nearest_grabbable_ledge(self) -> StageLedge | None:

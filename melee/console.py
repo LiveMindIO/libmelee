@@ -1191,7 +1191,8 @@ class Console:
 
         # Is this Nana?
         if np.ndarray((1,), ">B", event_bytes, 0x6)[0] == 1:
-            playerstate.nana = PlayerState()
+            if playerstate.nana is None:
+                playerstate.nana = PlayerState()
             playerstate = playerstate.nana
 
         playerstate.costume = self._costumes[controller_port-1]
@@ -1264,7 +1265,8 @@ class Console:
 
         # Is this Nana?
         if np.ndarray((1,), ">B", event_bytes, 0x6)[0] == 1:
-            playerstate.nana = PlayerState()
+            if playerstate.nana is None:
+                playerstate.nana = PlayerState()
             playerstate = playerstate.nana
 
         playerstate.position.x = np.ndarray((1,), ">f", event_bytes, 0xa)[0]
@@ -1547,9 +1549,15 @@ class Console:
     def __fixframeindexing(self, gamestate: GameState):
         """ Melee's indexing of action frames is wildly inconsistent.
             Here we adjust all of the frames to be indexed at 1 (so math is easier)"""
-        for _, player in gamestate.players.items():
-            if player.action.value in self.zero_indices[player.character.value]:
-                player.action_frame = player.action_frame + 1
+        for player in gamestate.players.values():
+            for player_state in (player, player.nana):
+                if player_state is None:
+                    continue
+                if (
+                    player_state.action.value
+                    in self.zero_indices[player_state.character.value]
+                ):
+                    player_state.action_frame = player_state.action_frame + 1
 
     def __fixiasa(self, gamestate: GameState):
         """ The IASA flag doesn't set or reset for special attacks.

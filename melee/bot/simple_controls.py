@@ -442,6 +442,7 @@ class SimpleControls:
         controller: Controller,
         *,
         frame_data: FrameData | None = None,
+        _character_state: CharacterState | None = None,
     ) -> None:
         """Bind a frame snapshot and controller for one bot port.
 
@@ -458,16 +459,33 @@ class SimpleControls:
         self._port = port
         self._controller = controller
         self._frame_data = frame_data or FrameData()
-        self._character_state = CharacterState(
-            game_state,
-            port,
-            frame_data=self._frame_data,
+        self._character_state = _character_state or CharacterState(
+            game_state, port, frame_data=self._frame_data
         )
 
     @property
     def character_state(self) -> CharacterState:
         """Bound :class:`CharacterState` backing all state classification."""
         return self._character_state
+
+    def get_nana(self) -> SimpleControls | None:
+        """Return controls whose eligibility checks use Nana's state.
+
+        The returned controls write to the same controller as Popo's controls;
+        only the underlying :class:`CharacterState` used to validate and
+        recognize inputs differs. Returns ``None`` when the bound character has
+        no active Nana state.
+        """
+        nana = self._character_state.get_nana()
+        if nana is None:
+            return None
+        return SimpleControls(
+            self._game_state,
+            self._port,
+            self._controller,
+            frame_data=self._frame_data,
+            _character_state=nana,
+        )
 
     def tilt_stick(
         self,
@@ -1096,7 +1114,7 @@ class SimpleControls:
 
     def _player(self) -> LibPlayerState | None:
         """Return the controlled port's ``PlayerState``, if present."""
-        return self._game_state.players.get(self._port)
+        return self._character_state.player()
 
     @staticmethod
     def _validate_dodge_button(dodge_button: Button) -> None:
@@ -1140,8 +1158,15 @@ class SimpleControls:
             self._controller.press_button(Button.BUTTON_Y)
 
     def _hold_matches(self, hold: Hold, attack_type: AttackType) -> bool:
-        """Return whether ``hold`` belongs to this port and ``attack_type``."""
-        return hold.attack_type == attack_type and hold.port == self._port and not hold.released
+        """Return whether ``hold`` belongs to this character view and attack."""
+        player = self._player()
+        return bool(
+            player is not None
+            and hold.character is player.character
+            and hold.attack_type is attack_type
+            and hold.port == self._port
+            and not hold.released
+        )
 
     def _continue_attack(self, hold: Hold) -> None | Hold | AttackFrameData:
         """Apply the next frame of inputs for an in-progress ``hold``.

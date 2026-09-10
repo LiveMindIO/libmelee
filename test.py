@@ -895,6 +895,9 @@ class PostFrameParsingTests(unittest.TestCase):
         self.console._is_teams = False
         self.console._prev_gamestate = melee.GameState()
         self.console._use_manual_bookends = False
+        self.console._costumes = [0, 1, 2, 3]
+        self.console._cpu_level = [1, 2, 3, 4]
+        self.console._team_id = [0, 1, 0, 1]
 
     def post_frame_payload(self):
         payload = bytearray(0x6D)
@@ -906,6 +909,28 @@ class PostFrameParsingTests(unittest.TestCase):
 
     def parse_post_frame(self, game_state, payload):
         self.console._Console__post_frame(game_state, payload)
+
+    def test_nana_post_frame_preserves_pre_frame_state(self) -> None:
+        game_state = melee.GameState(frame=0)
+        pre_payload = bytearray(0x41)
+        pre_payload[1:5] = (0).to_bytes(4, "big", signed=True)
+        pre_payload[5] = 0
+        pre_payload[6] = 1
+        pre_payload[0x31:0x33] = (0x0100).to_bytes(2, "big")
+        self.console._Console__pre_frame(game_state, pre_payload)
+        nana = game_state.players[1].nana
+        self.assertIsNotNone(nana)
+
+        post_payload = self.post_frame_payload()
+        post_payload[6] = 1
+        post_payload[7] = melee.Character.NANA.value
+        self.parse_post_frame(game_state, post_payload)
+
+        self.assertIs(game_state.players[1].nana, nana)
+        self.assertTrue(nana.controller_state.button[melee.Button.BUTTON_A])
+        self.assertEqual(nana.costume, 0)
+        self.assertEqual(nana.cpu_level, 1)
+        self.assertEqual(nana.team_id, 0)
 
     def test_defender_hitlag_flag_sets_and_clears_on_reused_player(self):
         game_state = melee.GameState(frame=0)
@@ -941,6 +966,35 @@ class PostFrameParsingTests(unittest.TestCase):
                 player = game_state.players[1]
                 self.assertIs(player.invulnerable, expected_invulnerable)
                 self.assertEqual(player.invulnerability_left, 0)
+
+    def test_frame_index_normalization_includes_nana(self) -> None:
+        game_state = melee.GameState(frame=0)
+        payload = self.post_frame_payload()
+        payload[7] = melee.Character.POPO.value
+        payload[8:10] = melee.Action.LANDING.value.to_bytes(2, "big")
+        payload[0x22:0x26] = np.asarray([4.0], dtype=">f4").tobytes()
+        self.parse_post_frame(game_state, payload)
+
+        payload[6] = 1
+        payload[7] = melee.Character.NANA.value
+        self.parse_post_frame(game_state, payload)
+        self.console.zero_indices = {
+            melee.Character.POPO.value: {melee.Action.LANDING.value},
+            melee.Character.NANA.value: {melee.Action.LANDING.value},
+        }
+
+        self.console._Console__fixframeindexing(game_state)
+
+        popo = game_state.players[1]
+        self.assertEqual(popo.action_frame, 5)
+        self.assertIsNotNone(popo.nana)
+        self.assertEqual(popo.nana.action_frame, 5)
+        frame_data = melee.FrameData()
+        popo_state = CharacterState(game_state, 1, frame_data=frame_data)
+        nana_state = popo_state.get_nana()
+        self.assertTrue(popo_state.can_jump())
+        self.assertIsNotNone(nana_state)
+        self.assertTrue(nana_state.can_jump())
 
 
 class SLPFile(unittest.TestCase):
@@ -1925,6 +1979,137 @@ class SimpleControlsInputTests(unittest.TestCase):
 
                 self.assertIs(character_state.forward_axis(), forward)
                 self.assertIs(character_state.backward_axis(), backward)
+
+    def test_character_state_get_nana_wraps_follower_state(self) -> None:
+        nana = melee.PlayerState(
+            character=melee.Character.NANA,
+            action=melee.Action.DAMAGE_HIGH_1,
+            position=melee.Position(x=-12.0, y=8.0),
+            speed_air_x_self=-1.5,
+            hitstun_frames_left=8,
+        )
+        popo = melee.PlayerState(
+            character=melee.Character.POPO,
+            action=melee.Action.STANDING,
+            position=melee.Position(x=10.0, y=0.0),
+            nana=nana,
+        )
+        game_state = melee.GameState(players={1: popo})
+        popo_state = CharacterState(game_state, 1, frame_data=self.frame_data)
+
+        nana_state = popo_state.get_nana()
+
+        self.assertIsNotNone(nana_state)
+        self.assertIs(nana_state.game_state, game_state)
+        self.assertEqual(nana_state.port, 1)
+        self.assertIs(nana_state.frame_data, self.frame_data)
+        self.assertIs(nana_state.player(), nana)
+        self.assertEqual(nana_state.position_x, -12.0)
+        self.assertEqual(nana_state.position_y, 8.0)
+        self.assertEqual(nana_state.speed_air_x_self, -1.5)
+        self.assertIs(nana_state.get_state(), CharacterStatus.Hitstun)
+        self.assertIsNone(nana_state.get_nana())
+
+    def test_get_nana_returns_none_without_follower_state(self) -> None:
+        for game_state in (
+            melee.GameState(),
+            melee.GameState(
+                players={1: melee.PlayerState(character=melee.Character.FOX)}
+            ),
+            melee.GameState(
+                players={1: melee.PlayerState(character=melee.Character.POPO)}
+            ),
+        ):
+            with self.subTest(game_state=game_state):
+                character_state = CharacterState(
+                    game_state,
+                    1,
+                    frame_data=self.frame_data,
+                )
+                controls = SimpleControls(
+                    game_state,
+                    1,
+                    RecordingSimpleController(),
+                    frame_data=self.frame_data,
+                )
+
+                self.assertIsNone(character_state.get_nana())
+                self.assertIsNone(controls.get_nana())
+
+    def test_simple_controls_get_nana_uses_follower_state_and_shared_controller(self) -> None:
+        nana = melee.PlayerState(
+            character=melee.Character.NANA,
+            action=melee.Action.STANDING,
+            on_ground=True,
+        )
+        popo = melee.PlayerState(
+            character=melee.Character.POPO,
+            action=melee.Action.DAMAGE_HIGH_1,
+            hitstun_frames_left=8,
+            nana=nana,
+        )
+        controller = RecordingSimpleController()
+        controls, _ = self.controls(popo, controller)
+
+        self.assertIsNone(controls.attack(AttackType.JAB))
+        nana_controls = controls.get_nana()
+        self.assertIsNotNone(nana_controls)
+
+        result = nana_controls.attack(AttackType.JAB)
+
+        self.assertIsInstance(result, Hold)
+        self.assertIs(result.character, melee.Character.NANA)
+        self.assertIn(melee.Button.BUTTON_A, controller.buttons)
+        self.assertIs(nana_controls.character_state.player(), nana)
+        self.assertIsNone(nana_controls.get_nana())
+
+    def test_popo_and_nana_reject_each_others_holds(self) -> None:
+        for source_character in (melee.Character.POPO, melee.Character.NANA):
+            with self.subTest(source_character=source_character):
+                nana = melee.PlayerState(
+                    character=melee.Character.NANA,
+                    action=melee.Action.STANDING,
+                    on_ground=True,
+                )
+                popo = melee.PlayerState(
+                    character=melee.Character.POPO,
+                    action=melee.Action.STANDING,
+                    on_ground=True,
+                    nana=nana,
+                )
+                controller = RecordingSimpleController()
+                controls, _ = self.controls(popo, controller)
+                nana_controls = controls.get_nana()
+                self.assertIsNotNone(nana_controls)
+                source_controls = (
+                    controls
+                    if source_character is melee.Character.POPO
+                    else nana_controls
+                )
+                hold = source_controls.attack(AttackType.JAB)
+                self.assertIsInstance(hold, Hold)
+
+                active_nana = melee.PlayerState(
+                    character=melee.Character.NANA,
+                    action=melee.Action.NEUTRAL_ATTACK_1,
+                    on_ground=True,
+                )
+                active_popo = melee.PlayerState(
+                    character=melee.Character.POPO,
+                    action=melee.Action.NEUTRAL_ATTACK_1,
+                    on_ground=True,
+                    nana=active_nana,
+                )
+                active_controls, _ = self.controls(active_popo, controller, frame=1)
+                active_nana_controls = active_controls.get_nana()
+                self.assertIsNotNone(active_nana_controls)
+                target_controls = (
+                    active_nana_controls
+                    if source_character is melee.Character.POPO
+                    else active_controls
+                )
+
+                self.assertIsNone(target_controls.attack(AttackType.JAB, hold=hold))
 
     def test_axis_types_restrict_facing_and_dodge_apis(self) -> None:
         self.assertEqual(

@@ -264,6 +264,18 @@ uv pip install --python .venv/bin/python .
 - `SimpleControls.tilt_analog(stick, x, y)` validates raw normalized coordinates
   for the main stick or C-stick and forwards them without resetting other pending
   inputs or flushing the controller.
+- `CharacterState.get_nana()` returns a follower-state view for Ice Climbers and
+  `None` when Nana is absent. The view retains Popo's port, frame snapshot, stage
+  geometry, and shared `FrameData`, but every property and classification query
+  reads the nested `PlayerState.nana`. `SimpleControls.get_nana()` returns the
+  corresponding input view: it shares Popo's controller and frame timing while
+  validating and recognizing inputs against Nana's state. Inputs requested through
+  either view target the same controller and may overwrite one another in a frame.
+  Console parsing reuses the same nested follower `PlayerState` for PRE_FRAME and
+  POST_FRAME packets so pre-frame controller input and player metadata survive
+  post-frame field updates.
+  Console frame-index normalization must process the nested follower alongside each
+  top-level port leader so both views expose the same one-indexed action-frame contract.
 - `FTILT`, `FSMASH`, and `SIDE_B` remain relative to character facing.
   `LTILT`/`RTILT`, `LSMASH`/`RSMASH`, and `LSPECIAL`/`RSPECIAL` request an absolute
   screen direction. Aerials remain facing-relative because fair/back-air behavior
@@ -303,7 +315,9 @@ uv pip install --python .venv/bin/python .
   errors; new code follows the move-specific API documented here.
 - `Hold` is externally immutable and hash-compatible; successful `release()` sets
   framework-owned `released` and `release_frame` lifecycle fields so the token
-  cannot be reused. Its returned metadata may still
+  cannot be reused. Continuation ownership includes the originating character
+  view as well as its controller port and attack type, so Popo and Nana cannot
+  consume one another's holds. Its returned metadata may still
   name the expected action before a later `PlayerState` confirms startup.
 - JAB commit retries alternate A press and neutral packets until the requested
   jab is observed. The framework-owned edge phase is excluded from `Hold`
