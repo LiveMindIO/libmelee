@@ -276,7 +276,9 @@ uv pip install --python .venv/bin/python .
   1.02 DAT radii, Belay's observable hitlag gate, and Squall's truncated
   squared-distance comparison. Hidden follower/CPU flags, the hit-source nibble,
   and runtime scale remain documented approximations; current motion state is not
-  used as a substitute for the hidden nibble. An incomplete follower frame returns
+  used as a substitute for the hidden nibble. Relative movement reconstructs Melee's
+  `pos_delta` from consecutive Slippi positions rather than summing the incomplete
+  exported velocity fields. An incomplete follower frame returns
   `None`; Sopo, non-Popo, and nested Nana views return no mode and false
   recruitment checks.
   `IceClimbersControls` is instead a persistent,

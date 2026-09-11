@@ -965,7 +965,10 @@ class PostFrameParsingTests(unittest.TestCase):
 
                 self.assertIsNone(game_state.players[1].nana_mode)
                 derive_ice_climbers_state(game_state, melee.GameState(frame=-1))
-                self.assertIs(game_state.players[1].nana_mode, NanaMode.FOLLOWER)
+                self.assertIs(
+                    game_state.players[1].nana_mode,
+                    NanaMode.CPU_RETURNING,
+                )
                 self.assertTrue(game_state.players[1].nana_belay_eligible)
                 self.assertTrue(game_state.players[1].nana_squall_hammer_eligible)
 
@@ -1076,22 +1079,38 @@ class IceClimbersStateDerivationTests(unittest.TestCase):
         self.assertEqual(NANA_SQUALL_HAMMER_RADIUS, 20.0)
 
     def test_follower_entry_uses_strict_distance_and_relative_speed(self) -> None:
-        previous = self.pair(9, 100.0, mode=NanaMode.CPU_RETURNING)
-        entering = self.pair(10, NANA_FOLLOW_DISTANCE - 0.01)
+        entering_distance = NANA_FOLLOW_DISTANCE - 0.01
+        previous = self.pair(
+            9,
+            entering_distance,
+            mode=NanaMode.CPU_RETURNING,
+        )
+        entering = self.pair(10, entering_distance)
         derive_ice_climbers_state(entering, previous)
         self.assertIs(entering.players[1].nana_mode, NanaMode.FOLLOWER)
 
+        previous = self.pair(9, NANA_FOLLOW_DISTANCE, mode=NanaMode.CPU_RETURNING)
         at_boundary = self.pair(10, NANA_FOLLOW_DISTANCE)
         derive_ice_climbers_state(at_boundary, previous)
         self.assertIs(at_boundary.players[1].nana_mode, NanaMode.CPU_RETURNING)
 
-        too_fast = self.pair(
-            10,
-            NANA_FOLLOW_DISTANCE - 0.01,
-            nana_speed_x=NANA_FOLLOW_MAX_RELATIVE_SPEED + 0.01,
+        previous = self.pair(
+            9,
+            entering_distance - NANA_FOLLOW_MAX_RELATIVE_SPEED - 0.01,
+            mode=NanaMode.CPU_RETURNING,
         )
+        too_fast = self.pair(10, entering_distance)
         derive_ice_climbers_state(too_fast, previous)
         self.assertIs(too_fast.players[1].nana_mode, NanaMode.CPU_RETURNING)
+
+    def test_follower_entry_uses_position_delta_not_partial_speed_fields(self) -> None:
+        distance = NANA_FOLLOW_DISTANCE - 0.01
+        previous = self.pair(9, distance, mode=NanaMode.CPU_RETURNING)
+        current = self.pair(10, distance, nana_speed_x=10.0)
+
+        derive_ice_climbers_state(current, previous)
+
+        self.assertIs(current.players[1].nana_mode, NanaMode.FOLLOWER)
 
     def test_follower_exit_preserves_engine_hysteresis_boundary(self) -> None:
         previous = self.pair(9, 24.0, mode=NanaMode.FOLLOWER)
