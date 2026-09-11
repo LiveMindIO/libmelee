@@ -9,17 +9,19 @@ from melee import enums
 from melee.gamestate import GameState, PlayerState
 
 # DESNOTE(jbarber, 2026-09-11): Melee's Nana follower logic uses a literal
-# 25-unit distance and Popo's common mid-walk attribute as the maximum relative
-# per-frame displacement. The latter is 0.47 at PlPp.dat offset 0x32B4 in the
+# 25-unit distance and Nana's common mid-walk attribute as the maximum relative
+# per-frame displacement. The latter is 0.47 at PlNn.dat offset 0x1198 in the
 # GALE01 Rev. 2 DAT whose SHA-256 is
-# 5dd044b2ac5003f18dfca6e3a5197724f383419b4fc31bd4cb0a6205052507c0.
+# 83bc4d19539a9f9bc3f4e85d38e190899e9330eb424565dcb1605401582b0cc2.
 # See https://github.com/doldecomp/melee/blob/a983c0f9cd41d4a46001c493a1929891ac80f9ab/src/melee/ft/chara/ftCommon/ftCo_0A01.c#L7569-L7653
 NANA_FOLLOW_DISTANCE: Final = 25.0
 NANA_FOLLOW_MAX_RELATIVE_SPEED: Final = 0.47
 
-# DESNOTE(jbarber, 2026-09-11): These are the big-endian floats at PlPp.dat
-# offsets 0x34A4 (special attribute x7C) and 0x34F8 (xD0) in the same DAT.
-# Their consumers are documented in the pinned Belay and Squall sources:
+# DESNOTE(jbarber, 2026-09-11): Belay's 60-unit radius is Popo special
+# attribute x7C at PlPp.dat offset 0x34A4 (SHA-256
+# 5dd044b2ac5003f18dfca6e3a5197724f383419b4fc31bd4cb0a6205052507c0).
+# Squall's 20-unit radius is Nana special attribute xD0 at PlNn.dat offset
+# 0x13DC in the Nana DAT identified above. Their consumers are documented here:
 # https://github.com/doldecomp/melee/blob/a983c0f9cd41d4a46001c493a1929891ac80f9ab/src/melee/ft/chara/ftPopo/ftPp_SpecialHi.c#L201-L217
 # https://github.com/doldecomp/melee/blob/a983c0f9cd41d4a46001c493a1929891ac80f9ab/src/melee/ft/chara/ftNana/ftNn_SpecialS.c#L45-L103
 NANA_BELAY_RADIUS: Final = 60.0
@@ -65,9 +67,10 @@ def derive_ice_climbers_state(
         previous_mode = previous_popo.nana_mode if previous_popo is not None else None
 
         if previous_mode is enums.NanaMode.FOLLOWER:
-            # DESNOTE(jbarber, 2026-09-11): Melee preserves follower mode at
-            # exactly 25 units and exits only above it or during Nana's Popo
-            # Up-B states 361-366.
+            # DESNOTE(jbarber, 2026-09-11): The observable approximation
+            # preserves Melee's distance hysteresis and Popo Up-B exit. Melee
+            # also exits through ftCo_800B0CA8 predicates whose capture, item,
+            # CPU, and hidden flag inputs are absent from Slippi.
             # See https://github.com/doldecomp/melee/blob/a983c0f9cd41d4a46001c493a1929891ac80f9ab/src/melee/ft/chara/ftCommon/ftCo_0A01.c#L7615-L7653
             exits_follower_mode = _is_nana_in_popo_up_b(nana) or distance_squared > NANA_FOLLOW_DISTANCE**2
             popo.nana_mode = enums.NanaMode.CPU_RETURNING if exits_follower_mode else enums.NanaMode.FOLLOWER
@@ -92,10 +95,10 @@ def derive_ice_climbers_state(
             nana.hitlag_left <= 0 and not nana.is_defender_in_hitlag and distance_squared < NANA_BELAY_RADIUS**2
         )
 
-        # Melee truncates both squared values to signed integers before the
-        # strict Squall comparison. Slippi does not expose Popo's runtime scale,
-        # so this uses the normal-scale tournament value.
-        popo.nana_squall_hammer_eligible = int(distance_squared) < int(NANA_SQUALL_HAMMER_RADIUS**2)
+        # Melee truncates the scaled squared radius to a signed integer before
+        # the strict Squall comparison. Slippi does not expose Popo's runtime
+        # scale, so this uses the normal-scale tournament value.
+        popo.nana_squall_hammer_eligible = distance_squared < int(NANA_SQUALL_HAMMER_RADIUS**2)
 
 
 def _compatible_previous_popo(
@@ -125,7 +128,8 @@ def _can_enter_follower_mode(
 
     # DESNOTE(jbarber, 2026-09-11): Melee requires both climbers grounded,
     # rejects Popo Up-B, then checks Nana-vs-Popo pos_delta and the strict
-    # 25-unit distance. Slippi omits the remaining CPU flags.
+    # 25-unit distance. The hitlag/hitstun checks below are conservative
+    # observable substitutes for CPU/actionability gates that Slippi omits.
     # See https://github.com/doldecomp/melee/blob/a983c0f9cd41d4a46001c493a1929891ac80f9ab/src/melee/ft/chara/ftCommon/ftCo_0A01.c#L7578-L7613
     if (
         not popo.on_ground
