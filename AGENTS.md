@@ -17,6 +17,8 @@ uv pip install --python .venv/bin/python .
 - Forgejo runs `.forgejo/workflows/test.yml` on Linux only for Python 3.11
   through 3.13. It intentionally excludes Windows, macOS, and the live Dolphin
   test that requires an external Melee ISO.
+- Forgejo pins uv explicitly so `setup-uv` does not depend on the remote latest-
+  version manifest during every matrix job.
 - Forgejo is the `origin` remote. The LiveMindIO GitHub fork is `mirror`.
 
 ## Player Invulnerability Telemetry
