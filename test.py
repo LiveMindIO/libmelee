@@ -97,6 +97,14 @@ from melee.bot.techskill.common import (
     clamp_wavedash_angle,
 )
 from melee.controller import fix_analog_stick
+from melee.ice_climbers import (
+    NANA_BELAY_RADIUS,
+    NANA_FOLLOW_DISTANCE,
+    NANA_FOLLOW_MAX_RELATIVE_SPEED,
+    NANA_SQUALL_HAMMER_RADIUS,
+    derive_ice_climbers_state,
+)
+from melee.slippstream import EventType
 
 
 class RecordingBot(BaseBot[object]):
@@ -937,22 +945,29 @@ class PostFrameParsingTests(unittest.TestCase):
         self.assertEqual(nana.cpu_level, 1)
         self.assertEqual(nana.team_id, 0)
 
-    def test_nana_post_frame_applies_earlier_cc2_telemetry(self) -> None:
-        game_state = melee.GameState(frame=0)
-        game_state.custom["gecko_ice_climbers_statuses"] = (0x0F, 0, 0, 0)
-        leader_payload = self.post_frame_payload()
-        leader_payload[7] = melee.Character.POPO.value
-        self.parse_post_frame(game_state, leader_payload)
-        self.assertIs(game_state.players[1].nana_mode, NanaMode.FOLLOWER)
+    def test_nana_state_is_derived_after_both_post_frames(self) -> None:
+        for nana_first in (False, True):
+            with self.subTest(nana_first=nana_first):
+                game_state = melee.GameState(frame=0)
+                leader_payload = self.post_frame_payload()
+                leader_payload[7] = melee.Character.POPO.value
+                nana_payload = self.post_frame_payload()
+                nana_payload[6] = 1
+                nana_payload[7] = melee.Character.NANA.value
+                payloads = (
+                    (nana_payload, leader_payload)
+                    if nana_first
+                    else (leader_payload, nana_payload)
+                )
 
-        nana_payload = self.post_frame_payload()
-        nana_payload[6] = 1
-        nana_payload[7] = melee.Character.NANA.value
-        self.parse_post_frame(game_state, nana_payload)
+                for payload in payloads:
+                    self.parse_post_frame(game_state, payload)
 
-        self.assertIs(game_state.players[1].nana_mode, NanaMode.FOLLOWER)
-        self.assertTrue(game_state.players[1].nana_belay_eligible)
-        self.assertTrue(game_state.players[1].nana_squall_hammer_eligible)
+                self.assertIsNone(game_state.players[1].nana_mode)
+                derive_ice_climbers_state(game_state, melee.GameState(frame=-1))
+                self.assertIs(game_state.players[1].nana_mode, NanaMode.FOLLOWER)
+                self.assertTrue(game_state.players[1].nana_belay_eligible)
+                self.assertTrue(game_state.players[1].nana_squall_hammer_eligible)
 
     def test_defender_hitlag_flag_sets_and_clears_on_reused_player(self):
         game_state = melee.GameState(frame=0)
@@ -1017,6 +1032,179 @@ class PostFrameParsingTests(unittest.TestCase):
         self.assertTrue(popo_state.can_jump())
         self.assertIsNotNone(nana_state)
         self.assertTrue(nana_state.can_jump())
+
+
+class IceClimbersStateDerivationTests(unittest.TestCase):
+    def pair(
+        self,
+        frame: int,
+        distance: float,
+        *,
+        mode: NanaMode | None = None,
+        nana_action: melee.Action = melee.Action.STANDING,
+        nana_hitlag: int = 0,
+        nana_defender_hitlag: bool = False,
+        nana_hitstun: int = 0,
+        nana_speed_x: float = 0.0,
+    ) -> melee.GameState:
+        return melee.GameState(
+            frame=frame,
+            players={
+                1: melee.PlayerState(
+                    character=melee.Character.POPO,
+                    position=melee.Position(x=0.0, y=0.0),
+                    on_ground=True,
+                    nana_mode=mode,
+                    nana=melee.PlayerState(
+                        character=melee.Character.NANA,
+                        position=melee.Position(x=distance, y=0.0),
+                        action=nana_action,
+                        on_ground=True,
+                        hitlag_left=nana_hitlag,
+                        is_defender_in_hitlag=nana_defender_hitlag,
+                        hitstun_frames_left=nana_hitstun,
+                        speed_ground_x_self=nana_speed_x,
+                    ),
+                )
+            },
+        )
+
+    def test_constants_match_ntsc_102_engine_and_dat_values(self) -> None:
+        self.assertEqual(NANA_FOLLOW_DISTANCE, 25.0)
+        self.assertEqual(NANA_FOLLOW_MAX_RELATIVE_SPEED, 0.47)
+        self.assertEqual(NANA_BELAY_RADIUS, 60.0)
+        self.assertEqual(NANA_SQUALL_HAMMER_RADIUS, 20.0)
+
+    def test_follower_entry_uses_strict_distance_and_relative_speed(self) -> None:
+        previous = self.pair(9, 100.0, mode=NanaMode.CPU_RETURNING)
+        entering = self.pair(10, NANA_FOLLOW_DISTANCE - 0.01)
+        derive_ice_climbers_state(entering, previous)
+        self.assertIs(entering.players[1].nana_mode, NanaMode.FOLLOWER)
+
+        at_boundary = self.pair(10, NANA_FOLLOW_DISTANCE)
+        derive_ice_climbers_state(at_boundary, previous)
+        self.assertIs(at_boundary.players[1].nana_mode, NanaMode.CPU_RETURNING)
+
+        too_fast = self.pair(
+            10,
+            NANA_FOLLOW_DISTANCE - 0.01,
+            nana_speed_x=NANA_FOLLOW_MAX_RELATIVE_SPEED + 0.01,
+        )
+        derive_ice_climbers_state(too_fast, previous)
+        self.assertIs(too_fast.players[1].nana_mode, NanaMode.CPU_RETURNING)
+
+    def test_follower_exit_preserves_engine_hysteresis_boundary(self) -> None:
+        previous = self.pair(9, 24.0, mode=NanaMode.FOLLOWER)
+        at_boundary = self.pair(10, NANA_FOLLOW_DISTANCE)
+        derive_ice_climbers_state(at_boundary, previous)
+        self.assertIs(at_boundary.players[1].nana_mode, NanaMode.FOLLOWER)
+
+        outside = self.pair(10, NANA_FOLLOW_DISTANCE + 0.01)
+        derive_ice_climbers_state(outside, previous)
+        self.assertIs(outside.players[1].nana_mode, NanaMode.CPU_RETURNING)
+
+        up_b = self.pair(10, 10.0, nana_action=melee.Action(361))
+        derive_ice_climbers_state(up_b, previous)
+        self.assertIs(up_b.players[1].nana_mode, NanaMode.CPU_RETURNING)
+
+    def test_frame_gap_does_not_reuse_stale_follower_mode(self) -> None:
+        previous = self.pair(9, 24.0, mode=NanaMode.FOLLOWER)
+        after_gap = self.pair(11, NANA_FOLLOW_DISTANCE)
+        derive_ice_climbers_state(after_gap, previous)
+        self.assertIs(after_gap.players[1].nana_mode, NanaMode.CPU_RETURNING)
+
+    def test_partner_eligibility_uses_strict_normal_scale_radii(self) -> None:
+        previous = self.pair(9, 100.0, mode=NanaMode.CPU_RETURNING)
+        within_squall = self.pair(10, math.sqrt(399.999))
+        derive_ice_climbers_state(within_squall, previous)
+        self.assertTrue(within_squall.players[1].nana_belay_eligible)
+        self.assertTrue(within_squall.players[1].nana_squall_hammer_eligible)
+
+        at_squall = self.pair(10, NANA_SQUALL_HAMMER_RADIUS)
+        derive_ice_climbers_state(at_squall, previous)
+        self.assertTrue(at_squall.players[1].nana_belay_eligible)
+        self.assertFalse(at_squall.players[1].nana_squall_hammer_eligible)
+
+        at_belay = self.pair(10, NANA_BELAY_RADIUS)
+        derive_ice_climbers_state(at_belay, previous)
+        self.assertFalse(at_belay.players[1].nana_belay_eligible)
+
+    def test_belay_rejects_observable_nana_hitlag(self) -> None:
+        previous = self.pair(9, 100.0, mode=NanaMode.CPU_RETURNING)
+        for current in (
+            self.pair(10, 10.0, nana_hitlag=1),
+            self.pair(10, 10.0, nana_defender_hitlag=True),
+        ):
+            with self.subTest(nana=current.players[1].nana):
+                derive_ice_climbers_state(current, previous)
+                self.assertFalse(current.players[1].nana_belay_eligible)
+                self.assertTrue(current.players[1].nana_squall_hammer_eligible)
+
+    def test_partner_eligibility_does_not_invent_motion_state_gate(self) -> None:
+        previous = self.pair(9, 100.0, mode=NanaMode.CPU_RETURNING)
+        current = self.pair(10, 10.0, nana_action=melee.Action.NEUTRAL_ATTACK_1)
+
+        derive_ice_climbers_state(current, previous)
+
+        self.assertTrue(current.players[1].nana_belay_eligible)
+        self.assertTrue(current.players[1].nana_squall_hammer_eligible)
+
+    def test_console_advances_derivation_only_for_completed_game_frames(self) -> None:
+        console = object.__new__(melee.Console)
+        previous = self.pair(9, 24.0, mode=NanaMode.FOLLOWER)
+        current = self.pair(10, NANA_FOLLOW_DISTANCE)
+        console._prev_gamestate = previous
+        console._events_this_frame = []
+
+        console._Console__accept_completed_frame(current)
+
+        self.assertIs(console._prev_gamestate, previous)
+        self.assertIsNone(current.players[1].nana_mode)
+
+        console._events_this_frame = [EventType.FRAME_BOOKEND]
+        console._Console__accept_completed_frame(current)
+
+        self.assertIs(console._prev_gamestate, current)
+        self.assertIs(current.players[1].nana_mode, NanaMode.FOLLOWER)
+
+        manual = self.pair(11, NANA_FOLLOW_DISTANCE)
+        console._events_this_frame = []
+        console._Console__accept_completed_frame(manual, manual_frame_ended=True)
+
+        self.assertIs(console._prev_gamestate, manual)
+        self.assertIs(manual.players[1].nana_mode, NanaMode.FOLLOWER)
+
+    def test_incomplete_follower_frame_leaves_derivation_unavailable(self) -> None:
+        gamestate = melee.GameState(
+            frame=10,
+            players={
+                1: melee.PlayerState(
+                    character=melee.Character.POPO,
+                    nana=melee.PlayerState(),
+                    nana_mode=NanaMode.FOLLOWER,
+                    nana_belay_eligible=True,
+                    nana_squall_hammer_eligible=True,
+                )
+            },
+        )
+
+        derive_ice_climbers_state(gamestate, melee.GameState(frame=9))
+
+        self.assertIsNone(gamestate.players[1].nana_mode)
+        self.assertIsNone(gamestate.players[1].nana_belay_eligible)
+        self.assertIsNone(gamestate.players[1].nana_squall_hammer_eligible)
+
+    def test_non_finite_geometry_leaves_derivation_unavailable(self) -> None:
+        previous = self.pair(9, 24.0, mode=NanaMode.FOLLOWER)
+
+        for distance in (math.nan, math.inf, -math.inf):
+            with self.subTest(distance=distance):
+                current = self.pair(10, distance)
+                derive_ice_climbers_state(current, previous)
+
+                self.assertIsNone(current.players[1].nana_mode)
+                self.assertIsNone(current.players[1].nana_belay_eligible)
+                self.assertIsNone(current.players[1].nana_squall_hammer_eligible)
 
 
 class SLPFile(unittest.TestCase):
@@ -1277,107 +1465,6 @@ class SLPFile(unittest.TestCase):
 
 
 class MenuEventCostumeTests(unittest.TestCase):
-    def test_cc2_payload_splits_exact_ice_climbers_telemetry(self) -> None:
-        import struct
-
-        console = melee.Console(is_dolphin=False, allow_old_version=True)
-        payload = bytearray(0x80)
-        payload[0x1:0x3] = (0x0202).to_bytes(2, byteorder="big")
-        payload[0x54] = 10
-        payload[0x55:0x58] = b"CC2"
-        values = (0, 0, 0, 0, 0, 11, 12, 13, 14, 0x07090001)
-        for index, value in enumerate(values):
-            struct.pack_into(">I", payload, 0x58 + index * 4, value)
-        gamestate = melee.GameState(
-            players={
-                1: melee.PlayerState(
-                    character=melee.Character.POPO,
-                    nana=melee.PlayerState(character=melee.Character.NANA),
-                ),
-                2: melee.PlayerState(
-                    character=melee.Character.POPO,
-                    nana=melee.PlayerState(character=melee.Character.NANA),
-                ),
-                3: melee.PlayerState(character=melee.Character.POPO),
-                4: melee.PlayerState(
-                    character=melee.Character.POPO,
-                    nana=melee.PlayerState(character=melee.Character.NANA),
-                ),
-            }
-        )
-
-        console._Console__handle_slippstream_menu_event(bytes(payload), gamestate)
-
-        self.assertEqual(gamestate.custom["gecko_watch_values"], ())
-        self.assertEqual(gamestate.custom["gecko_neutral_b_charges"], (11, 12, 13, 14))
-        self.assertEqual(
-            gamestate.custom["gecko_ice_climbers_statuses"],
-            (0x07, 0x09, 0x00, 0x01),
-        )
-        self.assertIs(gamestate.players[1].nana_mode, NanaMode.FOLLOWER)
-        self.assertTrue(gamestate.players[1].nana_belay_eligible)
-        self.assertFalse(gamestate.players[1].nana_squall_hammer_eligible)
-        self.assertIs(gamestate.players[2].nana_mode, NanaMode.CPU_RETURNING)
-        self.assertFalse(gamestate.players[2].nana_belay_eligible)
-        self.assertTrue(gamestate.players[2].nana_squall_hammer_eligible)
-        self.assertIsNone(gamestate.players[3].nana_mode)
-        self.assertIs(gamestate.players[4].nana_mode, NanaMode.CPU_RETURNING)
-
-    def test_cc1_payload_does_not_claim_ice_climbers_telemetry(self) -> None:
-        import struct
-
-        console = melee.Console(is_dolphin=False, allow_old_version=True)
-        payload = bytearray(0x7C)
-        payload[0x1:0x3] = (0x0202).to_bytes(2, byteorder="big")
-        payload[0x54] = 9
-        payload[0x55:0x58] = b"CC1"
-        for index, value in enumerate((0, 0, 0, 0, 0, 1, 2, 3, 4)):
-            struct.pack_into(">I", payload, 0x58 + index * 4, value)
-        gamestate = melee.GameState(
-            players={
-                1: melee.PlayerState(
-                    character=melee.Character.POPO,
-                    nana=melee.PlayerState(character=melee.Character.NANA),
-                    nana_mode=NanaMode.FOLLOWER,
-                    nana_belay_eligible=True,
-                    nana_squall_hammer_eligible=True,
-                )
-            },
-            custom={"gecko_ice_climbers_statuses": (0x0F, 0, 0, 0)},
-        )
-
-        console._Console__handle_slippstream_menu_event(bytes(payload), gamestate)
-
-        self.assertNotIn("gecko_ice_climbers_statuses", gamestate.custom)
-        self.assertIsNone(gamestate.players[1].nana_mode)
-        self.assertIsNone(gamestate.players[1].nana_belay_eligible)
-        self.assertIsNone(gamestate.players[1].nana_squall_hammer_eligible)
-
-    def test_malformed_watch_payload_clears_ice_climbers_telemetry(self) -> None:
-        console = melee.Console(is_dolphin=False, allow_old_version=True)
-        payload = bytearray(0x55)
-        payload[0x1:0x3] = (0x0202).to_bytes(2, byteorder="big")
-        payload[0x54] = 10
-        gamestate = melee.GameState(
-            players={
-                1: melee.PlayerState(
-                    character=melee.Character.POPO,
-                    nana=melee.PlayerState(character=melee.Character.NANA),
-                    nana_mode=NanaMode.FOLLOWER,
-                    nana_belay_eligible=True,
-                    nana_squall_hammer_eligible=True,
-                )
-            },
-            custom={"gecko_ice_climbers_statuses": (0x0F, 0, 0, 0)},
-        )
-
-        console._Console__handle_slippstream_menu_event(bytes(payload), gamestate)
-
-        self.assertNotIn("gecko_ice_climbers_statuses", gamestate.custom)
-        self.assertIsNone(gamestate.players[1].nana_mode)
-        self.assertIsNone(gamestate.players[1].nana_belay_eligible)
-        self.assertIsNone(gamestate.players[1].nana_squall_hammer_eligible)
-
     def test_nb1_payload_splits_debug_watches_and_per_port_charge(self) -> None:
         import struct
 
@@ -2152,7 +2239,7 @@ class SimpleControlsInputTests(unittest.TestCase):
                 )
                 self.assertIsNone(character_state.get_nana())
 
-    def test_character_state_exposes_exact_nana_partner_telemetry(self) -> None:
+    def test_character_state_exposes_inferred_nana_partner_state(self) -> None:
         nana = melee.PlayerState(character=melee.Character.NANA)
         popo = melee.PlayerState(
             character=melee.Character.POPO,

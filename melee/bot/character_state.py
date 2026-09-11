@@ -1235,12 +1235,15 @@ class CharacterState:
         )
 
     def get_nana_mode(self) -> NanaMode | None:
-        """Return Nana's exact delayed-input mode for this frame.
+        """Return Nana's inferred delayed-input mode for this frame.
 
         ``FOLLOWER`` means Nana is replaying Popo's six-update delayed input
         buffer. ``CPU_RETURNING`` means that follower bit is clear and Nana is
-        independently CPU-controlled. Returns ``None`` for non-Popo views,
-        Sopo, and legacy snapshots without CC2 Gecko telemetry.
+        independently CPU-controlled. Normal Slippi state cannot expose every
+        engine transition flag, so this is a stateful approximation using the
+        25-unit threshold, grounded state, Up-B action, and relative movement.
+        Returns ``None`` for non-Popo views, Sopo, and incomplete follower
+        snapshots.
         """
         player = self.player()
         if player is None or player.character != Character.POPO or player.nana is None:
@@ -1250,8 +1253,10 @@ class CharacterState:
     def can_partner_belay(self) -> bool | None:
         """Whether Belay's current-frame recruitment gate would accept Nana.
 
-        Returns ``False`` without a Popo/Nana pair and ``None`` when the pair is
-        present but exact CC2 Gecko telemetry is unavailable.
+        The NTSC 1.02 radius and observable hitlag gate are exact. Slippi does
+        not expose the engine's hit-source nibble, and Nana's current motion
+        state is not a substitute for it. Returns ``False`` without a Popo/Nana
+        pair and ``None`` for an incomplete follower snapshot.
         """
         player = self.player()
         if player is None or player.character != Character.POPO or player.nana is None:
@@ -1261,8 +1266,10 @@ class CharacterState:
     def can_partner_squall_hammer(self) -> bool | None:
         """Whether Squall Hammer would recruit Nana from the current frame.
 
-        Returns ``False`` without a Popo/Nana pair and ``None`` when the pair is
-        present but exact CC2 Gecko telemetry is unavailable.
+        The NTSC 1.02 normal-scale radius and integer comparison are preserved.
+        Slippi does not expose runtime fighter scale or the hit-source nibble,
+        and Nana's current motion state is not a substitute for that nibble.
+        Returns ``False`` without a pair and ``None`` for an incomplete snapshot.
         """
         player = self.player()
         if player is None or player.character != Character.POPO or player.nana is None:

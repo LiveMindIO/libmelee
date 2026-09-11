@@ -268,9 +268,17 @@ uv pip install --python .venv/bin/python .
   `None` when Nana is absent. The view retains Popo's port, frame snapshot, stage
   geometry, and shared `FrameData`, but every property and classification query
   reads the nested `PlayerState.nana`. The Popo view's `get_nana_mode()`,
-  `can_partner_belay()`, and `can_partner_squall_hammer()` use exact CC2 Gecko
-  telemetry. A present Nana with legacy telemetry returns `None`; Sopo, non-Popo,
-  and nested Nana views return no mode and false recruitment checks.
+  `can_partner_belay()`, and `can_partner_squall_hammer()` are derived once each
+  accepted frame from normal Slippi state because Extract Menu Info does not run
+  reliably during gameplay. The derivation applies the 25-unit follower
+  thresholds using grounded state, Up-B action, and relative movement while
+  approximating omitted follower and CPU-state gates. Partner checks preserve the NTSC
+  1.02 DAT radii, Belay's observable hitlag gate, and Squall's truncated
+  squared-distance comparison. Hidden follower/CPU flags, the hit-source nibble,
+  and runtime scale remain documented approximations; current motion state is not
+  used as a substitute for the hidden nibble. An incomplete follower frame returns
+  `None`; Sopo, non-Popo, and nested Nana views return no mode and false
+  recruitment checks.
   `IceClimbersControls` is instead a persistent,
   bot-owned input facade constructed from the raw controller and shared `FrameData`.
   Its `update(game_state, game_state.frame)` must run before every frame's inputs.

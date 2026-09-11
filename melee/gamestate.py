@@ -320,11 +320,11 @@ class PlayerState:
     neutral_b_charge: Optional[int] = None
     """Character-specific stored neutral-B charge, or None without current Gecko telemetry."""
     nana_mode: Optional[enums.NanaMode] = None
-    """Nana's exact delayed-input mode, or None without current Gecko telemetry."""
+    """Nana's inferred delayed-input mode, or None without a complete follower frame."""
     nana_belay_eligible: Optional[bool] = None
-    """Whether Belay can recruit Nana at this frame, or None without current Gecko telemetry."""
+    """Inferred Belay recruitment eligibility, or None without a complete follower frame."""
     nana_squall_hammer_eligible: Optional[bool] = None
-    """Whether Squall Hammer can recruit Nana, or None without current Gecko telemetry."""
+    """Inferred Squall recruitment eligibility, or None without a complete follower frame."""
     invulnerable: bool = False
     """Whether Slippi reports the player's current hurtbox as invulnerable or intangible."""
     invulnerability_left: int = 0
