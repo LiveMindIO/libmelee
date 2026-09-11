@@ -284,12 +284,15 @@ uv pip install --python .venv/bin/python .
   `IceClimbersControls` is instead a persistent,
   bot-owned input facade constructed from the raw controller and shared `FrameData`.
   Its `update(game_state, game_state.frame)` must run before every frame's inputs.
-  Every request is written immediately and also evaluated through Nana's normal
-  gates six frames later by its integrated `NanaActionQueue`; queue readers require
-  the current frame. Its one-frame `attack()` still returns `None` when Popo cannot
-  execute the move, but writes the buttons anyway so Nana's delayed input is not
-  lost. It never owns or returns a `Hold`; use a montage for chargeable or otherwise
-  multi-frame attacks.
+  Every request is written immediately. Its integrated `NanaActionQueue` evaluates
+  Nana's real Slippi pre-frame controller packet and observed post-frame action six
+  frames later without sending or replaying input; same-frame calls share the one
+  physical packet result. Queue readers require the current frame. Raw button and
+  stick methods return conservative `ActionFrameData | None`, while attacks use the
+  compatible `AttackFrameData` subtype. Its one-frame `attack()` still returns
+  `None` when Popo cannot execute the move, but writes the buttons anyway so Nana's
+  delayed input is not lost. It never owns or returns a `Hold`; use a montage for
+  chargeable or otherwise multi-frame attacks.
   Console parsing reuses the same nested follower `PlayerState` for PRE_FRAME and
   POST_FRAME packets so pre-frame controller input and player metadata survive
   post-frame field updates.

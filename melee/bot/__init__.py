@@ -63,6 +63,7 @@ from melee.bot.match_history import (
 from melee.bot.protocol import BotProtocol, CharacterSelection, CrowdControl
 from melee.bot.simple_controls import (
     MIN_SHIELD,
+    ActionFrameData,
     AttackFrameData,
     Hold,
     LedgeRecoveryOption,
@@ -107,6 +108,7 @@ __all__ = [
     "MIN_SHIELD",
     "NANA_INPUT_DELAY_FRAMES",
     "Abort",
+    "ActionFrameData",
     "AnonymousInputMontage",
     "AttackFrameData",
     "AttackType",

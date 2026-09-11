@@ -38,6 +38,7 @@ See :class:`SimpleControls` for return-value semantics and charge/release behavi
 
 from __future__ import annotations
 
+import copy
 import math
 import warnings
 from dataclasses import dataclass, field
@@ -88,7 +89,7 @@ from melee.bot.character_state import (
     neutral_b_is_chargeable,
     z_air_is_supported,
 )
-from melee.controller import Controller, fix_analog_trigger
+from melee.controller import Controller, ControllerState, fix_analog_trigger
 from melee.enums import Action, Button, Character
 from melee.framedata import FrameData
 from melee.gamestate import GameState
@@ -104,6 +105,12 @@ _NEUTRAL_B_MAX_CHARGE_FRAMES: Final = 120
 _AERIAL_COMMIT_FRAMES: Final = 8
 _TILT_ATTACK_MAGNITUDE: Final = 0.35
 _TILT_TURN_MAGNITUDE: Final = 0.5
+# DESNOTE(jbarber, 2026-09-11): ControllerState normalizes Melee's [-1, 1]
+# processed stick range to [0, 1], so engine thresholds are halved here.
+# See https://github.com/doldecomp/melee/blob/a983c0f9cd41d4a46001c493a1929891ac80f9ab/src/melee/ft/chara/ftCommon/ftCo_AttackS4.c#L57-L80
+_TILT_STICK_THRESHOLD: Final = 0.25 / 2.0
+_HORIZONTAL_SMASH_STICK_THRESHOLD: Final = 0.8 / 2.0
+_VERTICAL_SMASH_STICK_THRESHOLD: Final = 0.6625 / 2.0
 _DODGE_BUTTONS: Final = frozenset({Button.BUTTON_L, Button.BUTTON_R})
 # DESNOTE(jbarber, 2026-08-22): Melee normalizes analog shoulders over 140
 # raw steps, then zeros values <= 0.3. The first usable shield input is
@@ -274,8 +281,27 @@ class LedgeRecoveryOption(Enum):
 
 
 @dataclass(frozen=True, slots=True)
-class AttackFrameData:
-    """Carries action metadata for a requested move and libmelee frame queries.
+class ActionFrameData:
+    """Carries action metadata and the shared libmelee frame-data helper.
+
+    ``frame_data`` is a query helper, not a guarantee that ``action`` has a row
+    in ``framedata.csv``. General movement, defense, ledge, and taunt actions may
+    have no frame-data entry.
+
+    Attributes:
+        character: Character performing the action.
+        action: Expected or observed libmelee ``Action``.
+        frame_data: Shared libmelee ``FrameData`` helper.
+    """
+
+    character: Character
+    action: Action
+    frame_data: FrameData
+
+
+@dataclass(frozen=True, slots=True)
+class AttackFrameData(ActionFrameData):
+    """Attack-specific compatibility subtype of :class:`ActionFrameData`.
 
     :meth:`SimpleControls.attack` returns this only after recognizing the requested
     move in the current ``PlayerState``. :meth:`SimpleControls.release` instead
@@ -295,9 +321,338 @@ class AttackFrameData:
             combo decisions.
     """
 
-    character: Character
+
+@dataclass(frozen=True, slots=True)
+class _PacketIntent:
     action: Action
-    frame_data: FrameData
+    attack_type: AttackType | None = None
+
+
+def _button_pressed(packet: ControllerState, button: Button) -> bool:
+    return packet.button.get(button, False)
+
+
+def _packet_direction(stick: tuple[float, float]) -> StickReferenceAxis | None:
+    """Return one unambiguous cardinal direction from processed stick input."""
+    x_delta = stick[0] - 0.5
+    y_delta = stick[1] - 0.5
+    if max(abs(x_delta), abs(y_delta)) < _TILT_STICK_THRESHOLD:
+        return None
+    if math.isclose(abs(x_delta), abs(y_delta), abs_tol=0.05):
+        return None
+    if abs(x_delta) > abs(y_delta):
+        return StickReferenceAxis.RIGHT if x_delta > 0.0 else StickReferenceAxis.LEFT
+    return StickReferenceAxis.UP if y_delta > 0.0 else StickReferenceAxis.DOWN
+
+
+def _smash_direction(stick: tuple[float, float]) -> StickReferenceAxis | None:
+    """Return a cardinal whose axis reaches Melee's smash threshold."""
+    direction = _packet_direction(stick)
+    if direction is None:
+        return None
+    delta = (
+        abs(stick[0] - 0.5)
+        if direction
+        in {
+            StickReferenceAxis.LEFT,
+            StickReferenceAxis.RIGHT,
+        }
+        else abs(stick[1] - 0.5)
+    )
+    threshold = (
+        _HORIZONTAL_SMASH_STICK_THRESHOLD
+        if direction in {StickReferenceAxis.LEFT, StickReferenceAxis.RIGHT}
+        else _VERTICAL_SMASH_STICK_THRESHOLD
+    )
+    return direction if delta >= threshold else None
+
+
+def _controller_axis_to_processed(value: float) -> float:
+    """Map one Dolphin command coordinate to Console.step's stick space."""
+    raw = math.floor((value - 0.5) * 254.0)
+    clamped = min(80, max(-80, raw))
+    return clamped / 160.0 + 0.5
+
+
+def _controller_packet_as_processed(packet: ControllerState) -> ControllerState:
+    """Copy a Controller packet into the processed coordinates used by Slippi."""
+    result = copy.deepcopy(packet)
+    result.main_stick = (
+        _controller_axis_to_processed(packet.main_stick[0]),
+        _controller_axis_to_processed(packet.main_stick[1]),
+    )
+    result.c_stick = (
+        _controller_axis_to_processed(packet.c_stick[0]),
+        _controller_axis_to_processed(packet.c_stick[1]),
+    )
+    return result
+
+
+def _aerial_attack_for_direction(
+    character_state: CharacterState,
+    direction: StickReferenceAxis | None,
+) -> AttackType:
+    if direction is StickReferenceAxis.UP:
+        return AttackType.UAIR
+    if direction is StickReferenceAxis.DOWN:
+        return AttackType.DAIR
+    if direction is None:
+        return AttackType.NAIR
+    if direction is character_state.forward_axis():
+        return AttackType.FAIR
+    return AttackType.BAIR
+
+
+def _attack_intent_for_packet(
+    character_state: CharacterState,
+    packet: ControllerState,
+) -> _PacketIntent | None:
+    player = character_state.player()
+    if player is None:
+        return None
+
+    main_direction = _packet_direction(packet.main_stick)
+    c_direction = _smash_direction(packet.c_stick)
+    attack_type: AttackType | None = None
+
+    if _button_pressed(packet, Button.BUTTON_A) and character_state.is_shielding():
+        attack_type = AttackType.GRAB
+    elif _button_pressed(packet, Button.BUTTON_Z):
+        if player.on_ground:
+            attack_type = AttackType.GRAB
+        elif z_air_is_supported(player.character):
+            attack_type = AttackType.Z_AIR
+        else:
+            attack_type = _aerial_attack_for_direction(character_state, main_direction)
+    elif _button_pressed(packet, Button.BUTTON_B):
+        attack_type = {
+            StickReferenceAxis.LEFT: AttackType.LSPECIAL,
+            StickReferenceAxis.RIGHT: AttackType.RSPECIAL,
+            StickReferenceAxis.UP: AttackType.UP_B,
+            StickReferenceAxis.DOWN: AttackType.DOWN_B,
+            None: AttackType.NEUTRAL_B,
+        }[main_direction]
+    elif c_direction is not None:
+        if player.on_ground:
+            attack_type = {
+                StickReferenceAxis.LEFT: AttackType.LSMASH,
+                StickReferenceAxis.RIGHT: AttackType.RSMASH,
+                StickReferenceAxis.UP: AttackType.USMASH,
+                StickReferenceAxis.DOWN: AttackType.DSMASH,
+            }[c_direction]
+        else:
+            attack_type = _aerial_attack_for_direction(character_state, c_direction)
+    elif _button_pressed(packet, Button.BUTTON_A):
+        if not player.on_ground:
+            attack_type = _aerial_attack_for_direction(character_state, main_direction)
+        elif player.action in _GRAB_THROW_INPUT_ACTIONS:
+            return None
+        elif player.action in {Action.DASHING, Action.RUNNING, Action.RUN_DIRECT}:
+            attack_type = AttackType.DASH_ATTACK
+        elif main_direction is None:
+            attack_type = AttackType.JAB
+        else:
+            smash = _smash_direction(packet.main_stick) is main_direction
+            attack_type = {
+                (StickReferenceAxis.LEFT, False): AttackType.LTILT,
+                (StickReferenceAxis.RIGHT, False): AttackType.RTILT,
+                (StickReferenceAxis.UP, False): AttackType.UTILT,
+                (StickReferenceAxis.DOWN, False): AttackType.DTILT,
+                (StickReferenceAxis.LEFT, True): AttackType.LSMASH,
+                (StickReferenceAxis.RIGHT, True): AttackType.RSMASH,
+                (StickReferenceAxis.UP, True): AttackType.USMASH,
+                (StickReferenceAxis.DOWN, True): AttackType.DSMASH,
+            }[(main_direction, smash)]
+
+    if attack_type is None:
+        return None
+    if not character_state.can_attack(attack_type):
+        return None
+    return _PacketIntent(
+        action=_primary_action(player.character, attack_type),
+        attack_type=attack_type,
+    )
+
+
+def _ledge_action(player: LibPlayerState, option: LedgeRecoveryOption) -> Action:
+    slow = player.percent >= 100.0
+    if option is LedgeRecoveryOption.NEUTRAL_GETUP:
+        return Action.EDGE_GETUP_SLOW if slow else Action.EDGE_GETUP_QUICK
+    if option is LedgeRecoveryOption.DODGE_GETUP:
+        return Action.EDGE_ROLL_SLOW if slow else Action.EDGE_ROLL_QUICK
+    if option is LedgeRecoveryOption.ATTACK_GETUP:
+        return Action.EDGE_ATTACK_SLOW if slow else Action.EDGE_ATTACK_QUICK
+    if option is LedgeRecoveryOption.JUMP_RECOVERY:
+        return Action.EDGE_JUMP_1_SLOW if slow else Action.EDGE_JUMP_1_QUICK
+    return Action.FALLING
+
+
+def _packet_intent(
+    character_state: CharacterState,
+    packet: ControllerState,
+) -> _PacketIntent | None:
+    """Interpret only packet outcomes supported by the available public state."""
+    player = character_state.player()
+    if player is None or not isinstance(player.action, Action):
+        return None
+
+    main_direction = _packet_direction(packet.main_stick)
+    shoulder_pressed = bool(
+        _button_pressed(packet, Button.BUTTON_L)
+        or _button_pressed(packet, Button.BUTTON_R)
+        or packet.l_shoulder > 0.0
+        or packet.r_shoulder > 0.0
+    )
+
+    if player.action in _LEDGE_HANG_ACTIONS:
+        if _button_pressed(packet, Button.BUTTON_A):
+            return _PacketIntent(_ledge_action(player, LedgeRecoveryOption.ATTACK_GETUP))
+        if _button_pressed(packet, Button.BUTTON_X) or _button_pressed(packet, Button.BUTTON_Y):
+            return _PacketIntent(_ledge_action(player, LedgeRecoveryOption.JUMP_RECOVERY))
+        if shoulder_pressed:
+            return _PacketIntent(_ledge_action(player, LedgeRecoveryOption.DODGE_GETUP))
+        toward_stage = StickReferenceAxis.RIGHT if float(player.position.x) < 0.0 else StickReferenceAxis.LEFT
+        if main_direction in {StickReferenceAxis.UP, toward_stage}:
+            return _PacketIntent(_ledge_action(player, LedgeRecoveryOption.NEUTRAL_GETUP))
+        if main_direction in {StickReferenceAxis.DOWN, character_state.backward_axis()}:
+            return _PacketIntent(_ledge_action(player, LedgeRecoveryOption.LET_GO))
+        return None
+
+    attack = _attack_intent_for_packet(
+        character_state,
+        packet,
+    )
+    if attack is not None:
+        return attack
+
+    if _button_pressed(packet, Button.BUTTON_D_UP):
+        if not character_state.can_taunt():
+            return None
+        return _PacketIntent(Action.TAUNT_RIGHT if player.facing_right() else Action.TAUNT_LEFT)
+
+    if _button_pressed(packet, Button.BUTTON_X) or _button_pressed(packet, Button.BUTTON_Y):
+        if not character_state.can_jump():
+            return None
+        if player.on_ground:
+            return _PacketIntent(Action.KNEE_BEND)
+        # Slippi does not expose enough state to choose the forward/back aerial
+        # jump animation before the next post-frame packet.
+        return None
+
+    if character_state.is_shielding() and main_direction in {
+        StickReferenceAxis.LEFT,
+        StickReferenceAxis.RIGHT,
+        StickReferenceAxis.DOWN,
+    }:
+        if not character_state.can_dodge():
+            return None
+        if main_direction is StickReferenceAxis.DOWN:
+            return _PacketIntent(Action.SPOTDODGE)
+        action = Action.ROLL_FORWARD if main_direction is character_state.forward_axis() else Action.ROLL_BACKWARD
+        return _PacketIntent(action)
+
+    if shoulder_pressed:
+        if not player.on_ground:
+            if not character_state.can_airdodge():
+                return None
+            return _PacketIntent(Action.AIRDODGE)
+        if (
+            main_direction
+            in {
+                StickReferenceAxis.LEFT,
+                StickReferenceAxis.RIGHT,
+                StickReferenceAxis.DOWN,
+            }
+            and character_state.can_dodge()
+        ):
+            if main_direction is StickReferenceAxis.DOWN:
+                return _PacketIntent(Action.SPOTDODGE)
+            action = Action.ROLL_FORWARD if main_direction is character_state.forward_axis() else Action.ROLL_BACKWARD
+            return _PacketIntent(action)
+        if not (character_state.can_shield() or character_state.is_shielding()):
+            return None
+        return _PacketIntent(Action.SHIELD if character_state.is_shielding() else Action.SHIELD_START)
+
+    if player.action in _GRAB_THROW_INPUT_ACTIONS and main_direction is not None:
+        attack_type = {
+            StickReferenceAxis.LEFT: (
+                AttackType.FTHROW if character_state.forward_axis() is StickReferenceAxis.LEFT else AttackType.BTHROW
+            ),
+            StickReferenceAxis.RIGHT: (
+                AttackType.FTHROW if character_state.forward_axis() is StickReferenceAxis.RIGHT else AttackType.BTHROW
+            ),
+            StickReferenceAxis.UP: AttackType.UTHROW,
+            StickReferenceAxis.DOWN: AttackType.DTHROW,
+        }[main_direction]
+        if not character_state.can_attack(attack_type):
+            return None
+        return _PacketIntent(_primary_action(player.character, attack_type), attack_type)
+
+    if main_direction is StickReferenceAxis.DOWN and character_state.can_platform_drop():
+        return _PacketIntent(Action.PLATFORM_DROP)
+
+    if main_direction is character_state.backward_axis():
+        if player.action in {
+            Action.STANDING,
+            Action.WALK_SLOW,
+            Action.WALK_MIDDLE,
+            Action.WALK_FAST,
+        }:
+            return _PacketIntent(Action.TURNING)
+        if player.action in {Action.RUNNING, Action.RUN_DIRECT}:
+            return _PacketIntent(Action.TURNING_RUN)
+        # Initial dash can reverse without entering a distinct turn animation.
+        return None
+    return None
+
+
+# DESNOTE(jbarber, 2026-09-11): Slippi omits multiple input timers and IASA
+# internals. Packet interpretation reports only outcomes selected unambiguously
+# by public PlayerState and controller fields; it is not an exact engine predictor.
+# See https://github.com/doldecomp/melee/tree/a983c0f9cd41d4a46001c493a1929891ac80f9ab/src/melee/ft/chara/ftCommon
+def _pending_action_frame_data(
+    character_state: CharacterState,
+    packet: ControllerState,
+    frame_data: FrameData,
+) -> ActionFrameData | None:
+    """Return a conservative expected outcome for one complete pending packet."""
+    player = character_state.player()
+    intent = _packet_intent(character_state, packet)
+    if player is None or intent is None:
+        return None
+    frame_type = AttackFrameData if intent.attack_type is not None else ActionFrameData
+    return frame_type(player.character, intent.action, frame_data)
+
+
+def _observed_action_frame_data(
+    character_state: CharacterState,
+    frame_data: FrameData,
+    *,
+    source_player: LibPlayerState,
+) -> ActionFrameData | None:
+    """Match Nana's observed post-frame action to her actual pre-frame packet."""
+    player = character_state.player()
+    if player is None or not isinstance(player.action, Action):
+        return None
+    source_state = CharacterState(
+        character_state.game_state,
+        character_state.port,
+        frame_data=frame_data,
+        _player_state=source_player,
+    )
+    intent = _packet_intent(
+        source_state,
+        player.controller_state,
+    )
+    if intent is None:
+        return None
+    if intent.attack_type is not None:
+        if player.action not in _actions_for_attack_type(player.character, intent.attack_type):
+            return None
+        return AttackFrameData(player.character, player.action, frame_data)
+    if player.action is not intent.action:
+        return None
+    return ActionFrameData(player.character, player.action, frame_data)
 
 
 @dataclass(frozen=True, slots=True)
@@ -442,13 +797,12 @@ class SimpleControls:
         controller: Controller,
         *,
         frame_data: FrameData | None = None,
-        _character_state: CharacterState | None = None,
     ) -> None:
         """Bind a frame snapshot and controller for one bot port.
 
         Args:
             game_state: Current libmelee game state.
-            port: Controller port (1–4) whose ``PlayerState`` is controlled.
+            port: Controller port (1-4) whose ``PlayerState`` is controlled.
             controller: Virtual controller receiving stick and button presses.
             frame_data: Optional shared ``FrameData`` instance. When omitted, a
                 new helper is constructed (loads ``framedata.csv``). The runtime
@@ -459,9 +813,13 @@ class SimpleControls:
         self._port = port
         self._controller = controller
         self._frame_data = frame_data or FrameData()
-        self._character_state = _character_state or CharacterState(
-            game_state, port, frame_data=self._frame_data
+        self._character_state = CharacterState(
+            game_state,
+            port,
+            frame_data=self._frame_data,
         )
+        self._pending_packet = ControllerState()
+        self._refresh_pending_packet()
 
     @property
     def character_state(self) -> CharacterState:
@@ -475,7 +833,7 @@ class SimpleControls:
         *,
         magnitude: float = 1.0,
         stick: Button = Button.BUTTON_MAIN,
-    ) -> None:
+    ) -> ActionFrameData | None:
         """Request a main-stick or C-stick tilt from an absolute axis.
 
         This mutates only the selected stick's pending controller state. It does
@@ -491,6 +849,10 @@ class SimpleControls:
                 ``1.0``.
             stick: :attr:`Button.BUTTON_MAIN` or :attr:`Button.BUTTON_C`.
 
+        Returns:
+            Conservative action metadata for the complete pending packet after
+            this write, or ``None`` when it selects no supported actionable move.
+
         Raises:
             ValueError: If ``stick`` is not the main stick or C-stick, an
                 argument is non-finite, or ``magnitude`` is outside ``[0, 1]``.
@@ -502,14 +864,14 @@ class SimpleControls:
             angle_degrees,
             magnitude=magnitude,
         )
-        self.tilt_analog(stick, x, y)
+        return self.tilt_analog(stick, x, y)
 
     def tilt_analog(
         self,
         stick: Button,
         x: float,
         y: float,
-    ) -> None:
+    ) -> ActionFrameData | None:
         """Request raw normalized coordinates for the main stick or C-stick.
 
         This mutates only the selected stick's pending controller state and does
@@ -520,6 +882,10 @@ class SimpleControls:
             x: Horizontal request coordinate from ``0.0`` through ``1.0``.
             y: Vertical request coordinate from ``0.0`` through ``1.0``.
 
+        Returns:
+            Conservative action metadata for the complete pending packet after
+            this write, or ``None`` when it selects no supported actionable move.
+
         Raises:
             ValueError: If ``stick`` is not the main stick or C-stick, or either
                 coordinate is non-finite or outside ``[0, 1]``.
@@ -528,28 +894,31 @@ class SimpleControls:
             raise ValueError(f"Invalid button type {stick} for tilt_analog.")
         if not math.isfinite(x) or not math.isfinite(y) or not 0.0 <= x <= 1.0 or not 0.0 <= y <= 1.0:
             raise ValueError("stick coordinates must be finite and between 0 and 1 inclusive")
+        self._refresh_pending_packet()
         self._controller.tilt_analog(stick, x, y)
+        self._refresh_pending_packet()
+        return self._pending_action_frame_data()
 
-    def tilt_turn(self) -> None:
+    def tilt_turn(self) -> ActionFrameData | None:
         """Request a weak backward input that turns the character around.
 
         A tilt turn reverses facing on character-dependent turn frames 5 through
         9. The half-strength input stays safely inside Melee's tilt-turn range.
         Existing pending buttons and C-stick input are preserved.
         """
-        self.tilt_stick(
+        return self.tilt_stick(
             self._character_state.backward_axis(),
             0.0,
             magnitude=_TILT_TURN_MAGNITUDE,
         )
 
-    def smash_turn(self) -> None:
+    def smash_turn(self) -> ActionFrameData | None:
         """Request a full backward input that turns the character around.
 
         A smash turn reverses facing on the first turn frame and can become a
         dash if held. Existing pending buttons and C-stick input are preserved.
         """
-        self.tilt_stick(self._character_state.backward_axis(), 0.0)
+        return self.tilt_stick(self._character_state.backward_axis(), 0.0)
 
     def shield(self, strength: float) -> bool:
         """Hold or release shield at a requested analog trigger strength.
@@ -574,20 +943,20 @@ class SimpleControls:
         if strength > 0.0 and not (self._character_state.can_shield() or self._character_state.is_shielding()):
             return False
 
-        self._controller.release_button(Button.BUTTON_L)
-        self._controller.release_button(Button.BUTTON_R)
-        self._controller.press_shoulder(Button.BUTTON_L, 0.0)
-        self._controller.press_shoulder(Button.BUTTON_R, 0.0)
+        self._release_button(Button.BUTTON_L)
+        self._release_button(Button.BUTTON_R)
+        self._press_shoulder(Button.BUTTON_L, 0.0)
+        self._press_shoulder(Button.BUTTON_R, 0.0)
         if strength > 0.0:
             requested_strength = max(strength, MIN_SHIELD)
             if not self._controller.analog_input_correction_enabled:
                 requested_strength = fix_analog_trigger(requested_strength)
-            self._controller.press_shoulder(
+            self._press_shoulder(
                 Button.BUTTON_L,
                 requested_strength,
             )
             if strength == 1.0:
-                self._controller.press_button(Button.BUTTON_L)
+                self.press_button(Button.BUTTON_L)
         return True
 
     def platform_drop(self) -> bool:
@@ -653,7 +1022,7 @@ class SimpleControls:
         ):
             return False
 
-        self._controller.release_all()
+        self.release_all()
         self.tilt_stick(direction, 0.0)
         self.press_button(dodge_button)
         return True
@@ -698,42 +1067,58 @@ class SimpleControls:
         if not self._character_state.can_airdodge():
             return False
 
-        self._controller.release_all()
-        self._controller.tilt_analog(Button.BUTTON_MAIN, stick_x, stick_y)
+        self.release_all()
+        self.tilt_analog(Button.BUTTON_MAIN, stick_x, stick_y)
         self.press_button(dodge_button)
         return True
 
-    def down_left(self, angle_degrees: float, *, magnitude: float = 1.0, stick: Button = Button.BUTTON_MAIN) -> None:
+    def down_left(
+        self, angle_degrees: float, *, magnitude: float = 1.0, stick: Button = Button.BUTTON_MAIN
+    ) -> ActionFrameData | None:
         """Tilt from down toward left by an angle from 0 through 90 degrees."""
-        self._tilt_between_axes(StickReferenceAxis.DOWN, angle_degrees, -1.0, magnitude, stick)
+        return self._tilt_between_axes(StickReferenceAxis.DOWN, angle_degrees, -1.0, magnitude, stick)
 
-    def down_right(self, angle_degrees: float, *, magnitude: float = 1.0, stick: Button = Button.BUTTON_MAIN) -> None:
+    def down_right(
+        self, angle_degrees: float, *, magnitude: float = 1.0, stick: Button = Button.BUTTON_MAIN
+    ) -> ActionFrameData | None:
         """Tilt from down toward right by an angle from 0 through 90 degrees."""
-        self._tilt_between_axes(StickReferenceAxis.DOWN, angle_degrees, 1.0, magnitude, stick)
+        return self._tilt_between_axes(StickReferenceAxis.DOWN, angle_degrees, 1.0, magnitude, stick)
 
-    def up_left(self, angle_degrees: float, *, magnitude: float = 1.0, stick: Button = Button.BUTTON_MAIN) -> None:
+    def up_left(
+        self, angle_degrees: float, *, magnitude: float = 1.0, stick: Button = Button.BUTTON_MAIN
+    ) -> ActionFrameData | None:
         """Tilt from up toward left by an angle from 0 through 90 degrees."""
-        self._tilt_between_axes(StickReferenceAxis.UP, angle_degrees, 1.0, magnitude, stick)
+        return self._tilt_between_axes(StickReferenceAxis.UP, angle_degrees, 1.0, magnitude, stick)
 
-    def up_right(self, angle_degrees: float, *, magnitude: float = 1.0, stick: Button = Button.BUTTON_MAIN) -> None:
+    def up_right(
+        self, angle_degrees: float, *, magnitude: float = 1.0, stick: Button = Button.BUTTON_MAIN
+    ) -> ActionFrameData | None:
         """Tilt from up toward right by an angle from 0 through 90 degrees."""
-        self._tilt_between_axes(StickReferenceAxis.UP, angle_degrees, -1.0, magnitude, stick)
+        return self._tilt_between_axes(StickReferenceAxis.UP, angle_degrees, -1.0, magnitude, stick)
 
-    def left_up(self, angle_degrees: float, *, magnitude: float = 1.0, stick: Button = Button.BUTTON_MAIN) -> None:
+    def left_up(
+        self, angle_degrees: float, *, magnitude: float = 1.0, stick: Button = Button.BUTTON_MAIN
+    ) -> ActionFrameData | None:
         """Tilt from left toward up by an angle from 0 through 90 degrees."""
-        self._tilt_between_axes(StickReferenceAxis.LEFT, angle_degrees, -1.0, magnitude, stick)
+        return self._tilt_between_axes(StickReferenceAxis.LEFT, angle_degrees, -1.0, magnitude, stick)
 
-    def left_down(self, angle_degrees: float, *, magnitude: float = 1.0, stick: Button = Button.BUTTON_MAIN) -> None:
+    def left_down(
+        self, angle_degrees: float, *, magnitude: float = 1.0, stick: Button = Button.BUTTON_MAIN
+    ) -> ActionFrameData | None:
         """Tilt from left toward down by an angle from 0 through 90 degrees."""
-        self._tilt_between_axes(StickReferenceAxis.LEFT, angle_degrees, 1.0, magnitude, stick)
+        return self._tilt_between_axes(StickReferenceAxis.LEFT, angle_degrees, 1.0, magnitude, stick)
 
-    def right_up(self, angle_degrees: float, *, magnitude: float = 1.0, stick: Button = Button.BUTTON_MAIN) -> None:
+    def right_up(
+        self, angle_degrees: float, *, magnitude: float = 1.0, stick: Button = Button.BUTTON_MAIN
+    ) -> ActionFrameData | None:
         """Tilt from right toward up by an angle from 0 through 90 degrees."""
-        self._tilt_between_axes(StickReferenceAxis.RIGHT, angle_degrees, 1.0, magnitude, stick)
+        return self._tilt_between_axes(StickReferenceAxis.RIGHT, angle_degrees, 1.0, magnitude, stick)
 
-    def right_down(self, angle_degrees: float, *, magnitude: float = 1.0, stick: Button = Button.BUTTON_MAIN) -> None:
+    def right_down(
+        self, angle_degrees: float, *, magnitude: float = 1.0, stick: Button = Button.BUTTON_MAIN
+    ) -> ActionFrameData | None:
         """Tilt from right toward down by an angle from 0 through 90 degrees."""
-        self._tilt_between_axes(StickReferenceAxis.RIGHT, angle_degrees, -1.0, magnitude, stick)
+        return self._tilt_between_axes(StickReferenceAxis.RIGHT, angle_degrees, -1.0, magnitude, stick)
 
     def _tilt_between_axes(
         self,
@@ -742,34 +1127,42 @@ class SimpleControls:
         rotation_sign: float,
         magnitude: float,
         stick: Button,
-    ) -> None:
+    ) -> ActionFrameData | None:
         if not math.isfinite(angle_degrees) or not 0.0 <= angle_degrees <= 90.0:
             raise ValueError("angle_degrees must be finite and between 0 and 90 inclusive")
-        self.tilt_stick(reference_axis, rotation_sign * angle_degrees, magnitude=magnitude, stick=stick)
+        return self.tilt_stick(reference_axis, rotation_sign * angle_degrees, magnitude=magnitude, stick=stick)
 
-    def press_button(self, button: Button) -> None:
+    def press_button(self, button: Button) -> ActionFrameData | None:
         """Press one digital controller button without changing other inputs.
 
         This mutates pending controller state only. The runtime commits it on the
         next :meth:`Console.step`; callers must not flush from bot code.
+
+        Returns:
+            Conservative action metadata for the complete pending packet after
+            this write, or ``None`` when it selects no supported actionable move.
 
         Raises:
             ValueError: If ``button`` identifies the main stick or C-stick.
         """
         if button not in _DIGITAL_BUTTONS:
             raise ValueError(f"Invalid button type {button} for press_button.")
+        self._refresh_pending_packet()
         self._controller.press_button(button)
+        self._pending_packet.button[button] = True
+        return self._pending_action_frame_data()
 
     def release_all(self) -> None:
         """Set all pending controller inputs to neutral without flushing."""
         self._controller.release_all()
+        self._pending_packet = ControllerState()
 
     def attack(
         self,
         attack_type: AttackType,
         *,
         hold: Hold | None = None,
-    ) -> None | Hold | AttackFrameData:
+    ) -> Hold | AttackFrameData | None:
         """Begin or continue an attack input sequence.
 
         On the first call for a move, validates that the port's ``PlayerState`` is
@@ -861,12 +1254,12 @@ class SimpleControls:
         if player is None:
             return False
         if self._character_state.is_taunting():
-            self._controller.release_all()
+            self.release_all()
             return True
         if not self._character_state.can_taunt():
             return False
-        self._controller.release_all()
-        self._controller.press_button(Button.BUTTON_D_UP)
+        self.release_all()
+        self.press_button(Button.BUTTON_D_UP)
         return True
 
     def check_hold(self, hold: Hold) -> bool:
@@ -913,16 +1306,11 @@ class SimpleControls:
             held_frames = self._game_state.frame - hold.started_frame
             if held_frames > hold.max_hold_frames:
                 return False
-            if self._charge_completed(player, hold):
-                return False
-            return True
+            return not self._charge_completed(player, hold)
 
-        if self._game_state.frame - hold.started_frame >= _commit_frame_limit(hold):
-            return False
+        return self._game_state.frame - hold.started_frame < _commit_frame_limit(hold)
 
-        return True
-
-    def release(self, hold: Hold) -> None | AttackFrameData:
+    def release(self, hold: Hold) -> AttackFrameData | None:
         """Release a charging :class:`Hold` early.
 
         Only valid for ``Hold`` values with ``charging=True`` (smashes and
@@ -955,7 +1343,7 @@ class SimpleControls:
         ):
             return None
 
-        self._controller.release_all()
+        self.release_all()
         action = self._current_attack_action(player, hold.attack_type)
         if action is None:
             # DESNOTE(jbarber, 2026-08-18): release() acknowledges a controller
@@ -1093,6 +1481,36 @@ class SimpleControls:
     # Private helpers.
     # ------------------------------------------------------------------
 
+    def _pending_action_frame_data(self) -> ActionFrameData | None:
+        """Interpret the controller's complete packet after the latest write."""
+        return _pending_action_frame_data(
+            self._character_state,
+            self._pending_packet,
+            self._frame_data,
+        )
+
+    def _refresh_pending_packet(self) -> None:
+        current = getattr(self._controller, "current", None)
+        if current is not None:
+            # DESNOTE(jbarber, 2026-09-11): Controller.current stores coordinates
+            # written to Dolphin, while Slippi pre-frame state stores Melee's
+            # processed coordinates. Packet interpretation uses the latter space.
+            # See Controller.fix_analog_stick() and Console.__pre_frame().
+            self._pending_packet = _controller_packet_as_processed(current)
+
+    def _release_button(self, button: Button) -> None:
+        self._refresh_pending_packet()
+        self._controller.release_button(button)
+        self._pending_packet.button[button] = False
+
+    def _press_shoulder(self, button: Button, amount: float) -> None:
+        self._refresh_pending_packet()
+        self._controller.press_shoulder(button, amount)
+        if button is Button.BUTTON_L:
+            self._pending_packet.l_shoulder = amount
+        elif button is Button.BUTTON_R:
+            self._pending_packet.r_shoulder = amount
+
     def _player(self) -> LibPlayerState | None:
         """Return the controlled port's ``PlayerState``, if present."""
         return self._character_state.player()
@@ -1117,26 +1535,26 @@ class SimpleControls:
         option: LedgeRecoveryOption,
     ) -> None:
         """Write stick and button state for ``option`` to the controller."""
-        self._controller.release_all()
+        self.release_all()
         if option is LedgeRecoveryOption.NEUTRAL_GETUP:
-            self._controller.tilt_analog(Button.BUTTON_MAIN, 0.5, 1.0)
+            self.tilt_analog(Button.BUTTON_MAIN, 0.5, 1.0)
             return
         if option is LedgeRecoveryOption.LET_GO:
-            self._controller.tilt_analog(Button.BUTTON_MAIN, 0.5, 0.0)
+            self.tilt_analog(Button.BUTTON_MAIN, 0.5, 0.0)
             return
 
         toward_stage = _toward_stage_stick(player)
         if option is LedgeRecoveryOption.DODGE_GETUP:
-            self._controller.tilt_analog(Button.BUTTON_MAIN, toward_stage, 0.5)
-            self._controller.press_shoulder(Button.BUTTON_L, 1.0)
+            self.tilt_analog(Button.BUTTON_MAIN, toward_stage, 0.5)
+            self._press_shoulder(Button.BUTTON_L, 1.0)
             return
         if option is LedgeRecoveryOption.ATTACK_GETUP:
-            self._controller.tilt_analog(Button.BUTTON_MAIN, toward_stage, 0.5)
-            self._controller.press_button(Button.BUTTON_A)
+            self.tilt_analog(Button.BUTTON_MAIN, toward_stage, 0.5)
+            self.press_button(Button.BUTTON_A)
             return
         if option is LedgeRecoveryOption.JUMP_RECOVERY:
-            self._controller.tilt_analog(Button.BUTTON_MAIN, toward_stage, 1.0)
-            self._controller.press_button(Button.BUTTON_Y)
+            self.tilt_analog(Button.BUTTON_MAIN, toward_stage, 1.0)
+            self.press_button(Button.BUTTON_Y)
 
     def _hold_matches(self, hold: Hold, attack_type: AttackType) -> bool:
         """Return whether ``hold`` belongs to this character view and attack."""
@@ -1149,7 +1567,7 @@ class SimpleControls:
             and not hold.released
         )
 
-    def _continue_attack(self, hold: Hold) -> None | Hold | AttackFrameData:
+    def _continue_attack(self, hold: Hold) -> Hold | AttackFrameData | None:
         """Apply the next frame of inputs for an in-progress ``hold``.
 
         Validates via :meth:`check_hold`, applies inputs, and returns
@@ -1265,7 +1683,7 @@ class SimpleControls:
             # frame before landing. See ftCo_CargoThrow.c inlineA0:
             # https://github.com/doldecomp/melee/blob/a983c0f9cd41d4a46001c493a1929891ac80f9ab/src/melee/ft/chara/ftCommon/ftCo_CargoThrow.c#L60-L88
             if self._a_is_active(player):
-                self._controller.release_all()
+                self.release_all()
             else:
                 self._apply_cargo_release_inputs(player, hold)
             object.__setattr__(hold, "_cargo_last_input_frame", self._game_state.frame)
@@ -1291,12 +1709,12 @@ class SimpleControls:
         # before that boundary leaves A continuously held, so JAB retries must
         # alternate packets rather than commands. See Controller.flush().
         if hold._jab_a_pending or self._a_is_active(player):
-            self._controller.release_all()
+            self.release_all()
             a_pending = False
         else:
-            self._controller.release_all()
-            self._controller.tilt_analog(Button.BUTTON_MAIN, hold.stick_x, hold.stick_y)
-            self._controller.press_button(Button.BUTTON_A)
+            self.release_all()
+            self.tilt_analog(Button.BUTTON_MAIN, hold.stick_x, hold.stick_y)
+            self.press_button(Button.BUTTON_A)
             a_pending = True
 
         object.__setattr__(hold, "_jab_a_pending", a_pending)
@@ -1313,15 +1731,15 @@ class SimpleControls:
     def _apply_cargo_release_inputs(self, player: LibPlayerState, hold: Hold) -> None:
         """Apply a cargo release using the currently observed facing direction."""
         stick_x, stick_y = self._stick_for_attack(player, hold.attack_type)
-        self._controller.release_all()
-        self._controller.tilt_analog(Button.BUTTON_MAIN, stick_x, stick_y)
-        self._controller.press_button(Button.BUTTON_A)
+        self.release_all()
+        self.tilt_analog(Button.BUTTON_MAIN, stick_x, stick_y)
+        self.press_button(Button.BUTTON_A)
 
     def _finish_jab_input(self, hold: Hold) -> None:
         """Release A when a JAB hold owns a pending press."""
         if hold.attack_type is not AttackType.JAB or not hold._jab_a_pending:
             return
-        self._controller.release_button(Button.BUTTON_A)
+        self._release_button(Button.BUTTON_A)
         object.__setattr__(hold, "_jab_a_pending", False)
 
     def _apply_attack_inputs(self, hold: Hold) -> None:
@@ -1332,23 +1750,23 @@ class SimpleControls:
         else uses main stick + ``A``.
         """
         if hold.attack_type in {AttackType.GRAB, AttackType.Z_AIR}:
-            self._controller.release_all()
-            self._controller.tilt_analog(Button.BUTTON_MAIN, hold.stick_x, 0.5)
-            self._controller.press_button(Button.BUTTON_Z)
+            self.release_all()
+            self.tilt_analog(Button.BUTTON_MAIN, hold.stick_x, 0.5)
+            self.press_button(Button.BUTTON_Z)
             return
 
         if hold.attack_type in _GRAB_THROW_ATTACKS:
-            self._controller.release_all()
-            self._controller.tilt_analog(Button.BUTTON_MAIN, hold.stick_x, hold.stick_y)
+            self.release_all()
+            self.tilt_analog(Button.BUTTON_MAIN, hold.stick_x, hold.stick_y)
             return
 
         if hold.attack_type in _AERIAL_ATTACKS:
-            self._controller.release_all()
-            self._controller.tilt_analog(Button.BUTTON_MAIN, hold.stick_x, 0.5)
+            self.release_all()
+            self.tilt_analog(Button.BUTTON_MAIN, hold.stick_x, 0.5)
             if hold.attack_type is AttackType.NAIR:
-                self._controller.press_button(Button.BUTTON_A)
+                self.press_button(Button.BUTTON_A)
             else:
-                self._controller.tilt_analog(
+                self.tilt_analog(
                     Button.BUTTON_C,
                     hold.stick_x,
                     hold.stick_y,
@@ -1356,14 +1774,14 @@ class SimpleControls:
             return
 
         if hold.attack_type in _SPECIAL_ATTACKS:
-            self._controller.release_all()
-            self._controller.tilt_analog(Button.BUTTON_MAIN, hold.stick_x, hold.stick_y)
-            self._controller.press_button(Button.BUTTON_B)
+            self.release_all()
+            self.tilt_analog(Button.BUTTON_MAIN, hold.stick_x, hold.stick_y)
+            self.press_button(Button.BUTTON_B)
             return
 
-        self._controller.release_all()
-        self._controller.tilt_analog(Button.BUTTON_MAIN, hold.stick_x, hold.stick_y)
-        self._controller.press_button(Button.BUTTON_A)
+        self.release_all()
+        self.tilt_analog(Button.BUTTON_MAIN, hold.stick_x, hold.stick_y)
+        self.press_button(Button.BUTTON_A)
 
     def _hold_interrupted(self, player: LibPlayerState, hold: Hold) -> bool:
         """Return whether external state invalidated ``hold`` (hitstun, grab, etc.).
@@ -1577,6 +1995,8 @@ class SimpleControls:
 
 
 __all__ = [
+    "MIN_SHIELD",
+    "ActionFrameData",
     "AttackFrameData",
     "AttackType",
     "CharacterState",
@@ -1585,7 +2005,6 @@ __all__ = [
     "Hold",
     "HorizontalStickReferenceAxis",
     "LedgeRecoveryOption",
-    "MIN_SHIELD",
     "SimpleControls",
     "StickReferenceAxis",
     # Re-exported from melee.bot.character_state for backward compatibility with
@@ -1607,8 +2026,8 @@ __all__ = [
     "is_grabbed",
     "is_grabbing",
     "is_grabbing_ledge",
-    "is_shielding",
     "is_shield_broken",
+    "is_shielding",
     "is_taunting",
     "neutral_b_is_chargeable",
     "stick_coordinates",

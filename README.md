@@ -184,6 +184,21 @@ nonexistent aerial form is rejected. The no-argument `can_attack()`,
 
 `LEFT_B` and `RIGHT_B` remain deprecated aliases for `LSPECIAL` and `RSPECIAL`.
 
+`SimpleControls.press_button()` and the raw stick methods return conservative
+`ActionFrameData | None` for the maneuver selected by the complete pending
+controller packet and current character state. Attack outcomes use the compatible
+`AttackFrameData` subtype. These values identify expected actions; the attached
+`FrameData` is a query helper and movement, defense, ledge, or taunt actions may
+have no CSV row. Semantic helpers such as `attack()` retain their existing
+`Hold` lifecycle while delegating their packet writes through these raw methods.
+
+`IceClimbersControls` applies one-frame input immediately for Popo and evaluates
+Nana's delayed result from her actual Slippi pre-frame controller packet and
+observed post-frame action six frames later. Delayed evaluation never writes or
+replays controller input. Multiple calls in one frame describe one physical final
+packet and therefore receive the same observed delayed result. The facade remains
+hold-free; use a montage for multi-frame ownership.
+
 Charging smashes and supported neutral-B moves return a `Hold`. Do not call
 `SimpleControls.release(hold)` in the frame that created it: pending controller
 input is committed on the next `Console.step()`, so same-frame release neutralizes
