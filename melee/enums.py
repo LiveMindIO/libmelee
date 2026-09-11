@@ -94,6 +94,13 @@ class GameMode(Enum):
     COUNT = 0x2D
     UNKNOWN_GAME_MODE = 0xFF
 
+
+class NanaMode(Enum):
+    """Whether Nana is replaying Popo's delayed inputs or using CPU recovery."""
+
+    CPU_RETURNING = 0
+    FOLLOWER = 1
+
 class GameScene(Enum):
     """Melee game scene kind from doldecomp's ``GameSceneKind`` enum."""
     TITLE = 0x00

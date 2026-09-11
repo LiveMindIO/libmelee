@@ -267,10 +267,19 @@ uv pip install --python .venv/bin/python .
 - `CharacterState.get_nana()` returns a follower-state view for Ice Climbers and
   `None` when Nana is absent. The view retains Popo's port, frame snapshot, stage
   geometry, and shared `FrameData`, but every property and classification query
-  reads the nested `PlayerState.nana`. `SimpleControls.get_nana()` returns the
-  corresponding input view: it shares Popo's controller and frame timing while
-  validating and recognizing inputs against Nana's state. Inputs requested through
-  either view target the same controller and may overwrite one another in a frame.
+  reads the nested `PlayerState.nana`. The Popo view's `get_nana_mode()`,
+  `can_partner_belay()`, and `can_partner_squall_hammer()` use exact CC2 Gecko
+  telemetry. A present Nana with legacy telemetry returns `None`; Sopo, non-Popo,
+  and nested Nana views return no mode and false recruitment checks.
+  `IceClimbersControls` is instead a persistent,
+  bot-owned input facade constructed from the raw controller and shared `FrameData`.
+  Its `update(game_state, game_state.frame)` must run before every frame's inputs.
+  Every request is written immediately and also evaluated through Nana's normal
+  gates six frames later by its integrated `NanaActionQueue`; queue readers require
+  the current frame. Its one-frame `attack()` still returns `None` when Popo cannot
+  execute the move, but writes the buttons anyway so Nana's delayed input is not
+  lost. It never owns or returns a `Hold`; use a montage for chargeable or otherwise
+  multi-frame attacks.
   Console parsing reuses the same nested follower `PlayerState` for PRE_FRAME and
   POST_FRAME packets so pre-frame controller input and player metadata survive
   post-frame field updates.

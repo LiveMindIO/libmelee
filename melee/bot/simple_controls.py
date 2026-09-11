@@ -468,25 +468,6 @@ class SimpleControls:
         """Bound :class:`CharacterState` backing all state classification."""
         return self._character_state
 
-    def get_nana(self) -> SimpleControls | None:
-        """Return controls whose eligibility checks use Nana's state.
-
-        The returned controls write to the same controller as Popo's controls;
-        only the underlying :class:`CharacterState` used to validate and
-        recognize inputs differs. Returns ``None`` when the bound character has
-        no active Nana state.
-        """
-        nana = self._character_state.get_nana()
-        if nana is None:
-            return None
-        return SimpleControls(
-            self._game_state,
-            self._port,
-            self._controller,
-            frame_data=self._frame_data,
-            _character_state=nana,
-        )
-
     def tilt_stick(
         self,
         reference_axis: StickReferenceAxis,

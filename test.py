@@ -18,6 +18,7 @@ from typing_extensions import get_overloads
 import melee
 from melee.bot import (
     MIN_SHIELD,
+    NANA_INPUT_DELAY_FRAMES,
     Abort,
     AnonymousInputMontage,
     AttackFrameData,
@@ -38,6 +39,7 @@ from melee.bot import (
     GroundDodgeStickReferenceAxis,
     Hold,
     HorizontalStickReferenceAxis,
+    IceClimbersControls,
     InitiateDashMontage,
     InputMontage,
     JigglypuffRolloutMontage,
@@ -51,6 +53,9 @@ from melee.bot import (
     MewtwoShadowBallMontage,
     MontageState,
     MultishineMontage,
+    NanaActionStatus,
+    NanaControl,
+    NanaMode,
     PerfectPivotMontage,
     PlatformDropFastFallMontage,
     PreTickResult,
@@ -932,6 +937,23 @@ class PostFrameParsingTests(unittest.TestCase):
         self.assertEqual(nana.cpu_level, 1)
         self.assertEqual(nana.team_id, 0)
 
+    def test_nana_post_frame_applies_earlier_cc2_telemetry(self) -> None:
+        game_state = melee.GameState(frame=0)
+        game_state.custom["gecko_ice_climbers_statuses"] = (0x0F, 0, 0, 0)
+        leader_payload = self.post_frame_payload()
+        leader_payload[7] = melee.Character.POPO.value
+        self.parse_post_frame(game_state, leader_payload)
+        self.assertIs(game_state.players[1].nana_mode, NanaMode.FOLLOWER)
+
+        nana_payload = self.post_frame_payload()
+        nana_payload[6] = 1
+        nana_payload[7] = melee.Character.NANA.value
+        self.parse_post_frame(game_state, nana_payload)
+
+        self.assertIs(game_state.players[1].nana_mode, NanaMode.FOLLOWER)
+        self.assertTrue(game_state.players[1].nana_belay_eligible)
+        self.assertTrue(game_state.players[1].nana_squall_hammer_eligible)
+
     def test_defender_hitlag_flag_sets_and_clears_on_reused_player(self):
         game_state = melee.GameState(frame=0)
         payload = self.post_frame_payload()
@@ -1255,6 +1277,107 @@ class SLPFile(unittest.TestCase):
 
 
 class MenuEventCostumeTests(unittest.TestCase):
+    def test_cc2_payload_splits_exact_ice_climbers_telemetry(self) -> None:
+        import struct
+
+        console = melee.Console(is_dolphin=False, allow_old_version=True)
+        payload = bytearray(0x80)
+        payload[0x1:0x3] = (0x0202).to_bytes(2, byteorder="big")
+        payload[0x54] = 10
+        payload[0x55:0x58] = b"CC2"
+        values = (0, 0, 0, 0, 0, 11, 12, 13, 14, 0x07090001)
+        for index, value in enumerate(values):
+            struct.pack_into(">I", payload, 0x58 + index * 4, value)
+        gamestate = melee.GameState(
+            players={
+                1: melee.PlayerState(
+                    character=melee.Character.POPO,
+                    nana=melee.PlayerState(character=melee.Character.NANA),
+                ),
+                2: melee.PlayerState(
+                    character=melee.Character.POPO,
+                    nana=melee.PlayerState(character=melee.Character.NANA),
+                ),
+                3: melee.PlayerState(character=melee.Character.POPO),
+                4: melee.PlayerState(
+                    character=melee.Character.POPO,
+                    nana=melee.PlayerState(character=melee.Character.NANA),
+                ),
+            }
+        )
+
+        console._Console__handle_slippstream_menu_event(bytes(payload), gamestate)
+
+        self.assertEqual(gamestate.custom["gecko_watch_values"], ())
+        self.assertEqual(gamestate.custom["gecko_neutral_b_charges"], (11, 12, 13, 14))
+        self.assertEqual(
+            gamestate.custom["gecko_ice_climbers_statuses"],
+            (0x07, 0x09, 0x00, 0x01),
+        )
+        self.assertIs(gamestate.players[1].nana_mode, NanaMode.FOLLOWER)
+        self.assertTrue(gamestate.players[1].nana_belay_eligible)
+        self.assertFalse(gamestate.players[1].nana_squall_hammer_eligible)
+        self.assertIs(gamestate.players[2].nana_mode, NanaMode.CPU_RETURNING)
+        self.assertFalse(gamestate.players[2].nana_belay_eligible)
+        self.assertTrue(gamestate.players[2].nana_squall_hammer_eligible)
+        self.assertIsNone(gamestate.players[3].nana_mode)
+        self.assertIs(gamestate.players[4].nana_mode, NanaMode.CPU_RETURNING)
+
+    def test_cc1_payload_does_not_claim_ice_climbers_telemetry(self) -> None:
+        import struct
+
+        console = melee.Console(is_dolphin=False, allow_old_version=True)
+        payload = bytearray(0x7C)
+        payload[0x1:0x3] = (0x0202).to_bytes(2, byteorder="big")
+        payload[0x54] = 9
+        payload[0x55:0x58] = b"CC1"
+        for index, value in enumerate((0, 0, 0, 0, 0, 1, 2, 3, 4)):
+            struct.pack_into(">I", payload, 0x58 + index * 4, value)
+        gamestate = melee.GameState(
+            players={
+                1: melee.PlayerState(
+                    character=melee.Character.POPO,
+                    nana=melee.PlayerState(character=melee.Character.NANA),
+                    nana_mode=NanaMode.FOLLOWER,
+                    nana_belay_eligible=True,
+                    nana_squall_hammer_eligible=True,
+                )
+            },
+            custom={"gecko_ice_climbers_statuses": (0x0F, 0, 0, 0)},
+        )
+
+        console._Console__handle_slippstream_menu_event(bytes(payload), gamestate)
+
+        self.assertNotIn("gecko_ice_climbers_statuses", gamestate.custom)
+        self.assertIsNone(gamestate.players[1].nana_mode)
+        self.assertIsNone(gamestate.players[1].nana_belay_eligible)
+        self.assertIsNone(gamestate.players[1].nana_squall_hammer_eligible)
+
+    def test_malformed_watch_payload_clears_ice_climbers_telemetry(self) -> None:
+        console = melee.Console(is_dolphin=False, allow_old_version=True)
+        payload = bytearray(0x55)
+        payload[0x1:0x3] = (0x0202).to_bytes(2, byteorder="big")
+        payload[0x54] = 10
+        gamestate = melee.GameState(
+            players={
+                1: melee.PlayerState(
+                    character=melee.Character.POPO,
+                    nana=melee.PlayerState(character=melee.Character.NANA),
+                    nana_mode=NanaMode.FOLLOWER,
+                    nana_belay_eligible=True,
+                    nana_squall_hammer_eligible=True,
+                )
+            },
+            custom={"gecko_ice_climbers_statuses": (0x0F, 0, 0, 0)},
+        )
+
+        console._Console__handle_slippstream_menu_event(bytes(payload), gamestate)
+
+        self.assertNotIn("gecko_ice_climbers_statuses", gamestate.custom)
+        self.assertIsNone(gamestate.players[1].nana_mode)
+        self.assertIsNone(gamestate.players[1].nana_belay_eligible)
+        self.assertIsNone(gamestate.players[1].nana_squall_hammer_eligible)
+
     def test_nb1_payload_splits_debug_watches_and_per_port_charge(self) -> None:
         import struct
 
@@ -1774,6 +1897,7 @@ class AngularStickTests(unittest.TestCase):
 
 class RecordingSimpleController:
     def __init__(self, *, analog_input_correction_enabled: bool = True) -> None:
+        self.port = 1
         self.analog_input_correction_enabled = analog_input_correction_enabled
         self.current = melee.ControllerState()
         self.prev = melee.ControllerState()
@@ -2010,7 +2134,7 @@ class SimpleControlsInputTests(unittest.TestCase):
         self.assertIs(nana_state.get_state(), CharacterStatus.Hitstun)
         self.assertIsNone(nana_state.get_nana())
 
-    def test_get_nana_returns_none_without_follower_state(self) -> None:
+    def test_character_state_get_nana_returns_none_without_follower_state(self) -> None:
         for game_state in (
             melee.GameState(),
             melee.GameState(
@@ -2026,90 +2150,336 @@ class SimpleControlsInputTests(unittest.TestCase):
                     1,
                     frame_data=self.frame_data,
                 )
-                controls = SimpleControls(
-                    game_state,
+                self.assertIsNone(character_state.get_nana())
+
+    def test_character_state_exposes_exact_nana_partner_telemetry(self) -> None:
+        nana = melee.PlayerState(character=melee.Character.NANA)
+        popo = melee.PlayerState(
+            character=melee.Character.POPO,
+            nana=nana,
+            nana_mode=NanaMode.FOLLOWER,
+            nana_belay_eligible=True,
+            nana_squall_hammer_eligible=False,
+        )
+        state = CharacterState(
+            melee.GameState(players={1: popo}),
+            1,
+            frame_data=self.frame_data,
+        )
+
+        self.assertIs(state.get_nana_mode(), NanaMode.FOLLOWER)
+        self.assertTrue(state.can_partner_belay())
+        self.assertFalse(state.can_partner_squall_hammer())
+
+        popo.nana_mode = NanaMode.CPU_RETURNING
+        popo.nana_belay_eligible = False
+        popo.nana_squall_hammer_eligible = True
+        self.assertIs(state.get_nana_mode(), NanaMode.CPU_RETURNING)
+        self.assertFalse(state.can_partner_belay())
+        self.assertTrue(state.can_partner_squall_hammer())
+
+    def test_character_state_nana_telemetry_absence_contract(self) -> None:
+        nana = melee.PlayerState(character=melee.Character.NANA)
+        legacy = CharacterState(
+            melee.GameState(
+                players={
+                    1: melee.PlayerState(character=melee.Character.POPO, nana=nana)
+                }
+            ),
+            1,
+            frame_data=self.frame_data,
+        )
+        self.assertIsNone(legacy.get_nana_mode())
+        self.assertIsNone(legacy.can_partner_belay())
+        self.assertIsNone(legacy.can_partner_squall_hammer())
+
+        for player in (
+            melee.PlayerState(character=melee.Character.POPO),
+            melee.PlayerState(character=melee.Character.FOX, nana=nana),
+        ):
+            with self.subTest(character=player.character):
+                state = CharacterState(
+                    melee.GameState(players={1: player}),
                     1,
-                    RecordingSimpleController(),
                     frame_data=self.frame_data,
                 )
+                self.assertIsNone(state.get_nana_mode())
+                self.assertFalse(state.can_partner_belay())
+                self.assertFalse(state.can_partner_squall_hammer())
 
-                self.assertIsNone(character_state.get_nana())
-                self.assertIsNone(controls.get_nana())
+        nana_state = legacy.get_nana()
+        self.assertIsNotNone(nana_state)
+        self.assertIsNone(nana_state.get_nana_mode())
+        self.assertFalse(nana_state.can_partner_belay())
+        self.assertFalse(nana_state.can_partner_squall_hammer())
 
-    def test_simple_controls_get_nana_uses_follower_state_and_shared_controller(self) -> None:
+    def test_ice_climbers_controls_send_ungated_input_and_report_nana_result(self) -> None:
+        controller = RecordingSimpleController()
+        controls = IceClimbersControls(controller, frame_data=self.frame_data)
+
+        def state(frame, nana_action):
+            return melee.GameState(
+                frame=frame,
+                players={
+                    1: melee.PlayerState(
+                        character=melee.Character.POPO,
+                        action=melee.Action.DAMAGE_HIGH_1,
+                        hitstun_frames_left=8,
+                        nana=melee.PlayerState(
+                            character=melee.Character.NANA,
+                            action=nana_action,
+                            on_ground=True,
+                        ),
+                    )
+                },
+            )
+
+        controls.update(state(0, melee.Action.DAMAGE_HIGH_1), 0)
+        result = controls.attack(AttackType.JAB)
+
+        self.assertIsNone(result)
+        self.assertIn(melee.Button.BUTTON_A, controller.buttons)
+        pending = controls.nana_action_queue.pending(0)
+        self.assertEqual(len(pending), 1)
+        self.assertIs(pending[0].control, NanaControl.ATTACK)
+        self.assertEqual(pending[0].execution_frame, 6)
+
+        for frame in range(1, 6):
+            controls.update(state(frame, melee.Action.DAMAGE_HIGH_1), frame)
+            self.assertEqual(controls.nana_action_queue.drain(frame), ())
+
+        controls.update(state(6, melee.Action.STANDING), 6)
+        completed = controls.nana_action_queue.drain(6)
+
+        self.assertEqual(len(completed), 1)
+        self.assertIs(completed[0].status, NanaActionStatus.EXECUTED)
+        self.assertIsInstance(completed[0].output, AttackFrameData)
+        self.assertIs(completed[0].output.character, melee.Character.NANA)
+
+    def test_nana_result_uses_execution_frame_actionability(self) -> None:
+        controller = RecordingSimpleController()
+        controls = IceClimbersControls(controller, frame_data=self.frame_data)
+
+        def state(frame, nana):
+            return melee.GameState(
+                frame=frame,
+                players={
+                    1: melee.PlayerState(
+                        character=melee.Character.POPO,
+                        action=melee.Action.DAMAGE_HIGH_1,
+                        hitstun_frames_left=8,
+                        nana=nana,
+                    )
+                },
+            )
+
         nana = melee.PlayerState(
             character=melee.Character.NANA,
             action=melee.Action.STANDING,
             on_ground=True,
         )
-        popo = melee.PlayerState(
-            character=melee.Character.POPO,
+        controls.update(state(10, nana), 10)
+        self.assertIsNone(controls.attack(AttackType.JAB))
+
+        hitstun_nana = melee.PlayerState(
+            character=melee.Character.NANA,
             action=melee.Action.DAMAGE_HIGH_1,
             hitstun_frames_left=8,
-            nana=nana,
         )
+        for frame in range(11, 17):
+            controls.update(state(frame, hitstun_nana), frame)
+
+        completed = controls.nana_action_queue.drain(16)
+        self.assertEqual(len(completed), 1)
+        self.assertIs(completed[0].status, NanaActionStatus.EXECUTED)
+        self.assertIsNone(completed[0].output)
+
+    def test_nana_action_queue_reports_absent_and_skipped_execution_frames(self) -> None:
         controller = RecordingSimpleController()
-        controls, _ = self.controls(popo, controller)
+        controls = IceClimbersControls(controller, frame_data=self.frame_data)
 
-        self.assertIsNone(controls.attack(AttackType.JAB))
-        nana_controls = controls.get_nana()
-        self.assertIsNotNone(nana_controls)
+        def state(frame, nana=None):
+            return melee.GameState(
+                frame=frame,
+                players={
+                    1: melee.PlayerState(
+                        character=melee.Character.POPO,
+                        action=melee.Action.STANDING,
+                        on_ground=True,
+                        nana=nana,
+                    )
+                },
+            )
 
-        result = nana_controls.attack(AttackType.JAB)
+        controls.update(
+            state(20, melee.PlayerState(character=melee.Character.NANA)),
+            20,
+        )
+        controls.press_button(melee.Button.BUTTON_A)
+        controls.update(state(26), 26)
+        absent = controls.nana_action_queue.drain(26)
+        self.assertIs(absent[0].status, NanaActionStatus.NANA_ABSENT)
 
-        self.assertIsInstance(result, Hold)
-        self.assertIs(result.character, melee.Character.NANA)
-        self.assertIn(melee.Button.BUTTON_A, controller.buttons)
-        self.assertIs(nana_controls.character_state.player(), nana)
-        self.assertIsNone(nana_controls.get_nana())
+        controls.press_button(melee.Button.BUTTON_B)
+        controls.update(
+            state(27, melee.PlayerState(character=melee.Character.NANA)),
+            27,
+        )
+        controls.release_all()
+        controls.update(
+            state(33, melee.PlayerState(character=melee.Character.NANA)),
+            33,
+        )
+        skipped = controls.nana_action_queue.drain(33)
+        self.assertIs(skipped[0].status, NanaActionStatus.FRAME_SKIPPED)
+        self.assertIs(skipped[1].status, NanaActionStatus.RESET)
 
-    def test_popo_and_nana_reject_each_others_holds(self) -> None:
-        for source_character in (melee.Character.POPO, melee.Character.NANA):
-            with self.subTest(source_character=source_character):
-                nana = melee.PlayerState(
-                    character=melee.Character.NANA,
-                    action=melee.Action.STANDING,
-                    on_ground=True,
-                )
-                popo = melee.PlayerState(
+    def test_ice_climbers_controls_do_not_expose_hold_ownership(self) -> None:
+        self.assertFalse(issubclass(IceClimbersControls, SimpleControls))
+        self.assertNotIn("hold", inspect.signature(IceClimbersControls.attack).parameters)
+        self.assertFalse(hasattr(IceClimbersControls, "check_hold"))
+        self.assertFalse(hasattr(IceClimbersControls, "release"))
+
+    def test_ice_climbers_controls_schedule_every_public_input(self) -> None:
+        controller = RecordingSimpleController()
+        controls = IceClimbersControls(controller, frame_data=self.frame_data)
+        game_state = melee.GameState(
+            frame=0,
+            players={
+                1: melee.PlayerState(
                     character=melee.Character.POPO,
                     action=melee.Action.STANDING,
                     on_ground=True,
-                    nana=nana,
+                    nana=melee.PlayerState(
+                        character=melee.Character.NANA,
+                        action=melee.Action.STANDING,
+                        on_ground=True,
+                    ),
                 )
-                controller = RecordingSimpleController()
-                controls, _ = self.controls(popo, controller)
-                nana_controls = controls.get_nana()
-                self.assertIsNotNone(nana_controls)
-                source_controls = (
-                    controls
-                    if source_character is melee.Character.POPO
-                    else nana_controls
-                )
-                hold = source_controls.attack(AttackType.JAB)
-                self.assertIsInstance(hold, Hold)
+            },
+        )
+        controls.update(game_state, 0)
 
-                active_nana = melee.PlayerState(
-                    character=melee.Character.NANA,
-                    action=melee.Action.NEUTRAL_ATTACK_1,
-                    on_ground=True,
-                )
-                active_popo = melee.PlayerState(
+        controls.tilt_stick(StickReferenceAxis.RIGHT, 0.0)
+        controls.tilt_analog(melee.Button.BUTTON_C, 0.25, 0.75)
+        controls.tilt_turn()
+        controls.smash_turn()
+        controls.shield(0.5)
+        controls.platform_drop()
+        controls.dodge(StickReferenceAxis.DOWN)
+        controls.air_dodge(StickReferenceAxis.UP)
+        controls.down_left(45.0)
+        controls.down_right(45.0)
+        controls.up_left(45.0)
+        controls.up_right(45.0)
+        controls.left_up(45.0)
+        controls.left_down(45.0)
+        controls.right_up(45.0)
+        controls.right_down(45.0)
+        controls.press_button(melee.Button.BUTTON_X)
+        controls.release_all()
+        controls.attack(AttackType.JAB)
+        controls.ledge_recovery(LedgeRecoveryOption.NEUTRAL_GETUP)
+        controls.taunt()
+
+        expected_controls = tuple(NanaControl)
+        pending = controls.nana_action_queue.pending(0)
+        self.assertEqual(
+            tuple(action.control for action in pending),
+            expected_controls,
+        )
+        self.assertEqual(
+            tuple(action.id for action in pending),
+            tuple(range(1, len(expected_controls) + 1)),
+        )
+
+        game_state.frame = NANA_INPUT_DELAY_FRAMES
+        controls.update(game_state, NANA_INPUT_DELAY_FRAMES)
+        completed = controls.nana_action_queue.drain(NANA_INPUT_DELAY_FRAMES)
+        self.assertEqual(
+            tuple(result.action.control for result in completed),
+            expected_controls,
+        )
+        self.assertTrue(
+            all(result.status is NanaActionStatus.EXECUTED for result in completed)
+        )
+
+    def test_ice_climbers_controls_repeated_jab_requests_preserve_button_edges(self) -> None:
+        controller = PacketRecordingSimpleController()
+        controls = IceClimbersControls(controller, frame_data=self.frame_data)
+
+        for frame in range(3):
+            game_state = melee.GameState(
+                frame=frame,
+                players={
+                    1: melee.PlayerState(
+                        character=melee.Character.POPO,
+                        action=melee.Action.STANDING,
+                        on_ground=True,
+                        nana=melee.PlayerState(character=melee.Character.NANA),
+                    )
+                },
+            )
+            controls.update(game_state, frame)
+            result = controls.attack(AttackType.JAB)
+            self.assertIsInstance(result, AttackFrameData)
+            controller.flush()
+
+        self.assertEqual(
+            [melee.Button.BUTTON_A in buttons for buttons, _ in controller.packets],
+            [True, False, True],
+        )
+
+    def test_nana_action_queue_resets_undrained_replayed_result_on_rollback(self) -> None:
+        controller = RecordingSimpleController()
+        controls = IceClimbersControls(controller, frame_data=self.frame_data)
+
+        def state(frame):
+            return melee.GameState(
+                frame=frame,
+                players={
+                    1: melee.PlayerState(
+                        character=melee.Character.POPO,
+                        nana=melee.PlayerState(
+                            character=melee.Character.NANA,
+                            action=melee.Action.STANDING,
+                            on_ground=True,
+                        ),
+                    )
+                },
+            )
+
+        controls.update(state(0), 0)
+        controls.attack(AttackType.JAB)
+        controls.update(state(6), 6)
+        controls.update(state(7), 7)
+        controls.update(state(6), 6)
+
+        completed = controls.nana_action_queue.drain(6)
+        self.assertEqual(len(completed), 1)
+        self.assertIs(completed[0].status, NanaActionStatus.RESET)
+        self.assertIsNone(completed[0].output)
+
+    def test_ice_climbers_controls_require_current_frame_binding(self) -> None:
+        controller = RecordingSimpleController()
+        controls = IceClimbersControls(controller, frame_data=self.frame_data)
+        game_state = melee.GameState(
+            frame=4,
+            players={
+                1: melee.PlayerState(
                     character=melee.Character.POPO,
-                    action=melee.Action.NEUTRAL_ATTACK_1,
-                    on_ground=True,
-                    nana=active_nana,
+                    nana=melee.PlayerState(character=melee.Character.NANA),
                 )
-                active_controls, _ = self.controls(active_popo, controller, frame=1)
-                active_nana_controls = active_controls.get_nana()
-                self.assertIsNotNone(active_nana_controls)
-                target_controls = (
-                    active_nana_controls
-                    if source_character is melee.Character.POPO
-                    else active_controls
-                )
+            },
+        )
 
-                self.assertIsNone(target_controls.attack(AttackType.JAB, hold=hold))
+        with self.assertRaisesRegex(RuntimeError, "update"):
+            controls.release_all()
+        with self.assertRaisesRegex(ValueError, "match game_state.frame"):
+            controls.update(game_state, 3)
+        controls.update(game_state, 4)
+        with self.assertRaisesRegex(ValueError, "advanced"):
+            controls.nana_action_queue.pending(3)
 
     def test_axis_types_restrict_facing_and_dodge_apis(self) -> None:
         self.assertEqual(

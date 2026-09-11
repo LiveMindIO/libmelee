@@ -319,6 +319,12 @@ class PlayerState:
     """(int): What frame of the Action is the character in? Indexed from 1."""
     neutral_b_charge: Optional[int] = None
     """Character-specific stored neutral-B charge, or None without current Gecko telemetry."""
+    nana_mode: Optional[enums.NanaMode] = None
+    """Nana's exact delayed-input mode, or None without current Gecko telemetry."""
+    nana_belay_eligible: Optional[bool] = None
+    """Whether Belay can recruit Nana at this frame, or None without current Gecko telemetry."""
+    nana_squall_hammer_eligible: Optional[bool] = None
+    """Whether Squall Hammer can recruit Nana, or None without current Gecko telemetry."""
     invulnerable: bool = False
     """Whether Slippi reports the player's current hurtbox as invulnerable or intangible."""
     invulnerability_left: int = 0

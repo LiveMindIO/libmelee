@@ -7,8 +7,9 @@ Mirrors gecko/ExtractMenuInfo/SendMenuFrame.asm. Base EXI transfer length is
 - 0x45–0x48: CSSDoor.is_hold_cpu_slider (+0x12) at mnCharSel_803F0DFC.doors[i]
 - 0x4C–0x52: live match pause bytes (when this fork's payload is active)
 - 0x53: payload discriminator (0 = normal, 1 = pause-open, 2 = pause-close)
-- 0x54+: counted crowd-control tail for normal payloads. NB1 tails contain
-  optional debug watches followed by four per-port neutral-B charge counters.
+- 0x54+: counted crowd-control tail for normal payloads. CC2 tails contain
+  optional debug watches, timeout state, four neutral-B charge counters, and
+  one packed Ice Climbers status word.
 
 See doldecomp/melee src/melee/mn/types.h (PlayerInitData, CSSDoor).
 Watch values are exposed on ``gamestate.custom["gecko_watch_values"]``.
@@ -37,11 +38,18 @@ WATCH_PAYLOAD_VALUES_OFFSET = 0x58
 WATCH_PAYLOAD_VALUE_SIZE = 4
 NEUTRAL_B_CHARGE_SIGNATURE = b"NB1"
 CROWD_CONTROL_SIGNATURE = b"CC1"
+ICE_CLIMBERS_SIGNATURE = b"CC2"
 NEUTRAL_B_CHARGE_SIGNATURE_OFFSET = 0x55
 NEUTRAL_B_CHARGE_VALUE_COUNT = 4
 NEUTRAL_B_CHARGE_CUSTOM_KEY = "gecko_neutral_b_charges"
 TIMEOUT_TELEMETRY_VALUE_COUNT = 5
 TIMEOUT_TELEMETRY_CUSTOM_KEY = "gecko_timeout_telemetry"
+ICE_CLIMBERS_TELEMETRY_VALUE_COUNT = 1
+ICE_CLIMBERS_TELEMETRY_CUSTOM_KEY = "gecko_ice_climbers_statuses"
+ICE_CLIMBERS_NANA_PRESENT = 0x01
+ICE_CLIMBERS_FOLLOWER_MODE = 0x02
+ICE_CLIMBERS_BELAY_ELIGIBLE = 0x04
+ICE_CLIMBERS_SQUALL_HAMMER_ELIGIBLE = 0x08
 NEUTRAL_B_CHARGE_CHARACTERS = frozenset(
     {
         enums.Character.DK,
@@ -321,6 +329,11 @@ def _apply_match_pause_fields(event_bytes: bytes, gamestate: GameState) -> None:
 
 
 def _apply_watch_payload_fields(event_bytes: bytes, gamestate: GameState) -> None:
+    gamestate.custom.pop(ICE_CLIMBERS_TELEMETRY_CUSTOM_KEY, None)
+    for player_state in gamestate.players.values():
+        player_state.nana_mode = None
+        player_state.nana_belay_eligible = None
+        player_state.nana_squall_hammer_eligible = None
     if len(event_bytes) <= WATCH_PAYLOAD_COUNT_OFFSET:
         return
     count = _read_u8(event_bytes, WATCH_PAYLOAD_COUNT_OFFSET)
@@ -335,27 +348,52 @@ def _apply_watch_payload_fields(event_bytes: bytes, gamestate: GameState) -> Non
         NEUTRAL_B_CHARGE_SIGNATURE_OFFSET:
         NEUTRAL_B_CHARGE_SIGNATURE_OFFSET + len(NEUTRAL_B_CHARGE_SIGNATURE)
     ]
-    has_charge_extension = (
-        count >= NEUTRAL_B_CHARGE_VALUE_COUNT
-        and signature in (NEUTRAL_B_CHARGE_SIGNATURE, CROWD_CONTROL_SIGNATURE)
-    )
+    if signature == ICE_CLIMBERS_SIGNATURE:
+        product_count = (
+            TIMEOUT_TELEMETRY_VALUE_COUNT
+            + NEUTRAL_B_CHARGE_VALUE_COUNT
+            + ICE_CLIMBERS_TELEMETRY_VALUE_COUNT
+        )
+    elif signature == CROWD_CONTROL_SIGNATURE:
+        product_count = TIMEOUT_TELEMETRY_VALUE_COUNT + NEUTRAL_B_CHARGE_VALUE_COUNT
+    elif signature == NEUTRAL_B_CHARGE_SIGNATURE:
+        product_count = NEUTRAL_B_CHARGE_VALUE_COUNT
+    else:
+        product_count = 0
+    has_charge_extension = count >= product_count and product_count > 0
     if not has_charge_extension:
         gamestate.custom["gecko_watch_values"] = values
         return
 
-    timeout_count = TIMEOUT_TELEMETRY_VALUE_COUNT if signature == CROWD_CONTROL_SIGNATURE else 0
-    debug_count = count - NEUTRAL_B_CHARGE_VALUE_COUNT - timeout_count
+    timeout_count = (
+        TIMEOUT_TELEMETRY_VALUE_COUNT
+        if signature in (CROWD_CONTROL_SIGNATURE, ICE_CLIMBERS_SIGNATURE)
+        else 0
+    )
+    ice_climbers_count = (
+        ICE_CLIMBERS_TELEMETRY_VALUE_COUNT
+        if signature == ICE_CLIMBERS_SIGNATURE
+        else 0
+    )
+    debug_count = count - NEUTRAL_B_CHARGE_VALUE_COUNT - timeout_count - ice_climbers_count
     gamestate.custom["gecko_watch_values"] = values[:debug_count]
     if timeout_count:
         timeout_end = debug_count + timeout_count
         gamestate.custom[TIMEOUT_TELEMETRY_CUSTOM_KEY] = values[debug_count:timeout_end]
     else:
         timeout_end = debug_count
-    charges = values[timeout_end:]
+    charges_end = timeout_end + NEUTRAL_B_CHARGE_VALUE_COUNT
+    charges = values[timeout_end:charges_end]
     gamestate.custom[NEUTRAL_B_CHARGE_CUSTOM_KEY] = charges
     for port, player_state in gamestate.players.items():
         if 1 <= port <= len(charges) and player_state.character in NEUTRAL_B_CHARGE_CHARACTERS:
             player_state.neutral_b_charge = charges[port - 1]
+    if ice_climbers_count:
+        packed = values[charges_end]
+        statuses = tuple((packed >> shift) & 0xFF for shift in (24, 16, 8, 0))
+        gamestate.custom[ICE_CLIMBERS_TELEMETRY_CUSTOM_KEY] = statuses
+        for port, player_state in gamestate.players.items():
+            apply_ice_climbers_telemetry(player_state, port, gamestate)
 
 
 def apply_neutral_b_charge(player_state: PlayerState, port: int, gamestate: GameState) -> None:
@@ -369,3 +407,38 @@ def apply_neutral_b_charge(player_state: PlayerState, port: int, gamestate: Game
         charge = charges[port - 1]
         if isinstance(charge, int):
             player_state.neutral_b_charge = charge
+
+
+def apply_ice_climbers_telemetry(
+    player_state: PlayerState,
+    port: int,
+    gamestate: GameState,
+) -> None:
+    """Apply signature-validated per-port Nana state to a Popo leader."""
+    player_state.nana_mode = None
+    player_state.nana_belay_eligible = None
+    player_state.nana_squall_hammer_eligible = None
+    statuses = gamestate.custom.get(ICE_CLIMBERS_TELEMETRY_CUSTOM_KEY)
+    if (
+        not isinstance(statuses, tuple)
+        or not 1 <= port <= len(statuses)
+        or player_state.character != enums.Character.POPO
+    ):
+        return
+    status = statuses[port - 1]
+    if not isinstance(status, int):
+        return
+    if not status & ICE_CLIMBERS_NANA_PRESENT:
+        player_state.nana_mode = None
+        player_state.nana_belay_eligible = False
+        player_state.nana_squall_hammer_eligible = False
+        return
+    player_state.nana_mode = (
+        enums.NanaMode.FOLLOWER
+        if status & ICE_CLIMBERS_FOLLOWER_MODE
+        else enums.NanaMode.CPU_RETURNING
+    )
+    player_state.nana_belay_eligible = bool(status & ICE_CLIMBERS_BELAY_ELIGIBLE)
+    player_state.nana_squall_hammer_eligible = bool(
+        status & ICE_CLIMBERS_SQUALL_HAMMER_ELIGIBLE
+    )
