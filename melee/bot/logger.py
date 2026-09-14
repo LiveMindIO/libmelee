@@ -8,7 +8,7 @@ from typing import Any
 
 from melee.gamestate import GameState
 
-RECENT_LOG_LIMIT = 20
+RECENT_LOG_LIMIT = 60
 LOG_MESSAGE_BYTE_LIMIT = 16 * 1024
 _LEVEL_NAMES = {
     logging.DEBUG: "DEBUG",
