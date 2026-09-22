@@ -20,6 +20,7 @@ from melee.bot.simple_controls import (
     MIN_SHIELD,
     ActionFrameData,
     AttackFrameData,
+    ControllerPacket,
     LedgeRecoveryOption,
     SimpleControls,
     _observed_action_frame_data,
@@ -44,32 +45,6 @@ class _DirectionalTilt(Protocol):
     ) -> ActionFrameData | None: ...
 
 
-class NanaControl(Enum):
-    """Public control operation represented by a delayed Nana action."""
-
-    TILT_STICK = auto()
-    TILT_ANALOG = auto()
-    TILT_TURN = auto()
-    SMASH_TURN = auto()
-    SHIELD = auto()
-    PLATFORM_DROP = auto()
-    DODGE = auto()
-    AIR_DODGE = auto()
-    DOWN_LEFT = auto()
-    DOWN_RIGHT = auto()
-    UP_LEFT = auto()
-    UP_RIGHT = auto()
-    LEFT_UP = auto()
-    LEFT_DOWN = auto()
-    RIGHT_UP = auto()
-    RIGHT_DOWN = auto()
-    PRESS_BUTTON = auto()
-    RELEASE_ALL = auto()
-    ATTACK = auto()
-    LEDGE_RECOVERY = auto()
-    TAUNT = auto()
-
-
 class NanaActionStatus(Enum):
     """Whether a delayed Nana action could be evaluated at its exact frame."""
 
@@ -84,12 +59,13 @@ NanaControlOutput = ActionFrameData | None
 
 @dataclass(frozen=True, slots=True)
 class NanaAction:
-    """One input scheduled to reach Nana after her standard six-frame delay."""
+    """One immutable physical Popo packet delta delayed for Nana."""
 
     id: int
-    control: NanaControl
     input_frame: int
     execution_frame: int
+    previous_packet: ControllerPacket
+    current_packet: ControllerPacket
 
 
 @dataclass(frozen=True, slots=True)
@@ -213,6 +189,8 @@ class NanaActionQueue:
         self._advanced_frame: int | None = None
         self._last_nana_player: PlayerState | None = None
         self._last_nana_frame: int | None = None
+        self._captured_packet: ControllerPacket | None = None
+        self._captured_frame: int | None = None
 
     def pending(self, frame: int) -> tuple[NanaAction, ...]:
         """Return queued actions after verifying the queue reached ``frame``."""
@@ -232,16 +210,13 @@ class NanaActionQueue:
                 "NanaActionQueue must be advanced to the requested frame through IceClimbersControls.update()"
             )
 
-    def _schedule(
-        self,
-        control: NanaControl,
-        frame: int,
-    ) -> None:
+    def _schedule(self, previous_packet: ControllerPacket, current_packet: ControllerPacket, frame: int) -> None:
         action = NanaAction(
             id=self._next_id,
-            control=control,
             input_frame=frame,
             execution_frame=frame + NANA_INPUT_DELAY_FRAMES,
+            previous_packet=previous_packet,
+            current_packet=current_packet,
         )
         self._next_id += 1
         self._pending.append(action)
@@ -252,10 +227,14 @@ class NanaActionQueue:
         port: int,
         frame_data: FrameData,
         frame: int,
+        committed_packet: ControllerPacket,
     ) -> None:
         if self._advanced_frame == frame:
             return
-        if self._advanced_frame is not None and frame < self._advanced_frame:
+        if self._advanced_frame is None:
+            self._seed_frame(game_state, port, frame_data, frame, committed_packet)
+            return
+        if frame < self._advanced_frame:
             self._completed = deque(
                 NanaActionResult(result.action, NanaActionStatus.RESET, None)
                 if result.action.execution_frame >= frame
@@ -264,42 +243,71 @@ class NanaActionQueue:
             )
             self._complete_pending(NanaActionStatus.RESET)
             self._reset_tracking()
+            self._seed_frame(game_state, port, frame_data, frame, committed_packet)
+            return
 
-        nana = CharacterState(game_state, port, frame_data=frame_data).get_nana()
-        if self._pending and self._pending[0].execution_frame < frame:
+        if frame != self._advanced_frame + 1:
             while self._pending:
                 action = self._pending.popleft()
                 status = NanaActionStatus.FRAME_SKIPPED if action.execution_frame < frame else NanaActionStatus.RESET
                 self._completed.append(NanaActionResult(action, status, None))
             self._reset_tracking()
-            self._advanced_frame = frame
+            self._seed_frame(game_state, port, frame_data, frame, committed_packet)
             return
+
+        assert self._captured_packet is not None
+        assert self._captured_frame == frame - 1
+        self._schedule(self._captured_packet, committed_packet, frame)
+
+        nana = CharacterState(game_state, port, frame_data=frame_data).get_nana()
         if nana is None:
             while self._pending:
                 action = self._pending.popleft()
                 status = NanaActionStatus.NANA_ABSENT if action.execution_frame == frame else NanaActionStatus.RESET
                 self._completed.append(NanaActionResult(action, status, None))
             self._reset_tracking()
+            self._captured_packet = committed_packet
+            self._captured_frame = frame
             self._advanced_frame = frame
             return
         due: list[NanaAction] = []
         while self._pending and self._pending[0].execution_frame <= frame:
             due.append(self._pending.popleft())
         source_player = self._last_nana_player if self._last_nana_frame == frame - 1 else None
-        output = (
-            _observed_action_frame_data(
-                nana,
-                frame_data,
-                source_player=source_player,
-            )
-            if source_player is not None
-            else None
-        )
         for action in due:
+            output = (
+                None
+                if source_player is None
+                else _observed_action_frame_data(
+                    nana,
+                    frame_data,
+                    source_player=source_player,
+                    previous_packet=action.previous_packet,
+                    current_packet=action.current_packet,
+                )
+            )
             self._completed.append(NanaActionResult(action, NanaActionStatus.EXECUTED, output))
         nana_player = nana.player()
         self._last_nana_player = copy.deepcopy(nana_player) if nana_player is not None else None
         self._last_nana_frame = frame if nana_player is not None else None
+        self._captured_packet = committed_packet
+        self._captured_frame = frame
+        self._advanced_frame = frame
+
+    def _seed_frame(
+        self,
+        game_state: GameState,
+        port: int,
+        frame_data: FrameData,
+        frame: int,
+        committed_packet: ControllerPacket,
+    ) -> None:
+        nana = CharacterState(game_state, port, frame_data=frame_data).get_nana()
+        nana_player = nana.player() if nana is not None else None
+        self._last_nana_player = copy.deepcopy(nana_player) if nana_player is not None else None
+        self._last_nana_frame = frame if nana_player is not None else None
+        self._captured_packet = committed_packet
+        self._captured_frame = frame
         self._advanced_frame = frame
 
     def _complete_pending(self, status: NanaActionStatus) -> None:
@@ -310,6 +318,8 @@ class NanaActionQueue:
     def _reset_tracking(self) -> None:
         self._last_nana_player = None
         self._last_nana_frame = None
+        self._captured_packet = None
+        self._captured_frame = None
 
 
 class IceClimbersControls:
@@ -317,8 +327,8 @@ class IceClimbersControls:
 
     Construct one instance from the raw controller and retain it for the bot's
     match. Call :meth:`update` once for every game-state snapshot before applying
-    inputs. Each input is sent immediately and queued for comparison with Nana's
-    actual Slippi controller packet and observed action six frames later.
+    inputs. Each input is sent immediately; whole flushed Popo packets are queued
+    and compared with Nana's observed action six frames later.
     This facade intentionally has no ``Hold`` lifecycle; use an input montage when
     a move needs multi-frame input ownership.
     """
@@ -364,6 +374,10 @@ class IceClimbersControls:
             self._port,
             self._ice_frame_data,
             frame,
+            ControllerPacket.from_command_state(
+                self._controller.prev,
+                analog_input_correction_enabled=getattr(self._controller, "analog_input_correction_enabled", True),
+            ),
         )
         self._bound_frame = frame
 
@@ -377,15 +391,9 @@ class IceClimbersControls:
         assert self._controls is not None
         return self._controls
 
-    def _record(
-        self,
-        control: NanaControl,
-        operation: Callable[[], ResultT],
-    ) -> ResultT:
-        frame = self._frame()
-        result = operation()
-        self._nana_action_queue._schedule(control, frame)
-        return result
+    def _record(self, operation: Callable[[], ResultT]) -> ResultT:
+        self._frame()
+        return operation()
 
     def tilt_stick(
         self,
@@ -396,7 +404,6 @@ class IceClimbersControls:
         stick: Button = Button.BUTTON_MAIN,
     ) -> ActionFrameData | None:
         return self._record(
-            NanaControl.TILT_STICK,
             lambda: self._current_controls().tilt_stick(
                 reference_axis,
                 angle_degrees,
@@ -407,31 +414,26 @@ class IceClimbersControls:
 
     def tilt_analog(self, stick: Button, x: float, y: float) -> ActionFrameData | None:
         return self._record(
-            NanaControl.TILT_ANALOG,
             lambda: self._current_controls().tilt_analog(stick, x, y),
         )
 
     def tilt_turn(self) -> ActionFrameData | None:
         return self._record(
-            NanaControl.TILT_TURN,
             lambda: self._current_controls().tilt_turn(),
         )
 
     def smash_turn(self) -> ActionFrameData | None:
         return self._record(
-            NanaControl.SMASH_TURN,
             lambda: self._current_controls().smash_turn(),
         )
 
     def shield(self, strength: float) -> ActionFrameData | None:
         return self._record(
-            NanaControl.SHIELD,
             lambda: self._current_controls().shield_once(strength),
         )
 
     def platform_drop(self) -> ActionFrameData | None:
         return self._record(
-            NanaControl.PLATFORM_DROP,
             lambda: self._current_controls().platform_drop_once(),
         )
 
@@ -442,7 +444,6 @@ class IceClimbersControls:
         dodge_button: Button = Button.BUTTON_L,
     ) -> ActionFrameData | None:
         return self._record(
-            NanaControl.DODGE,
             lambda: self._current_controls().dodge_once(
                 direction,
                 dodge_button=dodge_button,
@@ -458,7 +459,6 @@ class IceClimbersControls:
         dodge_button: Button = Button.BUTTON_L,
     ) -> ActionFrameData | None:
         return self._record(
-            NanaControl.AIR_DODGE,
             lambda: self._current_controls().air_dodge_once(
                 reference_axis,
                 angle_degrees,
@@ -469,82 +469,62 @@ class IceClimbersControls:
 
     def _directional_tilt(
         self,
-        control: NanaControl,
         method: _DirectionalTilt,
         angle_degrees: float,
         magnitude: float,
         stick: Button,
     ) -> ActionFrameData | None:
         return self._record(
-            control,
             lambda: method(angle_degrees, magnitude=magnitude, stick=stick),
         )
 
     def down_left(
         self, angle_degrees: float, *, magnitude: float = 1.0, stick: Button = Button.BUTTON_MAIN
     ) -> ActionFrameData | None:
-        return self._directional_tilt(
-            NanaControl.DOWN_LEFT, self._current_controls().down_left, angle_degrees, magnitude, stick
-        )
+        return self._directional_tilt(self._current_controls().down_left, angle_degrees, magnitude, stick)
 
     def down_right(
         self, angle_degrees: float, *, magnitude: float = 1.0, stick: Button = Button.BUTTON_MAIN
     ) -> ActionFrameData | None:
-        return self._directional_tilt(
-            NanaControl.DOWN_RIGHT, self._current_controls().down_right, angle_degrees, magnitude, stick
-        )
+        return self._directional_tilt(self._current_controls().down_right, angle_degrees, magnitude, stick)
 
     def up_left(
         self, angle_degrees: float, *, magnitude: float = 1.0, stick: Button = Button.BUTTON_MAIN
     ) -> ActionFrameData | None:
-        return self._directional_tilt(
-            NanaControl.UP_LEFT, self._current_controls().up_left, angle_degrees, magnitude, stick
-        )
+        return self._directional_tilt(self._current_controls().up_left, angle_degrees, magnitude, stick)
 
     def up_right(
         self, angle_degrees: float, *, magnitude: float = 1.0, stick: Button = Button.BUTTON_MAIN
     ) -> ActionFrameData | None:
-        return self._directional_tilt(
-            NanaControl.UP_RIGHT, self._current_controls().up_right, angle_degrees, magnitude, stick
-        )
+        return self._directional_tilt(self._current_controls().up_right, angle_degrees, magnitude, stick)
 
     def left_up(
         self, angle_degrees: float, *, magnitude: float = 1.0, stick: Button = Button.BUTTON_MAIN
     ) -> ActionFrameData | None:
-        return self._directional_tilt(
-            NanaControl.LEFT_UP, self._current_controls().left_up, angle_degrees, magnitude, stick
-        )
+        return self._directional_tilt(self._current_controls().left_up, angle_degrees, magnitude, stick)
 
     def left_down(
         self, angle_degrees: float, *, magnitude: float = 1.0, stick: Button = Button.BUTTON_MAIN
     ) -> ActionFrameData | None:
-        return self._directional_tilt(
-            NanaControl.LEFT_DOWN, self._current_controls().left_down, angle_degrees, magnitude, stick
-        )
+        return self._directional_tilt(self._current_controls().left_down, angle_degrees, magnitude, stick)
 
     def right_up(
         self, angle_degrees: float, *, magnitude: float = 1.0, stick: Button = Button.BUTTON_MAIN
     ) -> ActionFrameData | None:
-        return self._directional_tilt(
-            NanaControl.RIGHT_UP, self._current_controls().right_up, angle_degrees, magnitude, stick
-        )
+        return self._directional_tilt(self._current_controls().right_up, angle_degrees, magnitude, stick)
 
     def right_down(
         self, angle_degrees: float, *, magnitude: float = 1.0, stick: Button = Button.BUTTON_MAIN
     ) -> ActionFrameData | None:
-        return self._directional_tilt(
-            NanaControl.RIGHT_DOWN, self._current_controls().right_down, angle_degrees, magnitude, stick
-        )
+        return self._directional_tilt(self._current_controls().right_down, angle_degrees, magnitude, stick)
 
     def press_button(self, button: Button) -> ActionFrameData | None:
         return self._record(
-            NanaControl.PRESS_BUTTON,
             lambda: self._current_controls().press_button(button),
         )
 
     def release_all(self) -> None:
         return self._record(
-            NanaControl.RELEASE_ALL,
             lambda: self._current_controls().release_all(),
         )
 
@@ -558,18 +538,15 @@ class IceClimbersControls:
         ``Hold`` for chargeable or otherwise multi-frame attacks.
         """
         return self._record(
-            NanaControl.ATTACK,
             lambda: self._current_controls().attack_once(attack_type),
         )
 
     def ledge_recovery(self, option: LedgeRecoveryOption) -> ActionFrameData | None:
         return self._record(
-            NanaControl.LEDGE_RECOVERY,
             lambda: self._current_controls().ledge_recovery_once(option),
         )
 
     def taunt(self) -> ActionFrameData | None:
         return self._record(
-            NanaControl.TAUNT,
             lambda: self._current_controls().taunt_once(),
         )

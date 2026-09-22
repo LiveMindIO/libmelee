@@ -286,15 +286,29 @@ uv pip install --python .venv/bin/python .
   `IceClimbersControls` is instead a persistent,
   bot-owned input facade constructed from the raw controller and shared `FrameData`.
   Its `update(game_state, game_state.frame)` must run before every frame's inputs.
-  Every request is written immediately. Its integrated `NanaActionQueue` evaluates
-  Nana's real Slippi pre-frame controller packet and observed post-frame action six
-  frames later without sending or replaying input; same-frame calls share the one
-  physical packet result. Queue readers require the current frame. Raw button and
-  stick methods return conservative `ActionFrameData | None`, while attacks use the
+  Every request is written immediately. On each contiguous `update`, its integrated
+  `NanaActionQueue` snapshots the one immutable whole packet in `Controller.prev`
+  that was flushed before that game state. It compares that packet with the prior
+  frame's packet, evaluates the delta against Nana's execution-time pre-state six
+  frames later, and verifies her observed post action without sending or replaying
+  input. The first update only seeds a baseline, and same-frame calls naturally
+  coalesce into the next physically flushed packet. Queue readers require the
+  current frame. Raw button and stick methods return conservative
+  `ActionFrameData | None`, while attacks use the
   compatible `AttackFrameData` subtype. Its one-frame `attack()` still returns
   `None` when Popo cannot execute the move, but writes the buttons anyway so Nana's
   delayed input is not lost. It never owns or returns a `Hold`; use a montage for
   chargeable or otherwise multi-frame attacks.
+- `ControllerPacket` is the immutable processed-coordinate packet boundary used by
+  `calculate_packet_intent(character_state, previous_packet, current_packet,
+  frame_data)`. Construct packets from `Controller.current`/`prev` with
+  `from_command_state` (passing the controller's analog correction setting) and
+  from `PlayerState.controller_state` with `from_processed_state`; command
+  conversion includes Dolphin quantization and the optional trigger correction
+  (which `Controller.current` does not store) and must not be applied to
+  already-processed Slippi values. Intent is deliberately
+  conservative: it requires fresh buttons or threshold crossings and returns
+  `None` where hidden Melee timers or transition state prevent a supported result.
   Console parsing reuses the same nested follower `PlayerState` for PRE_FRAME and
   POST_FRAME packets so pre-frame controller input and player metadata survive
   post-frame field updates.

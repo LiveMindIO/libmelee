@@ -32,6 +32,7 @@ from melee.bot import (
     CharacterStatus,
     ChargeStoreInput,
     Continue,
+    ControllerPacket,
     CrowdControl,
     DonkeyKongGiantPunchMontage,
     DoubleJumpCancelMontage,
@@ -55,7 +56,6 @@ from melee.bot import (
     MontageState,
     MultishineMontage,
     NanaActionStatus,
-    NanaControl,
     NanaMode,
     PerfectPivotMontage,
     PlatformDropFastFallMontage,
@@ -79,6 +79,7 @@ from melee.bot import (
     WavedashDirection,
     WavedashMontage,
     YoshiEggThrowMontage,
+    calculate_packet_intent,
     can_air_attack,
     can_airdodge,
     can_attack,
@@ -2076,6 +2077,164 @@ class RecordingMenuController(RecordingSimpleController):
         self.buttons.discard(button)
 
 
+class ControllerPacketIntentTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.frame_data = melee.FrameData()
+
+    def intent(
+        self,
+        player,
+        previous: ControllerPacket,
+        current: ControllerPacket,
+    ) -> ActionFrameData | None:
+        state = CharacterState(
+            melee.GameState(players={1: player}),
+            1,
+            frame_data=self.frame_data,
+        )
+        return calculate_packet_intent(state, previous, current, self.frame_data)
+
+    def test_controller_flush_preserves_deep_previous_snapshot(self) -> None:
+        class Pipe:
+            def flush(self) -> None:
+                pass
+
+        controller = object.__new__(melee.Controller)
+        controller.pipe = Pipe()
+        controller.current = melee.ControllerState()
+        controller.current.button[melee.Button.BUTTON_A] = True
+        controller.current.processed_button[melee.Button.BUTTON_B] = True
+        controller._write = lambda command: None
+
+        controller.flush()
+        controller.current.button[melee.Button.BUTTON_A] = False
+        controller.current.processed_button[melee.Button.BUTTON_B] = False
+
+        self.assertTrue(controller.prev.button[melee.Button.BUTTON_A])
+        self.assertTrue(controller.prev.processed_button[melee.Button.BUTTON_B])
+        self.assertIsNot(controller.prev.button, controller.current.button)
+        self.assertIsNot(controller.prev.processed_button, controller.current.processed_button)
+        controller.pipe = None
+
+    def test_command_packet_conversion_matches_dolphin_quantization(self) -> None:
+        desired_values = (0.0, 0.5, 0.625, 0.83125, 0.9, 1.0)
+        for desired in desired_values:
+            with self.subTest(desired=desired):
+                state = melee.ControllerState(main_stick=(fix_analog_stick(desired), fix_analog_stick(desired)))
+                packet = ControllerPacket.from_command_state(state)
+                self.assertAlmostEqual(packet.main_stick[0], desired)
+                self.assertAlmostEqual(packet.main_stick[1], desired)
+
+        uncorrected = ControllerPacket.from_command_state(
+            melee.ControllerState(main_stick=(0.8, 0.2), c_stick=(1.0, 0.0))
+        )
+        self.assertAlmostEqual(uncorrected.main_stick[0], 0.975)
+        self.assertAlmostEqual(uncorrected.main_stick[1], 0.01875)
+        self.assertEqual(uncorrected.c_stick, (1.0, 0.0))
+
+        processed = melee.ControllerState(main_stick=(0.8, 0.2), c_stick=(1.0, 0.0))
+        self.assertEqual(ControllerPacket.from_processed_state(processed).main_stick, (0.8, 0.2))
+        self.assertEqual(ControllerPacket.from_processed_state(processed).c_stick, (1.0, 0.0))
+
+        for corrected, expected in ((True, 0.8), (False, 0.975)):
+            with self.subTest(corrected=corrected):
+                controller = RecordingSimpleController(analog_input_correction_enabled=corrected)
+                controller.tilt_analog(melee.Button.BUTTON_MAIN, 0.8, 0.5)
+                packet = ControllerPacket.from_command_state(
+                    controller.current, analog_input_correction_enabled=corrected
+                )
+                self.assertAlmostEqual(packet.main_stick[0], expected)
+
+                controller.tilt_analog(melee.Button.BUTTON_MAIN, 0.5, 0.5)
+                controller.press_shoulder(melee.Button.BUTTON_L, 0.3)
+                packet = ControllerPacket.from_command_state(
+                    controller.current, analog_input_correction_enabled=corrected
+                )
+                self.assertAlmostEqual(packet.l_shoulder, 0.3 if corrected else 76 / 140)
+                player = melee.PlayerState(
+                    character=melee.Character.FOX,
+                    action=melee.Action.STANDING,
+                    on_ground=True,
+                )
+                result = self.intent(player, ControllerPacket(), packet)
+                if corrected:
+                    self.assertIsNone(result)
+                else:
+                    self.assertIs(result.action, melee.Action.SHIELD_START)
+
+    def test_fresh_held_release_and_repress_buttons(self) -> None:
+        player = melee.PlayerState(
+            character=melee.Character.FOX,
+            action=melee.Action.STANDING,
+            on_ground=True,
+        )
+        neutral = ControllerPacket()
+        pressed = ControllerPacket(buttons=frozenset({melee.Button.BUTTON_A}))
+
+        self.assertIsInstance(self.intent(player, neutral, pressed), AttackFrameData)
+        self.assertIsNone(self.intent(player, pressed, pressed))
+        self.assertIsInstance(self.intent(player, neutral, pressed), AttackFrameData)
+        self.assertIsNone(self.intent(player, pressed, neutral))
+
+    def test_stick_threshold_crossings_and_ambiguous_held_smash(self) -> None:
+        player = melee.PlayerState(
+            character=melee.Character.FOX,
+            action=melee.Action.STANDING,
+            on_ground=True,
+        )
+        neutral = ControllerPacket()
+        tilt = ControllerPacket(main_stick=(0.375, 0.5))
+        smash = ControllerPacket(
+            buttons=frozenset({melee.Button.BUTTON_A}),
+            main_stick=(0.9, 0.5),
+        )
+        held_smash = ControllerPacket(main_stick=(0.9, 0.5))
+        c_smash = ControllerPacket(c_stick=(1.0, 0.5))
+
+        self.assertIs(self.intent(player, neutral, tilt).action, melee.Action.TURNING)
+        self.assertIsNone(self.intent(player, tilt, tilt))
+        self.assertIs(self.intent(player, neutral, smash).action, melee.Action.FSMASH_MID)
+        self.assertIsNone(self.intent(player, held_smash, smash))
+        self.assertIs(self.intent(player, neutral, c_smash).action, melee.Action.FSMASH_MID)
+        self.assertIsNone(self.intent(player, c_smash, c_smash))
+
+    def test_state_specific_simultaneous_input_priority(self) -> None:
+        air = melee.PlayerState(
+            character=melee.Character.FOX,
+            action=melee.Action.FALLING,
+            on_ground=False,
+        )
+        b_and_z = ControllerPacket(buttons=frozenset({melee.Button.BUTTON_B, melee.Button.BUTTON_Z}))
+        z_only = ControllerPacket(buttons=frozenset({melee.Button.BUTTON_Z}))
+        self.assertIs(self.intent(air, ControllerPacket(), b_and_z).action, melee.Action.NEUTRAL_B_ATTACKING)
+        self.assertIs(self.intent(air, ControllerPacket(), z_only).action, melee.Action.AIRDODGE)
+
+        shielding = melee.PlayerState(
+            character=melee.Character.FOX,
+            action=melee.Action.SHIELD,
+            on_ground=True,
+        )
+        previous_shield = ControllerPacket(buttons=frozenset({melee.Button.BUTTON_L}))
+        spot_dodge = ControllerPacket(
+            buttons=frozenset({melee.Button.BUTTON_L}),
+            main_stick=(0.5, 0.0),
+        )
+        self.assertIs(self.intent(shielding, previous_shield, spot_dodge).action, melee.Action.SPOTDODGE)
+
+    def test_analog_shoulder_requires_crossing_melees_deadzone(self) -> None:
+        player = melee.PlayerState(
+            character=melee.Character.FOX,
+            action=melee.Action.STANDING,
+            on_ground=True,
+        )
+        neutral = ControllerPacket()
+        below = ControllerPacket(l_shoulder=42 / 140)
+        above = ControllerPacket(l_shoulder=43 / 140)
+        self.assertIsNone(self.intent(player, neutral, below))
+        self.assertIs(self.intent(player, below, above).action, melee.Action.SHIELD_START)
+        self.assertIsNone(self.intent(player, above, above))
+
+
 class MenuHelperCharacterSelectTests(unittest.TestCase):
     def choose_at(
         self,
@@ -2298,12 +2457,10 @@ class SimpleControlsInputTests(unittest.TestCase):
         self.assertFalse(nana_state.can_partner_squall_hammer())
 
     def test_ice_climbers_controls_send_ungated_input_and_report_nana_result(self) -> None:
-        controller = RecordingSimpleController()
+        controller = PacketRecordingSimpleController()
         controls = IceClimbersControls(controller, frame_data=self.frame_data)
 
-        def state(frame, nana_action, *, press_a=False):
-            nana_controller = melee.ControllerState()
-            nana_controller.button[melee.Button.BUTTON_A] = press_a
+        def state(frame, nana_action):
             return melee.GameState(
                 frame=frame,
                 players={
@@ -2315,7 +2472,6 @@ class SimpleControlsInputTests(unittest.TestCase):
                             character=melee.Character.NANA,
                             action=nana_action,
                             on_ground=True,
-                            controller_state=nana_controller,
                         ),
                     )
                 },
@@ -2323,22 +2479,22 @@ class SimpleControlsInputTests(unittest.TestCase):
 
         controls.update(state(0, melee.Action.STANDING), 0)
         result = controls.attack(AttackType.JAB)
+        controller.flush()
 
         self.assertIsNone(result)
         self.assertIn(melee.Button.BUTTON_A, controller.buttons)
-        pending = controls.nana_action_queue.pending(0)
-        self.assertEqual(len(pending), 1)
-        self.assertIs(pending[0].control, NanaControl.ATTACK)
-        self.assertEqual(pending[0].execution_frame, 6)
+        self.assertEqual(controls.nana_action_queue.pending(0), ())
 
-        for frame in range(1, 6):
+        for frame in range(1, 7):
             controls.update(state(frame, melee.Action.STANDING), frame)
             self.assertEqual(controls.nana_action_queue.drain(frame), ())
 
-        controls.update(state(6, melee.Action.NEUTRAL_ATTACK_1, press_a=True), 6)
-        completed = controls.nana_action_queue.drain(6)
+        controls.update(state(7, melee.Action.NEUTRAL_ATTACK_1), 7)
+        completed = controls.nana_action_queue.drain(7)
 
         self.assertEqual(len(completed), 1)
+        self.assertEqual(completed[0].action.input_frame, 1)
+        self.assertEqual(completed[0].action.execution_frame, 7)
         self.assertIs(completed[0].status, NanaActionStatus.EXECUTED)
         self.assertIsInstance(completed[0].output, AttackFrameData)
         self.assertIs(completed[0].output.character, melee.Character.NANA)
@@ -2580,236 +2736,14 @@ class SimpleControlsInputTests(unittest.TestCase):
         self.assertIsInstance(result, ActionFrameData)
         self.assertIs(result.action, melee.Action.PLATFORM_DROP)
 
-    def test_nana_result_uses_observed_raw_packet_without_controller_writes(self) -> None:
-        controller = PacketRecordingSimpleController()
-        controls = IceClimbersControls(controller, frame_data=self.frame_data)
-
-        def state(frame, nana):
-            return melee.GameState(
-                frame=frame,
-                players={
-                    1: melee.PlayerState(
-                        character=melee.Character.POPO,
-                        action=melee.Action.STANDING,
-                        on_ground=True,
-                        nana=nana,
-                    )
-                },
-            )
-
-        controls.update(
-            state(
-                0,
-                melee.PlayerState(
-                    character=melee.Character.NANA,
-                    action=melee.Action.STANDING,
-                    on_ground=True,
-                ),
-            ),
-            0,
-        )
-        popo_result = controls.press_button(melee.Button.BUTTON_Z)
-        self.assertIsInstance(popo_result, AttackFrameData)
-        writes_before_evaluation = tuple(controller.pending_operations)
-
-        for frame in range(1, 6):
-            controls.update(
-                state(
-                    frame,
-                    melee.PlayerState(
-                        character=melee.Character.NANA,
-                        action=melee.Action.FALLING,
-                        on_ground=False,
-                    ),
-                ),
-                frame,
-            )
-
-        packet = melee.ControllerState()
-        packet.button[melee.Button.BUTTON_Z] = True
-        controls.update(
-            state(
-                6,
-                melee.PlayerState(
-                    character=melee.Character.NANA,
-                    action=melee.Action.NAIR,
-                    on_ground=False,
-                    controller_state=packet,
-                ),
-            ),
-            6,
-        )
-        completed = controls.nana_action_queue.drain(6)
-
-        self.assertEqual(controller.pending_operations, list(writes_before_evaluation))
-        self.assertEqual(len(completed), 1)
-        self.assertIs(completed[0].status, NanaActionStatus.EXECUTED)
-        self.assertIsInstance(completed[0].output, AttackFrameData)
-        self.assertIs(completed[0].output.action, melee.Action.NAIR)
-
-    def test_nana_result_uses_processed_neutral_and_tilt_thresholds(self) -> None:
-        for stick_x, observed_action in (
-            (0.6, melee.Action.NEUTRAL_ATTACK_1),
-            (0.8, melee.Action.FTILT_MID),
-        ):
-            with self.subTest(stick_x=stick_x):
-                controller = RecordingSimpleController()
-                controls = IceClimbersControls(controller, frame_data=self.frame_data)
-
-                def state(frame, action, packet=None):
-                    return melee.GameState(
-                        frame=frame,
-                        players={
-                            1: melee.PlayerState(
-                                character=melee.Character.POPO,
-                                action=melee.Action.STANDING,
-                                on_ground=True,
-                                nana=melee.PlayerState(
-                                    character=melee.Character.NANA,
-                                    action=action,
-                                    on_ground=True,
-                                    controller_state=packet or melee.ControllerState(),
-                                ),
-                            )
-                        },
-                    )
-
-                controls.update(state(0, melee.Action.STANDING), 0)
-                controls.press_button(melee.Button.BUTTON_A)
-                for frame in range(1, NANA_INPUT_DELAY_FRAMES):
-                    controls.update(state(frame, melee.Action.STANDING), frame)
-                packet = melee.ControllerState(main_stick=(stick_x, 0.5))
-                packet.button[melee.Button.BUTTON_A] = True
-                controls.update(
-                    state(NANA_INPUT_DELAY_FRAMES, observed_action, packet),
-                    NANA_INPUT_DELAY_FRAMES,
-                )
-
-                completed = controls.nana_action_queue.drain(NANA_INPUT_DELAY_FRAMES)
-                self.assertIsInstance(completed[0].output, AttackFrameData)
-                self.assertIs(completed[0].output.action, observed_action)
-
-    def test_nana_result_requires_contiguous_pre_frame_state(self) -> None:
-        controller = RecordingSimpleController()
-        controls = IceClimbersControls(controller, frame_data=self.frame_data)
-
-        def state(frame, action, *, press_a=False):
-            packet = melee.ControllerState()
-            packet.button[melee.Button.BUTTON_A] = press_a
-            return melee.GameState(
-                frame=frame,
-                players={
-                    1: melee.PlayerState(
-                        character=melee.Character.POPO,
-                        action=melee.Action.STANDING,
-                        on_ground=True,
-                        nana=melee.PlayerState(
-                            character=melee.Character.NANA,
-                            action=action,
-                            on_ground=True,
-                            controller_state=packet,
-                        ),
-                    )
-                },
-            )
-
-        controls.update(state(0, melee.Action.STANDING), 0)
-        controls.press_button(melee.Button.BUTTON_A)
-        controls.update(state(6, melee.Action.NEUTRAL_ATTACK_1, press_a=True), 6)
-
-        completed = controls.nana_action_queue.drain(6)
-        self.assertIs(completed[0].status, NanaActionStatus.EXECUTED)
-        self.assertIsNone(completed[0].output)
-
-    def test_nana_result_uses_execution_frame_actionability(self) -> None:
-        controller = RecordingSimpleController()
-        controls = IceClimbersControls(controller, frame_data=self.frame_data)
-
-        def state(frame, nana):
-            return melee.GameState(
-                frame=frame,
-                players={
-                    1: melee.PlayerState(
-                        character=melee.Character.POPO,
-                        action=melee.Action.DAMAGE_HIGH_1,
-                        hitstun_frames_left=8,
-                        nana=nana,
-                    )
-                },
-            )
-
-        nana = melee.PlayerState(
-            character=melee.Character.NANA,
-            action=melee.Action.STANDING,
-            on_ground=True,
-        )
-        controls.update(state(10, nana), 10)
-        self.assertIsNone(controls.attack(AttackType.JAB))
-
-        attempted_jab = melee.ControllerState()
-        attempted_jab.button[melee.Button.BUTTON_A] = True
-        hitstun_nana = melee.PlayerState(
-            character=melee.Character.NANA,
-            action=melee.Action.DAMAGE_HIGH_1,
-            hitstun_frames_left=8,
-            controller_state=attempted_jab,
-        )
-        for frame in range(11, 17):
-            controls.update(state(frame, hitstun_nana), frame)
-
-        completed = controls.nana_action_queue.drain(16)
-        self.assertEqual(len(completed), 1)
-        self.assertIs(completed[0].status, NanaActionStatus.EXECUTED)
-        self.assertIsNone(completed[0].output)
-
-    def test_nana_action_queue_reports_absent_and_skipped_execution_frames(self) -> None:
-        controller = RecordingSimpleController()
-        controls = IceClimbersControls(controller, frame_data=self.frame_data)
-
-        def state(frame, nana=None):
-            return melee.GameState(
-                frame=frame,
-                players={
-                    1: melee.PlayerState(
-                        character=melee.Character.POPO,
-                        action=melee.Action.STANDING,
-                        on_ground=True,
-                        nana=nana,
-                    )
-                },
-            )
-
-        controls.update(
-            state(20, melee.PlayerState(character=melee.Character.NANA)),
-            20,
-        )
-        controls.press_button(melee.Button.BUTTON_A)
-        controls.update(state(26), 26)
-        absent = controls.nana_action_queue.drain(26)
-        self.assertIs(absent[0].status, NanaActionStatus.NANA_ABSENT)
-
-        controls.press_button(melee.Button.BUTTON_B)
-        controls.update(
-            state(27, melee.PlayerState(character=melee.Character.NANA)),
-            27,
-        )
-        controls.release_all()
-        controls.update(
-            state(33, melee.PlayerState(character=melee.Character.NANA)),
-            33,
-        )
-        skipped = controls.nana_action_queue.drain(33)
-        self.assertIs(skipped[0].status, NanaActionStatus.FRAME_SKIPPED)
-        self.assertIs(skipped[1].status, NanaActionStatus.RESET)
-
     def test_ice_climbers_controls_do_not_expose_hold_ownership(self) -> None:
         self.assertFalse(issubclass(IceClimbersControls, SimpleControls))
         self.assertNotIn("hold", inspect.signature(IceClimbersControls.attack).parameters)
         self.assertFalse(hasattr(IceClimbersControls, "check_hold"))
         self.assertFalse(hasattr(IceClimbersControls, "release"))
 
-    def test_ice_climbers_controls_schedule_every_public_input(self) -> None:
-        controller = RecordingSimpleController()
+    def test_ice_climbers_controls_coalesce_same_frame_helpers_into_final_packet(self) -> None:
+        controller = PacketRecordingSimpleController()
         controls = IceClimbersControls(controller, frame_data=self.frame_data)
         game_state = melee.GameState(
             frame=0,
@@ -2828,58 +2762,180 @@ class SimpleControlsInputTests(unittest.TestCase):
         )
         controls.update(game_state, 0)
 
-        controls.tilt_stick(StickReferenceAxis.RIGHT, 0.0)
-        controls.tilt_analog(melee.Button.BUTTON_C, 0.25, 0.75)
-        controls.tilt_turn()
-        controls.smash_turn()
-        controls.shield(0.5)
-        controls.platform_drop()
-        controls.dodge(StickReferenceAxis.DOWN)
-        controls.air_dodge(StickReferenceAxis.UP)
-        controls.down_left(45.0)
-        controls.down_right(45.0)
-        controls.up_left(45.0)
-        controls.up_right(45.0)
-        controls.left_up(45.0)
-        controls.left_down(45.0)
-        controls.right_up(45.0)
-        controls.right_down(45.0)
-        controls.press_button(melee.Button.BUTTON_X)
+        controls.press_button(melee.Button.BUTTON_A)
         controls.release_all()
-        controls.attack(AttackType.JAB)
-        controls.ledge_recovery(LedgeRecoveryOption.NEUTRAL_GETUP)
-        controls.taunt()
+        controls.tilt_stick(StickReferenceAxis.RIGHT, 0.0)
+        controls.press_button(melee.Button.BUTTON_B)
+        controller.flush()
+        game_state.frame = 1
+        controls.update(game_state, 1)
 
-        expected_controls = tuple(NanaControl)
-        pending = controls.nana_action_queue.pending(0)
-        self.assertEqual(
-            tuple(action.control for action in pending),
-            expected_controls,
-        )
-        self.assertEqual(
-            tuple(action.id for action in pending),
-            tuple(range(1, len(expected_controls) + 1)),
-        )
+        pending = controls.nana_action_queue.pending(1)
+        self.assertEqual(len(pending), 1)
+        self.assertEqual(pending[0].id, 1)
+        self.assertEqual(pending[0].input_frame, 1)
+        self.assertNotIn(melee.Button.BUTTON_A, pending[0].current_packet.buttons)
+        self.assertIn(melee.Button.BUTTON_B, pending[0].current_packet.buttons)
+        self.assertGreater(pending[0].current_packet.main_stick[0], 0.5)
 
-        for frame in range(1, NANA_INPUT_DELAY_FRAMES):
-            game_state.frame = frame
-            controls.update(game_state, frame)
-
-        nana_packet = melee.ControllerState()
-        nana_packet.button[melee.Button.BUTTON_D_UP] = True
-        game_state.frame = NANA_INPUT_DELAY_FRAMES
-        game_state.players[1].nana.action = melee.Action.TAUNT_RIGHT
-        game_state.players[1].nana.controller_state = nana_packet
-        controls.update(game_state, NANA_INPUT_DELAY_FRAMES)
-        completed = controls.nana_action_queue.drain(NANA_INPUT_DELAY_FRAMES)
-        self.assertEqual(
-            tuple(result.action.control for result in completed),
-            expected_controls,
+    def test_ice_climbers_controls_discard_intermediate_same_frame_input(self) -> None:
+        controller = PacketRecordingSimpleController()
+        controls = IceClimbersControls(controller, frame_data=self.frame_data)
+        game_state = melee.GameState(
+            frame=0,
+            players={
+                1: melee.PlayerState(
+                    character=melee.Character.POPO,
+                    action=melee.Action.STANDING,
+                    on_ground=True,
+                    nana=melee.PlayerState(character=melee.Character.NANA),
+                )
+            },
         )
-        self.assertTrue(all(result.status is NanaActionStatus.EXECUTED for result in completed))
-        self.assertTrue(all(result.output is completed[0].output for result in completed))
-        self.assertIsInstance(completed[0].output, ActionFrameData)
-        self.assertIs(completed[0].output.action, melee.Action.TAUNT_RIGHT)
+        controls.update(game_state, 0)
+        controls.press_button(melee.Button.BUTTON_A)
+        controls.release_all()
+        controller.flush()
+        game_state.frame = 1
+        controls.update(game_state, 1)
+        controls.update(game_state, 1)
+
+        pending = controls.nana_action_queue.pending(1)
+        self.assertEqual(len(pending), 1)
+        self.assertEqual(pending[0].current_packet, ControllerPacket())
+
+    def test_nana_queue_captures_direct_writes_and_packets_are_immutable(self) -> None:
+        controller = PacketRecordingSimpleController()
+        controls = IceClimbersControls(controller, frame_data=self.frame_data)
+        game_state = melee.GameState(
+            frame=0,
+            players={
+                1: melee.PlayerState(
+                    character=melee.Character.POPO,
+                    action=melee.Action.STANDING,
+                    on_ground=True,
+                    nana=melee.PlayerState(character=melee.Character.NANA),
+                )
+            },
+        )
+        controls.update(game_state, 0)
+        controller.tilt_analog(melee.Button.BUTTON_MAIN, 0.5, 1.0)
+        controller.press_button(melee.Button.BUTTON_B)
+        controller.flush()
+        game_state.frame = 1
+        controls.update(game_state, 1)
+
+        action = controls.nana_action_queue.pending(1)[0]
+        self.assertIn(melee.Button.BUTTON_B, action.current_packet.buttons)
+        self.assertEqual(action.current_packet.main_stick, (0.5, 1.0))
+        with self.assertRaises(AttributeError):
+            action.current_packet.buttons.add(melee.Button.BUTTON_A)
+        with self.assertRaises(dataclasses.FrozenInstanceError):
+            action.current_packet = ControllerPacket()
+
+    def test_nana_queue_first_update_is_baseline_and_packet_executes_six_frames_later(self) -> None:
+        controller = PacketRecordingSimpleController()
+        controller.press_button(melee.Button.BUTTON_A)
+        controller.flush()
+        controls = IceClimbersControls(controller, frame_data=self.frame_data)
+
+        def state(frame, action=melee.Action.STANDING):
+            return melee.GameState(
+                frame=frame,
+                players={
+                    1: melee.PlayerState(
+                        character=melee.Character.POPO,
+                        action=melee.Action.STANDING,
+                        on_ground=True,
+                        nana=melee.PlayerState(
+                            character=melee.Character.NANA,
+                            action=action,
+                            on_ground=True,
+                        ),
+                    )
+                },
+            )
+
+        controls.update(state(0), 0)
+        self.assertEqual(controls.nana_action_queue.pending(0), ())
+        controller.release_all()
+        controller.flush()
+        controls.update(state(1), 1)
+        action = controls.nana_action_queue.pending(1)[0]
+        self.assertEqual(action.execution_frame - action.input_frame, NANA_INPUT_DELAY_FRAMES)
+        for frame in range(2, 7):
+            controls.update(state(frame), frame)
+            self.assertEqual(controls.nana_action_queue.drain(frame), ())
+        controls.update(state(7), 7)
+        result = controls.nana_action_queue.drain(7)[0]
+        self.assertIs(result.status, NanaActionStatus.EXECUTED)
+        self.assertIsNone(result.output)
+
+    def test_nana_evaluation_uses_execution_pre_state_without_controller_writes(self) -> None:
+        controller = PacketRecordingSimpleController()
+        controls = IceClimbersControls(controller, frame_data=self.frame_data)
+
+        def state(frame, action=melee.Action.STANDING, *, nana=True):
+            follower = (
+                melee.PlayerState(
+                    character=melee.Character.NANA,
+                    action=action,
+                    on_ground=True,
+                )
+                if nana
+                else None
+            )
+            return melee.GameState(
+                frame=frame,
+                players={
+                    1: melee.PlayerState(
+                        character=melee.Character.POPO,
+                        action=melee.Action.STANDING,
+                        on_ground=True,
+                        nana=follower,
+                    )
+                },
+            )
+
+        controls.update(state(0), 0)
+        controls.press_button(melee.Button.BUTTON_A)
+        controller.flush()
+        controls.update(state(1), 1)
+        writes_before = tuple(controller.pending_operations)
+        for frame in range(2, 7):
+            controls.update(state(frame), frame)
+        controls.update(state(7, melee.Action.NEUTRAL_ATTACK_1), 7)
+
+        result = controls.nana_action_queue.drain(7)[0]
+        self.assertEqual(tuple(controller.pending_operations), writes_before)
+        self.assertIsInstance(result.output, AttackFrameData)
+        self.assertIs(result.output.action, melee.Action.NEUTRAL_ATTACK_1)
+
+    def test_nana_queue_reports_absent_execution_and_resets_future_packets(self) -> None:
+        controller = PacketRecordingSimpleController()
+        controls = IceClimbersControls(controller, frame_data=self.frame_data)
+
+        def state(frame, *, nana=True):
+            return melee.GameState(
+                frame=frame,
+                players={
+                    1: melee.PlayerState(
+                        character=melee.Character.POPO,
+                        nana=melee.PlayerState(character=melee.Character.NANA) if nana else None,
+                    )
+                },
+            )
+
+        controls.update(state(0), 0)
+        controls.press_button(melee.Button.BUTTON_A)
+        controller.flush()
+        for frame in range(1, 7):
+            controls.update(state(frame), frame)
+        controls.update(state(7, nana=False), 7)
+
+        results = controls.nana_action_queue.drain(7)
+        self.assertIs(results[0].status, NanaActionStatus.NANA_ABSENT)
+        self.assertTrue(all(result.status is NanaActionStatus.RESET for result in results[1:]))
 
     def test_ice_climbers_controls_repeated_jab_requests_preserve_button_edges(self) -> None:
         controller = PacketRecordingSimpleController()
@@ -2907,8 +2963,8 @@ class SimpleControlsInputTests(unittest.TestCase):
             [True, False, True],
         )
 
-    def test_nana_action_queue_resets_undrained_replayed_result_on_rollback(self) -> None:
-        controller = RecordingSimpleController()
+    def test_nana_action_queue_reports_absence_gaps_and_rollback(self) -> None:
+        controller = PacketRecordingSimpleController()
         controls = IceClimbersControls(controller, frame_data=self.frame_data)
 
         def state(frame):
@@ -2928,14 +2984,20 @@ class SimpleControlsInputTests(unittest.TestCase):
 
         controls.update(state(0), 0)
         controls.attack(AttackType.JAB)
-        controls.update(state(6), 6)
-        controls.update(state(7), 7)
-        controls.update(state(6), 6)
+        controller.flush()
+        controls.update(state(1), 1)
+        controls.update(state(8), 8)
+        completed = controls.nana_action_queue.drain(8)
+        self.assertEqual([result.status for result in completed], [NanaActionStatus.FRAME_SKIPPED])
 
-        completed = controls.nana_action_queue.drain(6)
-        self.assertEqual(len(completed), 1)
-        self.assertIs(completed[0].status, NanaActionStatus.RESET)
-        self.assertIsNone(completed[0].output)
+        controller.release_all()
+        controller.flush()
+        controls.update(state(9), 9)
+        controls.update(state(10), 10)
+        controls.update(state(9), 9)
+        reset = controls.nana_action_queue.drain(9)
+        self.assertTrue(reset)
+        self.assertTrue(all(result.status is NanaActionStatus.RESET for result in reset))
 
     def test_ice_climbers_controls_require_current_frame_binding(self) -> None:
         controller = RecordingSimpleController()

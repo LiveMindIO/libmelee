@@ -47,7 +47,6 @@ from melee.bot.ice_climbers_controls import (
     NanaActionQueue,
     NanaActionResult,
     NanaActionStatus,
-    NanaControl,
     NanaControlOutput,
 )
 from melee.bot.input_montage import Abort, InputMontage, MontageState, PreTickResult
@@ -65,10 +64,12 @@ from melee.bot.simple_controls import (
     MIN_SHIELD,
     ActionFrameData,
     AttackFrameData,
+    ControllerPacket,
     Hold,
     LedgeRecoveryOption,
     SimpleControls,
     StickReferenceAxis,
+    calculate_packet_intent,
     stick_coordinates,
 )
 from melee.bot.stateful_input_montage import StatefulInputMontage
@@ -121,6 +122,7 @@ __all__ = [
     "CharacterStatus",
     "ChargeStoreInput",
     "Continue",
+    "ControllerPacket",
     "CrowdControl",
     "DonkeyKongGiantPunchMontage",
     "DoubleJumpCancelMontage",
@@ -150,7 +152,6 @@ __all__ = [
     "NanaActionQueue",
     "NanaActionResult",
     "NanaActionStatus",
-    "NanaControl",
     "NanaControlOutput",
     "NanaMode",
     "OtherPlayer",
@@ -179,6 +180,7 @@ __all__ = [
     "WavedashMontage",
     "YoshiEggThrowMontage",
     "attack_is_holdable",
+    "calculate_packet_intent",
     "can_air_attack",
     "can_airdodge",
     "can_attack",

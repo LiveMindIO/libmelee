@@ -379,7 +379,7 @@ class Controller:
         It doesn't get sent to the console until you flush
         """
         # Move the current controller state into the previous one
-        self.prev = copy.copy(self.current)
+        self.prev = copy.deepcopy(self.current)
 
         self._write("FLUSH\n")
         if platform.system() != "Windows":
