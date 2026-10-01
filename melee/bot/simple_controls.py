@@ -524,7 +524,11 @@ def _attack_intent_for_packet(
         else:
             # Fighter_procInput expands Z into A plus the shared trigger bit,
             # not digital L/R. Without a tether, its airborne A selects an aerial.
-            attack_type = _aerial_attack_for_direction(character_state, main_direction)
+            # ftCo_AttackAir_GetMsidFromCStick uses a fresh C-stick crossing
+            # before the main-stick direction, even when A came from Z.
+            attack_type = _aerial_attack_for_direction(
+                character_state, c_direction if c_crossing else main_direction
+            )
     elif c_crossing:
         if player.on_ground:
             attack_type = {

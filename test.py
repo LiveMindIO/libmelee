@@ -2272,6 +2272,30 @@ class ControllerPacketIntentTests(unittest.TestCase):
                 packet = ControllerPacket(buttons=buttons, main_stick=stick)
                 self.assertIs(self.intent(player, ControllerPacket(), packet).action, expected)
 
+    def test_airborne_z_respects_fresh_c_stick_aerial_selection(self) -> None:
+        player = melee.PlayerState(
+            character=melee.Character.NANA,
+            action=melee.Action.FALLING,
+            on_ground=False,
+            facing=True,
+        )
+        for stick, expected in (
+            ((0.5, 1.0), melee.Action.UAIR),
+            ((0.5, 0.0), melee.Action.DAIR),
+            ((1.0, 0.5), melee.Action.FAIR),
+            ((0.0, 0.5), melee.Action.BAIR),
+        ):
+            for buttons in (
+                frozenset({melee.Button.BUTTON_Z}),
+                frozenset({melee.Button.BUTTON_Z, melee.Button.BUTTON_A}),
+            ):
+                with self.subTest(stick=stick, buttons=buttons):
+                    packet = ControllerPacket(buttons=buttons, c_stick=stick)
+                    self.assertIs(self.intent(player, ControllerPacket(), packet).action, expected)
+                    # Holding C-stick across the Z edge does not select a new C-stick aerial.
+                    held = ControllerPacket(c_stick=stick)
+                    self.assertIs(self.intent(player, held, packet).action, melee.Action.NAIR)
+
     def test_analog_shoulder_requires_crossing_melees_deadzone(self) -> None:
         player = melee.PlayerState(
             character=melee.Character.FOX,
@@ -3016,7 +3040,7 @@ class SimpleControlsInputTests(unittest.TestCase):
         self.assertIs(result.output.action, melee.Action.NEUTRAL_ATTACK_1)
 
     def test_nana_delayed_airborne_z_and_shoulder_inputs(self) -> None:
-        for case in ("z", "analog", "digital"):
+        for case in ("z", "z_cstick", "analog", "digital"):
             with self.subTest(case=case):
                 controller = PacketRecordingSimpleController()
                 controls = IceClimbersControls(controller, frame_data=self.frame_data)
@@ -3025,11 +3049,14 @@ class SimpleControlsInputTests(unittest.TestCase):
                     received = melee.ControllerState()
                     action = melee.Action.FALLING
                     if frame == 7:
-                        if case == "z":
+                        if case in {"z", "z_cstick"}:
                             received.processed_button[melee.Button.BUTTON_Z] = True
                             received.processed_button[melee.Button.BUTTON_A] = True
                             received.l_shoulder = 0.35
                             action = melee.Action.NAIR
+                            if case == "z_cstick":
+                                received.c_stick = (0.5, 1.0)
+                                action = melee.Action.UAIR
                         elif case == "analog":
                             received.l_shoulder = 0.5
                         else:
@@ -3047,8 +3074,10 @@ class SimpleControlsInputTests(unittest.TestCase):
                     )})
 
                 controls.update(state(0), 0)
-                if case == "z":
+                if case in {"z", "z_cstick"}:
                     controls.press_button(melee.Button.BUTTON_Z)
+                    if case == "z_cstick":
+                        controls.tilt_analog(melee.Button.BUTTON_C, 0.5, 1.0)
                 elif case == "analog":
                     controls.shield(0.5)
                 else:
@@ -3060,9 +3089,10 @@ class SimpleControlsInputTests(unittest.TestCase):
                 result = controls.nana_action_queue.drain(7)[0]
                 self.assertIs(result.status, NanaActionStatus.EXECUTED)
                 self.assertEqual(tuple(controller.pending_operations), writes)
-                if case == "z":
+                if case in {"z", "z_cstick"}:
                     self.assertIsInstance(result.output, AttackFrameData)
-                    self.assertIs(result.output.action, melee.Action.NAIR)
+                    expected = melee.Action.UAIR if case == "z_cstick" else melee.Action.NAIR
+                    self.assertIs(result.output.action, expected)
                 elif case == "analog":
                     self.assertIsNone(result.output)
                 else:
