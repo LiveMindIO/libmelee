@@ -191,13 +191,17 @@ lifecycle and `AttackFrameData` returned by `attack()`.
 
 `IceClimbersControls` applies one-frame input immediately for Popo and evaluates
 Nana's delayed result from her actual Slippi pre-frame controller packet and
-observed post-frame action six frames later. Delayed evaluation never writes or
-replays controller input. Multiple calls in one frame describe one physical final
+observed post-frame action six frames later. Attribution requires her consecutive
+processed fighter inputs to select the same intent as the queued Popo delta;
+physical pad buttons and a matching animation alone are insufficient. Delayed
+evaluation never writes or replays controller input. Multiple calls in one frame describe one physical final
 packet and therefore receive the same observed delayed result. The facade remains
 hold-free; use a montage for multi-frame ownership.
 Popo's raw button and stick methods return `None`, while defense, platform-drop,
 ledge, and taunt helpers return input-application booleans. Only Nana's delayed
 predictor infers `ActionFrameData` from the final committed inputs.
+Unsupported diagonal directions return `None` from the predictor, not a
+neutral-attack prediction.
 
 Charging smashes and supported neutral-B moves return a `Hold`. Do not call
 `SimpleControls.release(hold)` in the frame that created it: pending controller

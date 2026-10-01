@@ -333,9 +333,9 @@ class ControllerPacket:
 
     @classmethod
     def from_processed_state(cls, state: ControllerState) -> ControllerPacket:
-        """Copy an already-processed Slippi ``ControllerState``."""
+        """Copy Slippi's processed fighter inputs, not its physical pad buttons."""
         return cls(
-            buttons=frozenset(button for button, pressed in state.button.items() if pressed),
+            buttons=frozenset(button for button, pressed in state.processed_button.items() if pressed),
             main_stick=tuple(state.main_stick),
             c_stick=tuple(state.c_stick),
             l_shoulder=state.l_shoulder,
@@ -408,6 +408,14 @@ def _smash_direction(stick: tuple[float, float]) -> StickReferenceAxis | None:
         else _VERTICAL_SMASH_STICK_THRESHOLD
     )
     return direction if delta >= threshold else None
+
+
+def _ambiguous_packet_direction(stick: tuple[float, float]) -> bool:
+    """Distinguish an unsupported diagonal from the neutral deadzone."""
+    return (
+        max(abs(stick[0] - 0.5), abs(stick[1] - 0.5)) >= _TILT_STICK_THRESHOLD
+        and _packet_direction(stick) is None
+    )
 
 
 def _controller_axis_to_processed(value: float) -> float:
@@ -588,6 +596,12 @@ def _packet_intent(
     if player is None or not isinstance(player.action, Action):
         return None
 
+    # ftCo_AttackHi3_CheckInput / ftCo_AttackAir_GetMsidFromCStick use
+    # move-specific angle checks; ftCo_SpecialS_HasInput checks X separately.
+    # A diagonal rejected by our cardinal approximation is not neutral input.
+    if _ambiguous_packet_direction(current.main_stick) or _ambiguous_packet_direction(current.c_stick):
+        return None
+
     main_direction = _packet_direction(current.main_stick)
     main_crossing = main_direction is not None and _crossed_direction(
         previous.main_stick,
@@ -759,6 +773,19 @@ def _observed_action_frame_data(
     expected = calculate_packet_intent(source_state, previous_packet, current_packet, frame_data)
     intent = _packet_intent(source_state, previous_packet, current_packet)
     if expected is None or intent is None:
+        return None
+    # ftCo_800B0AF4 applies the delayed history only while xFA_b7 is set;
+    # CPU/follower transitions can instead supply independent input. Verify the
+    # received delta through consecutive PRE_FRAME processed fighter packets.
+    # Do not compare whole packets: Nana's byte-quantized sticks and merged
+    # triggers can differ from Popo's command packet without changing intent.
+    # doldecomp/melee 17697c2: ftCo_0A01.c and Fighter_procInput in fighter.c.
+    received = _packet_intent(
+        source_state,
+        ControllerPacket.from_processed_state(source_player.controller_state),
+        ControllerPacket.from_processed_state(player.controller_state),
+    )
+    if received != intent:
         return None
     if intent.attack_type is not None:
         if player.action not in _actions_for_attack_type(player.character, intent.attack_type):

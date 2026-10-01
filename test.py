@@ -2177,6 +2177,32 @@ class ControllerPacketIntentTests(unittest.TestCase):
         self.assertIsInstance(self.intent(player, neutral, pressed), AttackFrameData)
         self.assertIsNone(self.intent(player, pressed, neutral))
 
+    def test_diagonal_inputs_do_not_fall_back_to_neutral_attacks(self) -> None:
+        for grounded in (True, False):
+            player = melee.PlayerState(
+                character=melee.Character.NANA,
+                action=melee.Action.STANDING if grounded else melee.Action.FALLING,
+                on_ground=grounded,
+            )
+            for button in (melee.Button.BUTTON_A, melee.Button.BUTTON_B):
+                for x, y in ((0.9, 0.9), (0.1, 0.9), (0.1, 0.1), (0.9, 0.1), (0.9, 0.86)):
+                    for stick in ("main_stick", "c_stick"):
+                        with self.subTest(grounded=grounded, button=button, x=x, y=y, stick=stick):
+                            packet = ControllerPacket(buttons=frozenset({button}), **{stick: (x, y)})
+                            self.assertIsNone(self.intent(player, ControllerPacket(), packet))
+                # A diagonal within the neutral region is still neutral.
+                packet = ControllerPacket(buttons=frozenset({button}), main_stick=(0.55, 0.55))
+                self.assertIsInstance(self.intent(player, ControllerPacket(), packet), AttackFrameData)
+
+    def test_processed_packet_uses_fighter_buttons_not_physical_pad(self) -> None:
+        state = melee.ControllerState()
+        state.button[melee.Button.BUTTON_B] = True
+        state.processed_button[melee.Button.BUTTON_A] = True
+        self.assertEqual(
+            ControllerPacket.from_processed_state(state).buttons,
+            frozenset({melee.Button.BUTTON_A}),
+        )
+
     def test_stick_threshold_crossings_and_ambiguous_held_smash(self) -> None:
         player = melee.PlayerState(
             character=melee.Character.FOX,
@@ -2462,6 +2488,8 @@ class SimpleControlsInputTests(unittest.TestCase):
         controls = IceClimbersControls(controller, frame_data=self.frame_data)
 
         def state(frame, nana_action):
+            received = melee.ControllerState()
+            received.processed_button[melee.Button.BUTTON_A] = frame == 7
             return melee.GameState(
                 frame=frame,
                 players={
@@ -2473,6 +2501,7 @@ class SimpleControlsInputTests(unittest.TestCase):
                             character=melee.Character.NANA,
                             action=nana_action,
                             on_ground=True,
+                            controller_state=received,
                         ),
                     )
                 },
@@ -2924,11 +2953,14 @@ class SimpleControlsInputTests(unittest.TestCase):
         controls = IceClimbersControls(controller, frame_data=self.frame_data)
 
         def state(frame, action=melee.Action.STANDING, *, nana=True):
+            received = melee.ControllerState()
+            received.processed_button[melee.Button.BUTTON_A] = frame == 7
             follower = (
                 melee.PlayerState(
                     character=melee.Character.NANA,
                     action=action,
                     on_ground=True,
+                    controller_state=received,
                 )
                 if nana
                 else None
@@ -2958,6 +2990,53 @@ class SimpleControlsInputTests(unittest.TestCase):
         self.assertEqual(tuple(controller.pending_operations), writes_before)
         self.assertIsInstance(result.output, AttackFrameData)
         self.assertIs(result.output.action, melee.Action.NEUTRAL_ATTACK_1)
+
+    def test_nana_confirmation_requires_received_packet_and_fresh_edge(self) -> None:
+        for case in ("matching", "neutral", "physical_only", "held", "different_attack", "cpu_transition"):
+            with self.subTest(case=case):
+                controller = PacketRecordingSimpleController()
+                controls = IceClimbersControls(controller, frame_data=self.frame_data)
+
+                def state(frame, case=case):
+                    received = melee.ControllerState()
+                    received.processed_button[melee.Button.BUTTON_A] = (
+                        (case == "matching" and frame == 7)
+                        or (case == "held" and frame >= 6)
+                        or (case == "different_attack" and frame == 7)
+                    )
+                    if case == "physical_only" and frame == 7:
+                        received.button[melee.Button.BUTTON_A] = True
+                    if case == "different_attack" and frame == 7:
+                        received.main_stick = (0.5, 0.7)
+                    return melee.GameState(frame=frame, players={1: melee.PlayerState(
+                        character=melee.Character.POPO,
+                        nana_mode=(
+                            NanaMode.CPU_RETURNING
+                            if case == "cpu_transition" and frame >= 6
+                            else NanaMode.FOLLOWER
+                        ),
+                        nana=melee.PlayerState(
+                            character=melee.Character.NANA,
+                            action=melee.Action.NEUTRAL_ATTACK_1 if frame == 7 else melee.Action.STANDING,
+                            on_ground=True,
+                            controller_state=received,
+                        ),
+                    )})
+
+                controls.update(state(0), 0)
+                controller.press_button(melee.Button.BUTTON_A)
+                controller.flush()
+                writes = tuple(controller.pending_operations)
+                for frame in range(1, 8):
+                    controls.update(state(frame), frame)
+                result = controls.nana_action_queue.drain(7)[0]
+                self.assertIs(result.status, NanaActionStatus.EXECUTED)
+                self.assertEqual(tuple(controller.pending_operations), writes)
+                if case == "matching":
+                    self.assertIsInstance(result.output, AttackFrameData)
+                    self.assertIs(result.output.action, melee.Action.NEUTRAL_ATTACK_1)
+                else:
+                    self.assertIsNone(result.output)
 
     def test_nana_queue_reports_absent_execution_and_resets_future_packets(self) -> None:
         controller = PacketRecordingSimpleController()
