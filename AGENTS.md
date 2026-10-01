@@ -290,8 +290,10 @@ uv pip install --python .venv/bin/python .
   `NanaActionQueue` snapshots the one immutable whole packet in `Controller.prev`
   that was flushed before that game state. It compares that packet with the prior
   frame's packet, evaluates the delta against Nana's execution-time pre-state six
-  frames later, and verifies her observed post action without sending or replaying
-  input. The first update only seeds a baseline, and same-frame calls naturally
+  frames later, and verifies both her received PRE_FRAME processed input delta
+  and observed post action without sending or replaying input. Physical pad
+  buttons are not evidence of Nana's CPU/follower input. The first update only
+  seeds a baseline, and same-frame calls naturally
   coalesce into the next physically flushed packet. Queue readers require the
   current frame. Raw button and stick methods return conservative
   `ActionFrameData | None`, while attacks use the
@@ -309,6 +311,8 @@ uv pip install --python .venv/bin/python .
   already-processed Slippi values. Intent is deliberately
   conservative: it requires fresh buttons or threshold crossings and returns
   `None` where hidden Melee timers or transition state prevent a supported result.
+  Unsupported diagonals are distinct from neutral input and return `None`
+  rather than falling back to jab, neutral aerial, or neutral special.
   Console parsing reuses the same nested follower `PlayerState` for PRE_FRAME and
   POST_FRAME packets so pre-frame controller input and player metadata survive
   post-frame field updates.

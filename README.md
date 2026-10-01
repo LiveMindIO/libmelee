@@ -191,11 +191,14 @@ controller packet and current character state. Attack outcomes use the compatibl
 `FrameData` is a query helper and movement, defense, ledge, or taunt actions may
 have no CSV row. Semantic helpers such as `attack()` retain their existing
 `Hold` lifecycle while delegating their packet writes through these raw methods.
+Unsupported diagonal directions return `None`, not a neutral-attack prediction.
 
 `IceClimbersControls` applies one-frame input immediately for Popo and evaluates
 Nana's delayed result from her actual Slippi pre-frame controller packet and
-observed post-frame action six frames later. Delayed evaluation never writes or
-replays controller input. Multiple calls in one frame describe one physical final
+observed post-frame action six frames later. Attribution requires her consecutive
+processed fighter inputs to select the same intent as the queued Popo delta;
+physical pad buttons and a matching animation alone are insufficient. Delayed
+evaluation never writes or replays controller input. Multiple calls in one frame describe one physical final
 packet and therefore receive the same observed delayed result. The facade remains
 hold-free; use a montage for multi-frame ownership.
 
