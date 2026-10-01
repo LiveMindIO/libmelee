@@ -522,7 +522,9 @@ def _attack_intent_for_packet(
         elif z_air_is_supported(player.character):
             attack_type = AttackType.Z_AIR
         else:
-            return None
+            # Fighter_procInput expands Z into A plus the shared trigger bit,
+            # not digital L/R. Without a tether, its airborne A selects an aerial.
+            attack_type = _aerial_attack_for_direction(character_state, main_direction)
     elif c_crossing:
         if player.on_ground:
             attack_type = {
@@ -609,6 +611,9 @@ def _packet_intent(
         main_direction,
     )
     fresh_shoulder = _fresh_shoulder(previous, current)
+    # ftCo_80099A58 requires digital L/R, unlike grounded Guard activation.
+    # Analog crossings and Z's shared trigger bit cannot start an air dodge.
+    fresh_air_dodge = any(_fresh_button(previous, current, button) for button in _DODGE_BUTTONS)
 
     if player.action in _LEDGE_HANG_ACTIONS:
         if _fresh_button(previous, current, Button.BUTTON_A):
@@ -626,8 +631,7 @@ def _packet_intent(
 
     if (
         not player.on_ground
-        and fresh_shoulder
-        and not z_air_is_supported(player.character)
+        and fresh_air_dodge
         and not _fresh_button(previous, current, Button.BUTTON_B)
         and character_state.can_airdodge()
     ):
@@ -674,7 +678,7 @@ def _packet_intent(
 
     if fresh_shoulder:
         if not player.on_ground:
-            if not character_state.can_airdodge():
+            if not fresh_air_dodge or not character_state.can_airdodge():
                 return None
             return _PacketIntent(Action.AIRDODGE)
         if (

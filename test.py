@@ -2234,7 +2234,7 @@ class ControllerPacketIntentTests(unittest.TestCase):
         b_and_z = ControllerPacket(buttons=frozenset({melee.Button.BUTTON_B, melee.Button.BUTTON_Z}))
         z_only = ControllerPacket(buttons=frozenset({melee.Button.BUTTON_Z}))
         self.assertIs(self.intent(air, ControllerPacket(), b_and_z).action, melee.Action.NEUTRAL_B_ATTACKING)
-        self.assertIs(self.intent(air, ControllerPacket(), z_only).action, melee.Action.AIRDODGE)
+        self.assertIs(self.intent(air, ControllerPacket(), z_only).action, melee.Action.NAIR)
 
         shielding = melee.PlayerState(
             character=melee.Character.FOX,
@@ -2247,6 +2247,30 @@ class ControllerPacketIntentTests(unittest.TestCase):
             main_stick=(0.5, 0.0),
         )
         self.assertIs(self.intent(shielding, previous_shield, spot_dodge).action, melee.Action.SPOTDODGE)
+
+    def test_air_dodge_requires_digital_shoulder_not_analog_or_z(self) -> None:
+        for character in (melee.Character.NANA, melee.Character.LINK):
+            player = melee.PlayerState(character=character, action=melee.Action.FALLING, on_ground=False)
+            for button in (melee.Button.BUTTON_L, melee.Button.BUTTON_R):
+                packet = ControllerPacket(buttons=frozenset({button}))
+                self.assertIs(self.intent(player, ControllerPacket(), packet).action, melee.Action.AIRDODGE)
+                self.assertIsNone(self.intent(player, packet, packet))
+            for packet in (ControllerPacket(l_shoulder=0.5), ControllerPacket(r_shoulder=0.5)):
+                self.assertIsNone(self.intent(player, ControllerPacket(), packet))
+
+    def test_airborne_z_selects_aerial_or_tether_with_processed_a_expansion(self) -> None:
+        for character, stick, expected in (
+            (melee.Character.NANA, (0.5, 0.5), melee.Action.NAIR),
+            (melee.Character.NANA, (0.5, 0.7), melee.Action.UAIR),
+            (melee.Character.LINK, (0.5, 0.5), melee.Action.GRAB),
+        ):
+            player = melee.PlayerState(character=character, action=melee.Action.FALLING, on_ground=False)
+            for buttons in (
+                frozenset({melee.Button.BUTTON_Z}),
+                frozenset({melee.Button.BUTTON_Z, melee.Button.BUTTON_A}),
+            ):
+                packet = ControllerPacket(buttons=buttons, main_stick=stick)
+                self.assertIs(self.intent(player, ControllerPacket(), packet).action, expected)
 
     def test_analog_shoulder_requires_crossing_melees_deadzone(self) -> None:
         player = melee.PlayerState(
@@ -2990,6 +3014,60 @@ class SimpleControlsInputTests(unittest.TestCase):
         self.assertEqual(tuple(controller.pending_operations), writes_before)
         self.assertIsInstance(result.output, AttackFrameData)
         self.assertIs(result.output.action, melee.Action.NEUTRAL_ATTACK_1)
+
+    def test_nana_delayed_airborne_z_and_shoulder_inputs(self) -> None:
+        for case in ("z", "analog", "digital"):
+            with self.subTest(case=case):
+                controller = PacketRecordingSimpleController()
+                controls = IceClimbersControls(controller, frame_data=self.frame_data)
+
+                def state(frame, case=case):
+                    received = melee.ControllerState()
+                    action = melee.Action.FALLING
+                    if frame == 7:
+                        if case == "z":
+                            received.processed_button[melee.Button.BUTTON_Z] = True
+                            received.processed_button[melee.Button.BUTTON_A] = True
+                            received.l_shoulder = 0.35
+                            action = melee.Action.NAIR
+                        elif case == "analog":
+                            received.l_shoulder = 0.5
+                        else:
+                            received.processed_button[melee.Button.BUTTON_L] = True
+                            received.l_shoulder = 1.0
+                            action = melee.Action.AIRDODGE
+                    return melee.GameState(frame=frame, players={1: melee.PlayerState(
+                        character=melee.Character.POPO,
+                        nana=melee.PlayerState(
+                            character=melee.Character.NANA,
+                            action=action,
+                            on_ground=False,
+                            controller_state=received,
+                        ),
+                    )})
+
+                controls.update(state(0), 0)
+                if case == "z":
+                    controls.press_button(melee.Button.BUTTON_Z)
+                elif case == "analog":
+                    controls.shield(0.5)
+                else:
+                    controls.press_button(melee.Button.BUTTON_L)
+                controller.flush()
+                writes = tuple(controller.pending_operations)
+                for frame in range(1, 8):
+                    controls.update(state(frame), frame)
+                result = controls.nana_action_queue.drain(7)[0]
+                self.assertIs(result.status, NanaActionStatus.EXECUTED)
+                self.assertEqual(tuple(controller.pending_operations), writes)
+                if case == "z":
+                    self.assertIsInstance(result.output, AttackFrameData)
+                    self.assertIs(result.output.action, melee.Action.NAIR)
+                elif case == "analog":
+                    self.assertIsNone(result.output)
+                else:
+                    self.assertIsInstance(result.output, ActionFrameData)
+                    self.assertIs(result.output.action, melee.Action.AIRDODGE)
 
     def test_nana_confirmation_requires_received_packet_and_fresh_edge(self) -> None:
         for case in ("matching", "neutral", "physical_only", "held", "different_attack", "cpu_transition"):
