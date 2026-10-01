@@ -10,6 +10,7 @@ import unittest
 import warnings
 from dataclasses import dataclass
 from typing import get_args, get_type_hints
+from unittest.mock import patch
 from uuid import UUID
 
 import numpy as np
@@ -2499,7 +2500,7 @@ class SimpleControlsInputTests(unittest.TestCase):
         self.assertIsInstance(completed[0].output, AttackFrameData)
         self.assertIs(completed[0].output.character, melee.Character.NANA)
 
-    def test_simple_controls_interpret_complete_pending_packet(self) -> None:
+    def test_simple_controls_raw_inputs_do_not_infer_pending_packet(self) -> None:
         player = melee.PlayerState(
             character=melee.Character.FOX,
             action=melee.Action.STANDING,
@@ -2510,18 +2511,15 @@ class SimpleControlsInputTests(unittest.TestCase):
         side_input = controls.tilt_stick(StickReferenceAxis.LEFT, 0.0)
         side_special = controls.press_button(melee.Button.BUTTON_B)
 
-        self.assertIsInstance(side_input, ActionFrameData)
-        self.assertIs(side_input.action, melee.Action.TURNING)
-        self.assertIsInstance(side_special, AttackFrameData)
-        self.assertIs(side_special.action, melee.Action.SWORD_DANCE_1)
+        self.assertIsNone(side_input)
+        self.assertIsNone(side_special)
         self.assertIn(melee.Button.BUTTON_B, controller.buttons)
 
         controller.release_all()
         jab = controls.press_button(melee.Button.BUTTON_A)
-        self.assertIsInstance(jab, AttackFrameData)
-        self.assertIs(jab.action, melee.Action.NEUTRAL_ATTACK_1)
+        self.assertIsNone(jab)
 
-    def test_simple_controls_interpret_corrected_packet_in_processed_space(self) -> None:
+    def test_simple_controls_corrected_raw_inputs_return_none(self) -> None:
         player = melee.PlayerState(
             character=melee.Character.FOX,
             action=melee.Action.STANDING,
@@ -2532,10 +2530,9 @@ class SimpleControlsInputTests(unittest.TestCase):
         self.assertIsNone(controls.tilt_analog(melee.Button.BUTTON_MAIN, 0.6, 0.5))
         jab = controls.press_button(melee.Button.BUTTON_A)
 
-        self.assertIsInstance(jab, AttackFrameData)
-        self.assertIs(jab.action, melee.Action.NEUTRAL_ATTACK_1)
+        self.assertIsNone(jab)
 
-    def test_simple_controls_distinguish_tilt_and_smash_thresholds(self) -> None:
+    def test_simple_controls_raw_tilt_and_attack_button_return_none(self) -> None:
         player = melee.PlayerState(
             character=melee.Character.FOX,
             action=melee.Action.STANDING,
@@ -2546,10 +2543,9 @@ class SimpleControlsInputTests(unittest.TestCase):
         controls.tilt_analog(melee.Button.BUTTON_MAIN, 0.8, 0.5)
         tilt = controls.press_button(melee.Button.BUTTON_A)
 
-        self.assertIsInstance(tilt, AttackFrameData)
-        self.assertIs(tilt.action, melee.Action.FTILT_MID)
+        self.assertIsNone(tilt)
 
-    def test_simple_controls_interpret_contextual_stick_maneuvers(self) -> None:
+    def test_simple_controls_contextual_stick_maneuvers_return_none(self) -> None:
         cases = (
             (
                 melee.PlayerState(
@@ -2584,14 +2580,13 @@ class SimpleControlsInputTests(unittest.TestCase):
             ),
         )
 
-        for player, direction, expected_action, expected_type in cases:
+        for player, direction, _expected_action, _expected_type in cases:
             with self.subTest(action=player.action):
                 controls, _ = self.controls(player)
                 result = controls.tilt_stick(direction, 0.0)
-                self.assertIsInstance(result, expected_type)
-                self.assertIs(result.action, expected_action)
+                self.assertIsNone(result)
 
-    def test_ice_climbers_controls_report_general_actionability(self) -> None:
+    def test_ice_climbers_controls_taunt_reports_input_application(self) -> None:
         controller = RecordingSimpleController()
         controls = IceClimbersControls(controller, frame_data=self.frame_data)
 
@@ -2608,18 +2603,17 @@ class SimpleControlsInputTests(unittest.TestCase):
         )
         controls.update(actionable, 0)
         taunt = controls.taunt()
-        self.assertIsInstance(taunt, ActionFrameData)
-        self.assertIs(taunt.action, melee.Action.TAUNT_RIGHT)
+        self.assertIs(taunt, True)
 
         blocked = copy.deepcopy(actionable)
         blocked.frame = 1
         blocked.players[1].action = melee.Action.DAMAGE_HIGH_1
         blocked.players[1].hitstun_frames_left = 8
         controls.update(blocked, 1)
-        self.assertIsNone(controls.taunt())
+        self.assertIs(controls.taunt(), True)
         self.assertIn(melee.Button.BUTTON_D_UP, controller.buttons)
 
-    def test_ice_climbers_controls_report_defense_ledge_and_turn_actions(self) -> None:
+    def test_ice_climbers_controls_preserve_defense_ledge_and_turn_returns(self) -> None:
         cases = (
             (
                 "shield",
@@ -2663,7 +2657,7 @@ class SimpleControlsInputTests(unittest.TestCase):
             ),
         )
 
-        for method_name, arguments, player, expected_action in cases:
+        for method_name, arguments, player, _expected_action in cases:
             with self.subTest(method=method_name):
                 player.character = melee.Character.POPO
                 player.nana = melee.PlayerState(character=melee.Character.NANA)
@@ -2673,8 +2667,10 @@ class SimpleControlsInputTests(unittest.TestCase):
 
                 result = getattr(controls, method_name)(*arguments)
 
-                self.assertIsInstance(result, ActionFrameData)
-                self.assertIs(result.action, expected_action)
+                if method_name in {"tilt_turn", "smash_turn"}:
+                    self.assertIsNone(result)
+                else:
+                    self.assertIs(result, True)
 
         controller = RecordingSimpleController()
         controls = IceClimbersControls(controller, frame_data=self.frame_data)
@@ -2733,14 +2729,66 @@ class SimpleControlsInputTests(unittest.TestCase):
 
         result = controls.platform_drop()
 
-        self.assertIsInstance(result, ActionFrameData)
-        self.assertIs(result.action, melee.Action.PLATFORM_DROP)
+        self.assertIs(result, True)
 
     def test_ice_climbers_controls_do_not_expose_hold_ownership(self) -> None:
         self.assertFalse(issubclass(IceClimbersControls, SimpleControls))
         self.assertNotIn("hold", inspect.signature(IceClimbersControls.attack).parameters)
         self.assertFalse(hasattr(IceClimbersControls, "check_hold"))
         self.assertFalse(hasattr(IceClimbersControls, "release"))
+
+    def test_immediate_controls_never_call_packet_predictor(self) -> None:
+        player = melee.PlayerState(
+            character=melee.Character.POPO,
+            action=melee.Action.STANDING,
+            on_ground=True,
+            nana=melee.PlayerState(character=melee.Character.NANA),
+        )
+        simple, controller = self.controls(player)
+        ice = IceClimbersControls(controller, frame_data=self.frame_data)
+        ice.update(melee.GameState(frame=0, players={1: player}), 0)
+        with patch(
+            "melee.bot.simple_controls.calculate_packet_intent",
+            side_effect=AssertionError("immediate controls must not infer packets"),
+        ):
+            for controls in (simple, ice):
+                with self.subTest(controls=type(controls).__name__):
+                    self.assertIsNone(controls.press_button(melee.Button.BUTTON_B))
+                    self.assertIsNone(controls.tilt_analog(melee.Button.BUTTON_MAIN, 1.0, 0.5))
+                    self.assertIsNone(controls.tilt_stick(StickReferenceAxis.UP, 0.0))
+                    self.assertIsNone(controls.tilt_turn())
+                    self.assertIsNone(controls.smash_turn())
+                    for name in (
+                        "down_left", "down_right", "up_left", "up_right",
+                        "left_up", "left_down", "right_up", "right_down",
+                    ):
+                        self.assertIsNone(getattr(controls, name)(30.0))
+                    self.assertIs(controls.shield(0.5), True)
+                    self.assertIs(controls.dodge(StickReferenceAxis.DOWN), True)
+                    self.assertIs(controls.taunt(), True)
+                    self.assertIsNone(controls.release_all())
+                    self.assertIsNotNone(controls.attack(AttackType.JAB))
+
+    def test_popo_ungated_helpers_keep_booleans_when_blocked(self) -> None:
+        controller = RecordingSimpleController()
+        controls = IceClimbersControls(controller, frame_data=self.frame_data)
+        controls.update(
+            melee.GameState(frame=0, players={1: melee.PlayerState(
+                character=melee.Character.POPO,
+                action=melee.Action.DAMAGE_HIGH_1,
+                hitstun_frames_left=8,
+                on_ground=True,
+            )}),
+            0,
+        )
+        self.assertIs(controls.shield(0.5), True)
+        self.assertIs(controls.platform_drop(), True)
+        self.assertIs(controls.dodge(StickReferenceAxis.DOWN), True)
+        self.assertIs(controls.air_dodge(StickReferenceAxis.UP), True)
+        self.assertIs(controls.ledge_recovery(LedgeRecoveryOption.NEUTRAL_GETUP), True)
+        self.assertIs(controls.taunt(), True)
+        self.assertIsNone(controls.attack(AttackType.JAB))
+        self.assertIn(melee.Button.BUTTON_A, controller.buttons)
 
     def test_ice_climbers_controls_coalesce_same_frame_helpers_into_final_packet(self) -> None:
         controller = PacketRecordingSimpleController()

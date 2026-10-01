@@ -945,7 +945,7 @@ class SimpleControls:
         *,
         magnitude: float = 1.0,
         stick: Button = Button.BUTTON_MAIN,
-    ) -> ActionFrameData | None:
+    ) -> None:
         """Request a main-stick or C-stick tilt from an absolute axis.
 
         This mutates only the selected stick's pending controller state. It does
@@ -961,10 +961,6 @@ class SimpleControls:
                 ``1.0``.
             stick: :attr:`Button.BUTTON_MAIN` or :attr:`Button.BUTTON_C`.
 
-        Returns:
-            Conservative action metadata for the complete pending packet after
-            this write, or ``None`` when it selects no supported actionable move.
-
         Raises:
             ValueError: If ``stick`` is not the main stick or C-stick, an
                 argument is non-finite, or ``magnitude`` is outside ``[0, 1]``.
@@ -976,14 +972,14 @@ class SimpleControls:
             angle_degrees,
             magnitude=magnitude,
         )
-        return self.tilt_analog(stick, x, y)
+        self.tilt_analog(stick, x, y)
 
     def tilt_analog(
         self,
         stick: Button,
         x: float,
         y: float,
-    ) -> ActionFrameData | None:
+    ) -> None:
         """Request raw normalized coordinates for the main stick or C-stick.
 
         This mutates only the selected stick's pending controller state and does
@@ -994,10 +990,6 @@ class SimpleControls:
             x: Horizontal request coordinate from ``0.0`` through ``1.0``.
             y: Vertical request coordinate from ``0.0`` through ``1.0``.
 
-        Returns:
-            Conservative action metadata for the complete pending packet after
-            this write, or ``None`` when it selects no supported actionable move.
-
         Raises:
             ValueError: If ``stick`` is not the main stick or C-stick, or either
                 coordinate is non-finite or outside ``[0, 1]``.
@@ -1007,28 +999,27 @@ class SimpleControls:
         if not math.isfinite(x) or not math.isfinite(y) or not 0.0 <= x <= 1.0 or not 0.0 <= y <= 1.0:
             raise ValueError("stick coordinates must be finite and between 0 and 1 inclusive")
         self._controller.tilt_analog(stick, x, y)
-        return self._pending_action_frame_data()
 
-    def tilt_turn(self) -> ActionFrameData | None:
+    def tilt_turn(self) -> None:
         """Request a weak backward input that turns the character around.
 
         A tilt turn reverses facing on character-dependent turn frames 5 through
         9. The half-strength input stays safely inside Melee's tilt-turn range.
         Existing pending buttons and C-stick input are preserved.
         """
-        return self.tilt_stick(
+        self.tilt_stick(
             self._character_state.backward_axis(),
             0.0,
             magnitude=_TILT_TURN_MAGNITUDE,
         )
 
-    def smash_turn(self) -> ActionFrameData | None:
+    def smash_turn(self) -> None:
         """Request a full backward input that turns the character around.
 
         A smash turn reverses facing on the first turn frame and can become a
         dash if held. Existing pending buttons and C-stick input are preserved.
         """
-        return self.tilt_stick(self._character_state.backward_axis(), 0.0)
+        self.tilt_stick(self._character_state.backward_axis(), 0.0)
 
     def shield(self, strength: float) -> bool:
         """Hold or release shield at a requested analog trigger strength.
@@ -1184,51 +1175,51 @@ class SimpleControls:
 
     def down_left(
         self, angle_degrees: float, *, magnitude: float = 1.0, stick: Button = Button.BUTTON_MAIN
-    ) -> ActionFrameData | None:
+    ) -> None:
         """Tilt from down toward left by an angle from 0 through 90 degrees."""
-        return self._tilt_between_axes(StickReferenceAxis.DOWN, angle_degrees, -1.0, magnitude, stick)
+        self._tilt_between_axes(StickReferenceAxis.DOWN, angle_degrees, -1.0, magnitude, stick)
 
     def down_right(
         self, angle_degrees: float, *, magnitude: float = 1.0, stick: Button = Button.BUTTON_MAIN
-    ) -> ActionFrameData | None:
+    ) -> None:
         """Tilt from down toward right by an angle from 0 through 90 degrees."""
-        return self._tilt_between_axes(StickReferenceAxis.DOWN, angle_degrees, 1.0, magnitude, stick)
+        self._tilt_between_axes(StickReferenceAxis.DOWN, angle_degrees, 1.0, magnitude, stick)
 
     def up_left(
         self, angle_degrees: float, *, magnitude: float = 1.0, stick: Button = Button.BUTTON_MAIN
-    ) -> ActionFrameData | None:
+    ) -> None:
         """Tilt from up toward left by an angle from 0 through 90 degrees."""
-        return self._tilt_between_axes(StickReferenceAxis.UP, angle_degrees, 1.0, magnitude, stick)
+        self._tilt_between_axes(StickReferenceAxis.UP, angle_degrees, 1.0, magnitude, stick)
 
     def up_right(
         self, angle_degrees: float, *, magnitude: float = 1.0, stick: Button = Button.BUTTON_MAIN
-    ) -> ActionFrameData | None:
+    ) -> None:
         """Tilt from up toward right by an angle from 0 through 90 degrees."""
-        return self._tilt_between_axes(StickReferenceAxis.UP, angle_degrees, -1.0, magnitude, stick)
+        self._tilt_between_axes(StickReferenceAxis.UP, angle_degrees, -1.0, magnitude, stick)
 
     def left_up(
         self, angle_degrees: float, *, magnitude: float = 1.0, stick: Button = Button.BUTTON_MAIN
-    ) -> ActionFrameData | None:
+    ) -> None:
         """Tilt from left toward up by an angle from 0 through 90 degrees."""
-        return self._tilt_between_axes(StickReferenceAxis.LEFT, angle_degrees, -1.0, magnitude, stick)
+        self._tilt_between_axes(StickReferenceAxis.LEFT, angle_degrees, -1.0, magnitude, stick)
 
     def left_down(
         self, angle_degrees: float, *, magnitude: float = 1.0, stick: Button = Button.BUTTON_MAIN
-    ) -> ActionFrameData | None:
+    ) -> None:
         """Tilt from left toward down by an angle from 0 through 90 degrees."""
-        return self._tilt_between_axes(StickReferenceAxis.LEFT, angle_degrees, 1.0, magnitude, stick)
+        self._tilt_between_axes(StickReferenceAxis.LEFT, angle_degrees, 1.0, magnitude, stick)
 
     def right_up(
         self, angle_degrees: float, *, magnitude: float = 1.0, stick: Button = Button.BUTTON_MAIN
-    ) -> ActionFrameData | None:
+    ) -> None:
         """Tilt from right toward up by an angle from 0 through 90 degrees."""
-        return self._tilt_between_axes(StickReferenceAxis.RIGHT, angle_degrees, 1.0, magnitude, stick)
+        self._tilt_between_axes(StickReferenceAxis.RIGHT, angle_degrees, 1.0, magnitude, stick)
 
     def right_down(
         self, angle_degrees: float, *, magnitude: float = 1.0, stick: Button = Button.BUTTON_MAIN
-    ) -> ActionFrameData | None:
+    ) -> None:
         """Tilt from right toward down by an angle from 0 through 90 degrees."""
-        return self._tilt_between_axes(StickReferenceAxis.RIGHT, angle_degrees, -1.0, magnitude, stick)
+        self._tilt_between_axes(StickReferenceAxis.RIGHT, angle_degrees, -1.0, magnitude, stick)
 
     def _tilt_between_axes(
         self,
@@ -1237,20 +1228,16 @@ class SimpleControls:
         rotation_sign: float,
         magnitude: float,
         stick: Button,
-    ) -> ActionFrameData | None:
+    ) -> None:
         if not math.isfinite(angle_degrees) or not 0.0 <= angle_degrees <= 90.0:
             raise ValueError("angle_degrees must be finite and between 0 and 90 inclusive")
-        return self.tilt_stick(reference_axis, rotation_sign * angle_degrees, magnitude=magnitude, stick=stick)
+        self.tilt_stick(reference_axis, rotation_sign * angle_degrees, magnitude=magnitude, stick=stick)
 
-    def press_button(self, button: Button) -> ActionFrameData | None:
+    def press_button(self, button: Button) -> None:
         """Press one digital controller button without changing other inputs.
 
         This mutates pending controller state only. The runtime commits it on the
         next :meth:`Console.step`; callers must not flush from bot code.
-
-        Returns:
-            Conservative action metadata for the complete pending packet after
-            this write, or ``None`` when it selects no supported actionable move.
 
         Raises:
             ValueError: If ``button`` identifies the main stick or C-stick.
@@ -1258,7 +1245,6 @@ class SimpleControls:
         if button not in _DIGITAL_BUTTONS:
             raise ValueError(f"Invalid button type {button} for press_button.")
         self._controller.press_button(button)
-        return self._pending_action_frame_data()
 
     def release_all(self) -> None:
         """Set all pending controller inputs to neutral without flushing."""
@@ -1587,18 +1573,6 @@ class SimpleControls:
     # ------------------------------------------------------------------
     # Private helpers.
     # ------------------------------------------------------------------
-
-    def _pending_action_frame_data(self) -> ActionFrameData | None:
-        """Interpret the controller's complete packet after the latest write."""
-        previous = getattr(self._controller, "prev", ControllerState())
-        current = getattr(self._controller, "current", ControllerState())
-        corrected = getattr(self._controller, "analog_input_correction_enabled", True)
-        return calculate_packet_intent(
-            self._character_state,
-            ControllerPacket.from_command_state(previous, analog_input_correction_enabled=corrected),
-            ControllerPacket.from_command_state(current, analog_input_correction_enabled=corrected),
-            self._frame_data,
-        )
 
     def _release_button(self, button: Button) -> None:
         self._controller.release_button(button)

@@ -42,7 +42,7 @@ class _DirectionalTilt(Protocol):
         *,
         magnitude: float = 1.0,
         stick: Button = Button.BUTTON_MAIN,
-    ) -> ActionFrameData | None: ...
+    ) -> None: ...
 
 
 class NanaActionStatus(Enum):
@@ -106,7 +106,7 @@ class _IceClimbersInputControls(SimpleControls):
             frame_data=self._frame_data,
         )
 
-    def shield_once(self, strength: float) -> ActionFrameData | None:
+    def shield_once(self, strength: float) -> bool:
         if not math.isfinite(strength) or not 0.0 <= strength <= 1.0:
             raise ValueError("strength must be finite and between 0 and 1 inclusive")
         self._release_button(Button.BUTTON_L)
@@ -120,17 +120,18 @@ class _IceClimbersInputControls(SimpleControls):
             self._press_shoulder(Button.BUTTON_L, requested_strength)
             if strength == 1.0:
                 self.press_button(Button.BUTTON_L)
-        return self._pending_action_frame_data()
+        return True
 
-    def platform_drop_once(self) -> ActionFrameData | None:
-        return self.tilt_stick(StickReferenceAxis.DOWN, 0.0)
+    def platform_drop_once(self) -> bool:
+        self.tilt_stick(StickReferenceAxis.DOWN, 0.0)
+        return True
 
     def dodge_once(
         self,
         direction: GroundDodgeStickReferenceAxis,
         *,
         dodge_button: Button,
-    ) -> ActionFrameData | None:
+    ) -> bool:
         if direction not in {
             StickReferenceAxis.LEFT,
             StickReferenceAxis.RIGHT,
@@ -142,7 +143,8 @@ class _IceClimbersInputControls(SimpleControls):
         self._validate_dodge_button(dodge_button)
         self.release_all()
         self.tilt_stick(direction, 0.0)
-        return self.press_button(dodge_button)
+        self.press_button(dodge_button)
+        return True
 
     def air_dodge_once(
         self,
@@ -151,7 +153,7 @@ class _IceClimbersInputControls(SimpleControls):
         *,
         magnitude: float,
         dodge_button: Button,
-    ) -> ActionFrameData | None:
+    ) -> bool:
         self._validate_dodge_button(dodge_button)
         stick_x, stick_y = stick_coordinates(
             reference_axis,
@@ -160,18 +162,20 @@ class _IceClimbersInputControls(SimpleControls):
         )
         self.release_all()
         self.tilt_analog(Button.BUTTON_MAIN, stick_x, stick_y)
-        return self.press_button(dodge_button)
+        self.press_button(dodge_button)
+        return True
 
-    def ledge_recovery_once(self, option: LedgeRecoveryOption) -> ActionFrameData | None:
+    def ledge_recovery_once(self, option: LedgeRecoveryOption) -> bool:
         player = self._player()
         if player is None:
-            return None
+            return False
         self._apply_ledge_recovery_inputs(player, option)
-        return self._pending_action_frame_data()
+        return True
 
-    def taunt_once(self) -> ActionFrameData | None:
+    def taunt_once(self) -> bool:
         self.release_all()
-        return self.press_button(Button.BUTTON_D_UP)
+        self.press_button(Button.BUTTON_D_UP)
+        return True
 
 
 class NanaActionQueue:
@@ -402,7 +406,7 @@ class IceClimbersControls:
         *,
         magnitude: float = 1.0,
         stick: Button = Button.BUTTON_MAIN,
-    ) -> ActionFrameData | None:
+    ) -> None:
         return self._record(
             lambda: self._current_controls().tilt_stick(
                 reference_axis,
@@ -412,27 +416,27 @@ class IceClimbersControls:
             ),
         )
 
-    def tilt_analog(self, stick: Button, x: float, y: float) -> ActionFrameData | None:
+    def tilt_analog(self, stick: Button, x: float, y: float) -> None:
         return self._record(
             lambda: self._current_controls().tilt_analog(stick, x, y),
         )
 
-    def tilt_turn(self) -> ActionFrameData | None:
+    def tilt_turn(self) -> None:
         return self._record(
             lambda: self._current_controls().tilt_turn(),
         )
 
-    def smash_turn(self) -> ActionFrameData | None:
+    def smash_turn(self) -> None:
         return self._record(
             lambda: self._current_controls().smash_turn(),
         )
 
-    def shield(self, strength: float) -> ActionFrameData | None:
+    def shield(self, strength: float) -> bool:
         return self._record(
             lambda: self._current_controls().shield_once(strength),
         )
 
-    def platform_drop(self) -> ActionFrameData | None:
+    def platform_drop(self) -> bool:
         return self._record(
             lambda: self._current_controls().platform_drop_once(),
         )
@@ -442,7 +446,7 @@ class IceClimbersControls:
         direction: GroundDodgeStickReferenceAxis,
         *,
         dodge_button: Button = Button.BUTTON_L,
-    ) -> ActionFrameData | None:
+    ) -> bool:
         return self._record(
             lambda: self._current_controls().dodge_once(
                 direction,
@@ -457,7 +461,7 @@ class IceClimbersControls:
         *,
         magnitude: float = 1.0,
         dodge_button: Button = Button.BUTTON_L,
-    ) -> ActionFrameData | None:
+    ) -> bool:
         return self._record(
             lambda: self._current_controls().air_dodge_once(
                 reference_axis,
@@ -473,52 +477,52 @@ class IceClimbersControls:
         angle_degrees: float,
         magnitude: float,
         stick: Button,
-    ) -> ActionFrameData | None:
+    ) -> None:
         return self._record(
             lambda: method(angle_degrees, magnitude=magnitude, stick=stick),
         )
 
     def down_left(
         self, angle_degrees: float, *, magnitude: float = 1.0, stick: Button = Button.BUTTON_MAIN
-    ) -> ActionFrameData | None:
+    ) -> None:
         return self._directional_tilt(self._current_controls().down_left, angle_degrees, magnitude, stick)
 
     def down_right(
         self, angle_degrees: float, *, magnitude: float = 1.0, stick: Button = Button.BUTTON_MAIN
-    ) -> ActionFrameData | None:
+    ) -> None:
         return self._directional_tilt(self._current_controls().down_right, angle_degrees, magnitude, stick)
 
     def up_left(
         self, angle_degrees: float, *, magnitude: float = 1.0, stick: Button = Button.BUTTON_MAIN
-    ) -> ActionFrameData | None:
+    ) -> None:
         return self._directional_tilt(self._current_controls().up_left, angle_degrees, magnitude, stick)
 
     def up_right(
         self, angle_degrees: float, *, magnitude: float = 1.0, stick: Button = Button.BUTTON_MAIN
-    ) -> ActionFrameData | None:
+    ) -> None:
         return self._directional_tilt(self._current_controls().up_right, angle_degrees, magnitude, stick)
 
     def left_up(
         self, angle_degrees: float, *, magnitude: float = 1.0, stick: Button = Button.BUTTON_MAIN
-    ) -> ActionFrameData | None:
+    ) -> None:
         return self._directional_tilt(self._current_controls().left_up, angle_degrees, magnitude, stick)
 
     def left_down(
         self, angle_degrees: float, *, magnitude: float = 1.0, stick: Button = Button.BUTTON_MAIN
-    ) -> ActionFrameData | None:
+    ) -> None:
         return self._directional_tilt(self._current_controls().left_down, angle_degrees, magnitude, stick)
 
     def right_up(
         self, angle_degrees: float, *, magnitude: float = 1.0, stick: Button = Button.BUTTON_MAIN
-    ) -> ActionFrameData | None:
+    ) -> None:
         return self._directional_tilt(self._current_controls().right_up, angle_degrees, magnitude, stick)
 
     def right_down(
         self, angle_degrees: float, *, magnitude: float = 1.0, stick: Button = Button.BUTTON_MAIN
-    ) -> ActionFrameData | None:
+    ) -> None:
         return self._directional_tilt(self._current_controls().right_down, angle_degrees, magnitude, stick)
 
-    def press_button(self, button: Button) -> ActionFrameData | None:
+    def press_button(self, button: Button) -> None:
         return self._record(
             lambda: self._current_controls().press_button(button),
         )
@@ -541,12 +545,12 @@ class IceClimbersControls:
             lambda: self._current_controls().attack_once(attack_type),
         )
 
-    def ledge_recovery(self, option: LedgeRecoveryOption) -> ActionFrameData | None:
+    def ledge_recovery(self, option: LedgeRecoveryOption) -> bool:
         return self._record(
             lambda: self._current_controls().ledge_recovery_once(option),
         )
 
-    def taunt(self) -> ActionFrameData | None:
+    def taunt(self) -> bool:
         return self._record(
             lambda: self._current_controls().taunt_once(),
         )

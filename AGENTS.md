@@ -293,9 +293,10 @@ uv pip install --python .venv/bin/python .
   frames later, and verifies her observed post action without sending or replaying
   input. The first update only seeds a baseline, and same-frame calls naturally
   coalesce into the next physically flushed packet. Queue readers require the
-  current frame. Raw button and stick methods return conservative
-  `ActionFrameData | None`, while attacks use the
-  compatible `AttackFrameData` subtype. Its one-frame `attack()` still returns
+  current frame. SimpleControls and Popo raw button and stick methods return
+  `None` without packet inference. Popo defense, platform-drop, ledge, and taunt
+  helpers retain input-application booleans; only the delayed Nana predictor
+  infers `ActionFrameData` from final committed inputs. Its one-frame `attack()` returns
   `None` when Popo cannot execute the move, but writes the buttons anyway so Nana's
   delayed input is not lost. It never owns or returns a `Hold`; use a montage for
   chargeable or otherwise multi-frame attacks.

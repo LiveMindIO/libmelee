@@ -184,13 +184,10 @@ nonexistent aerial form is rejected. The no-argument `can_attack()`,
 
 `LEFT_B` and `RIGHT_B` remain deprecated aliases for `LSPECIAL` and `RSPECIAL`.
 
-`SimpleControls.press_button()` and the raw stick methods return conservative
-`ActionFrameData | None` for the maneuver selected by the complete pending
-controller packet and current character state. Attack outcomes use the compatible
-`AttackFrameData` subtype. These values identify expected actions; the attached
-`FrameData` is a query helper and movement, defense, ledge, or taunt actions may
-have no CSV row. Semantic helpers such as `attack()` retain their existing
-`Hold` lifecycle while delegating their packet writes through these raw methods.
+`SimpleControls.press_button()` and the raw stick methods mutate pending input
+and return `None`; they do not infer actions from the pending controller packet.
+Semantic helpers retain their existing return values, including the `Hold`
+lifecycle and `AttackFrameData` returned by `attack()`.
 
 `IceClimbersControls` applies one-frame input immediately for Popo and evaluates
 Nana's delayed result from her actual Slippi pre-frame controller packet and
@@ -198,6 +195,9 @@ observed post-frame action six frames later. Delayed evaluation never writes or
 replays controller input. Multiple calls in one frame describe one physical final
 packet and therefore receive the same observed delayed result. The facade remains
 hold-free; use a montage for multi-frame ownership.
+Popo's raw button and stick methods return `None`, while defense, platform-drop,
+ledge, and taunt helpers return input-application booleans. Only Nana's delayed
+predictor infers `ActionFrameData` from the final committed inputs.
 
 Charging smashes and supported neutral-B moves return a `Hold`. Do not call
 `SimpleControls.release(hold)` in the frame that created it: pending controller
