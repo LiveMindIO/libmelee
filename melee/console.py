@@ -46,6 +46,7 @@ from melee.extract_menu_info import (
     WATCH_PAYLOAD_VALUES_OFFSET,
     apply_neutral_b_charge,
 )
+from melee.ice_climbers import derive_ice_climbers_state
 
 
 class SlippiVersionTooLow(Exception):
@@ -938,6 +939,7 @@ class Console:
             self._events_this_frame = []
 
         frame_ended = False
+        manual_frame_ended = False
         while not frame_ended:
             message = self._slippstream.dispatch(
                 self._polling_mode, timeout=self._polling_timeout)
@@ -964,12 +966,14 @@ class Console:
 
             elif self._use_manual_bookends and message["type"] == "frame_end" and self._frame != -10000:
                 frame_ended = True
+                manual_frame_ended = True
 
         gamestate = self._temp_gamestate
         self._temp_gamestate = None
 
         self.__fixframeindexing(gamestate)
         self.__fixiasa(gamestate)
+        self.__accept_completed_frame(gamestate, manual_frame_ended)
 
         # Copy stage-specific attributes into the gamestate
         # TODO: make copies to avoid accidental mutation
@@ -1004,6 +1008,12 @@ class Console:
         # Start the processing timer now that we're done reading messages
         self._frametimestamp = time.time()
         return gamestate
+
+    def __accept_completed_frame(self, gamestate, manual_frame_ended=False):
+        if not manual_frame_ended and EventType.FRAME_BOOKEND not in self._events_this_frame:
+            return
+        derive_ice_climbers_state(gamestate, self._prev_gamestate)
+        self._prev_gamestate = gamestate
 
     def __handle_slippstream_events(self, event_bytes: bytes, gamestate: GameState):
         """ Handle a series of events, provided sequentially in a byte array """
@@ -1445,7 +1455,6 @@ class Console:
             self._frame = gamestate.frame
 
     def __frame_bookend(self, gamestate: GameState, event_bytes: bytes):
-        self._prev_gamestate = gamestate
         # Calculate helper distance variable
         #   This is a bit kludgey.... :/
         i = 0

@@ -23,7 +23,7 @@ from typing import Final, Literal, TypeAlias, overload
 from typing_extensions import deprecated
 
 from melee.bot.framedata_query import _SPECIAL_SLOT_ACTION_IDS
-from melee.enums import Action, Character
+from melee.enums import Action, Character, NanaMode
 from melee.framedata import FrameData
 from melee.gamestate import (
     GameState,
@@ -1233,6 +1233,48 @@ class CharacterState:
             frame_data=self._frame_data,
             _player_state=player.nana,
         )
+
+    def get_nana_mode(self) -> NanaMode | None:
+        """Return Nana's inferred delayed-input mode for this frame.
+
+        ``FOLLOWER`` means Nana is replaying Popo's six-update delayed input
+        buffer. ``CPU_RETURNING`` means that follower bit is clear and Nana is
+        independently CPU-controlled. Normal Slippi state cannot expose every
+        engine transition flag, so this is a stateful approximation using the
+        25-unit threshold, grounded state, Up-B action, and relative movement.
+        Returns ``None`` for non-Popo views, Sopo, and incomplete follower
+        snapshots.
+        """
+        player = self.player()
+        if player is None or player.character != Character.POPO or player.nana is None:
+            return None
+        return player.nana_mode
+
+    def can_partner_belay(self) -> bool | None:
+        """Whether Belay's current-frame recruitment gate would accept Nana.
+
+        The NTSC 1.02 radius and observable hitlag gate are exact. Slippi does
+        not expose the engine's hit-source nibble, and Nana's current motion
+        state is not a substitute for it. Returns ``False`` without a Popo/Nana
+        pair and ``None`` for an incomplete follower snapshot.
+        """
+        player = self.player()
+        if player is None or player.character != Character.POPO or player.nana is None:
+            return False
+        return player.nana_belay_eligible
+
+    def can_partner_squall_hammer(self) -> bool | None:
+        """Whether Squall Hammer would recruit Nana from the current frame.
+
+        The NTSC 1.02 normal-scale radius and integer comparison are preserved.
+        Slippi does not expose runtime fighter scale or the hit-source nibble,
+        and Nana's current motion state is not a substitute for that nibble.
+        Returns ``False`` without a pair and ``None`` for an incomplete snapshot.
+        """
+        player = self.player()
+        if player is None or player.character != Character.POPO or player.nana is None:
+            return False
+        return player.nana_squall_hammer_eligible
 
     @property
     def nearest_grabbable_ledge(self) -> StageLedge | None:

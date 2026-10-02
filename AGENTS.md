@@ -17,6 +17,8 @@ uv pip install --python .venv/bin/python .
 - Forgejo runs `.forgejo/workflows/test.yml` on Linux only for Python 3.11
   through 3.13. It intentionally excludes Windows, macOS, and the live Dolphin
   test that requires an external Melee ISO.
+- Forgejo pins uv explicitly so `setup-uv` does not depend on the remote latest-
+  version manifest during every matrix job.
 - Forgejo is the `origin` remote. The LiveMindIO GitHub fork is `mirror`.
 
 ## Player Invulnerability Telemetry
@@ -267,10 +269,51 @@ uv pip install --python .venv/bin/python .
 - `CharacterState.get_nana()` returns a follower-state view for Ice Climbers and
   `None` when Nana is absent. The view retains Popo's port, frame snapshot, stage
   geometry, and shared `FrameData`, but every property and classification query
-  reads the nested `PlayerState.nana`. `SimpleControls.get_nana()` returns the
-  corresponding input view: it shares Popo's controller and frame timing while
-  validating and recognizing inputs against Nana's state. Inputs requested through
-  either view target the same controller and may overwrite one another in a frame.
+  reads the nested `PlayerState.nana`. The Popo view's `get_nana_mode()`,
+  `can_partner_belay()`, and `can_partner_squall_hammer()` are derived once each
+  accepted frame from normal Slippi state because Extract Menu Info does not run
+  reliably during gameplay. The derivation applies the 25-unit follower
+  thresholds using grounded state, Up-B action, and relative movement while
+  approximating omitted follower and CPU-state gates. Partner checks preserve the NTSC
+  1.02 DAT radii, Belay's observable hitlag gate, and Squall's truncated
+  squared-distance comparison. Hidden follower/CPU flags, the hit-source nibble,
+  and runtime scale remain documented approximations; current motion state is not
+  used as a substitute for the hidden nibble. Relative movement reconstructs Melee's
+  `pos_delta` from consecutive Slippi positions rather than summing the incomplete
+  exported velocity fields. An incomplete follower frame returns
+  `None`; Sopo, non-Popo, and nested Nana views return no mode and false
+  recruitment checks.
+  `IceClimbersControls` is instead a persistent,
+  bot-owned input facade constructed from the raw controller and shared `FrameData`.
+  Its `update(game_state, game_state.frame)` must run before every frame's inputs.
+  Every request is written immediately. On each contiguous `update`, its integrated
+  `NanaActionQueue` snapshots the one immutable whole packet in `Controller.prev`
+  that was flushed before that game state. It compares that packet with the prior
+  frame's packet, evaluates the delta against Nana's execution-time pre-state six
+  frames later, and verifies both her received PRE_FRAME processed input delta
+  and observed post action without sending or replaying input. Physical pad
+  buttons are not evidence of Nana's CPU/follower input. The first update only
+  seeds a baseline, and same-frame calls naturally
+  coalesce into the next physically flushed packet. Queue readers require the
+  current frame. SimpleControls and Popo raw button and stick methods return
+  `None` without packet inference. Popo defense, platform-drop, ledge, and taunt
+  helpers retain input-application booleans; only the delayed Nana predictor
+  infers `ActionFrameData` from final committed inputs. Its one-frame `attack()` returns
+  `None` when Popo cannot execute the move, but writes the buttons anyway so Nana's
+  delayed input is not lost. It never owns or returns a `Hold`; use a montage for
+  chargeable or otherwise multi-frame attacks.
+- `ControllerPacket` is the immutable processed-coordinate packet boundary used by
+  `calculate_packet_intent(character_state, previous_packet, current_packet,
+  frame_data)`. Construct packets from `Controller.current`/`prev` with
+  `from_command_state` (passing the controller's analog correction setting) and
+  from `PlayerState.controller_state` with `from_processed_state`; command
+  conversion includes Dolphin quantization and the optional trigger correction
+  (which `Controller.current` does not store) and must not be applied to
+  already-processed Slippi values. Intent is deliberately
+  conservative: it requires fresh buttons or threshold crossings and returns
+  `None` where hidden Melee timers or transition state prevent a supported result.
+  Unsupported diagonals are distinct from neutral input and return `None`
+  rather than falling back to jab, neutral aerial, or neutral special.
   Console parsing reuses the same nested follower `PlayerState` for PRE_FRAME and
   POST_FRAME packets so pre-frame controller input and player metadata survive
   post-frame field updates.

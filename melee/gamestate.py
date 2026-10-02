@@ -319,6 +319,12 @@ class PlayerState:
     """(int): What frame of the Action is the character in? Indexed from 1."""
     neutral_b_charge: Optional[int] = None
     """Character-specific stored neutral-B charge, or None without current Gecko telemetry."""
+    nana_mode: Optional[enums.NanaMode] = None
+    """Nana's inferred delayed-input mode, or None without a complete follower frame."""
+    nana_belay_eligible: Optional[bool] = None
+    """Inferred Belay recruitment eligibility, or None without a complete follower frame."""
+    nana_squall_hammer_eligible: Optional[bool] = None
+    """Inferred Squall recruitment eligibility, or None without a complete follower frame."""
     invulnerable: bool = False
     """Whether Slippi reports the player's current hurtbox as invulnerable or intangible."""
     invulnerability_left: int = 0
