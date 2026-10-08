@@ -17,6 +17,7 @@ import numpy as np
 from typing_extensions import get_overloads
 
 import melee
+from test_hitbox_phases import HitboxPhaseTests as HitboxPhaseTests
 from melee.bot import (
     MIN_SHIELD,
     NANA_INPUT_DELAY_FRAMES,

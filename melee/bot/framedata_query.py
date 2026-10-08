@@ -49,6 +49,14 @@ from melee.bot.action_names import (
     action_state_ident,
     character_section_name,
 )
+from melee.bot.hitbox_phases import (
+    ActionHitbox,
+    HitboxPhaseError,
+    Spot,
+    get_hitbox_phases,
+)
+from melee.bot.hitbox_phases import get_sourspots as get_sourspots
+from melee.bot.hitbox_phases import get_sweetspots as get_sweetspots
 from melee.enums import Action, AttackState, Character
 from melee.framedata import FrameData
 
@@ -399,6 +407,9 @@ class FrameSegment:
     hitboxes: tuple[HitboxSnapshot, ...]
     """Fixed-length 4-tuple sampled from ``start_frame``."""
 
+    action_id: int
+    """Owning action; frame numbers restart for each resolved action."""
+
 
 @dataclass(frozen=True)
 class HitboxActiveRange:
@@ -466,6 +477,9 @@ class FramedataResult:
     resolved_actions: tuple[ActionSummary, ...]
     tags: tuple[str, ...]
     segments: tuple[FrameSegment, ...]
+    phase_hitboxes: tuple[ActionHitbox, ...] = ()
+    """Separate ISO-derived physical hitboxes; never CSV-slot assignments."""
+    phase_data_error: str | None = None
 
 
 class RawFramedataRow(TypedDict):
@@ -688,6 +702,8 @@ def resolve_actions(character: Character, action_query: str | int) -> list[Resol
         return [_resolve_action_entry(character, action)]
 
     token = action_query.strip()
+    if not _normalize_token(token):
+        raise FramedataQueryError("action query must contain letters or digits")
     if token.isdigit():
         return resolve_actions(character, int(token))
 
@@ -858,16 +874,19 @@ def _action_segments(character: Character, action: Action) -> tuple[FrameSegment
                 facing_changed=bool(sample["facing_changed"]),
                 projectile=bool(sample["projectile"]),
                 hitboxes=_frame_hitboxes(sample),
+                action_id=action.value,
             )
         )
 
+    previous_frame = frames[0]
     for frame_number in frames[1:]:
         frame = frame_data.framedata[character][action][frame_number]
         signature = _frame_signature(character, action, frame_number, frame, frame_data)
-        if signature != previous_signature:
-            flush(frame_number - 1)
+        if signature != previous_signature or frame_number != previous_frame + 1:
+            flush(previous_frame)
             segment_start = frame_number
             previous_signature = signature
+        previous_frame = frame_number
     flush(frames[-1])
     return tuple(segments)
 
@@ -898,7 +917,13 @@ def _hitbox_active_ranges(
     for index in (1, 2, 3, 4):
         run_start: int | None = None
         prev_active = False
+        previous_frame: int | None = None
         for frame_number, active in statuses[index]:
+            if prev_active and previous_frame is not None and frame_number != previous_frame + 1:
+                assert run_start is not None
+                ranges.append(HitboxActiveRange(index, run_start, previous_frame, previous_frame - run_start + 1))
+                run_start = None
+                prev_active = False
             if active and not prev_active:
                 run_start = frame_number
             elif not active and prev_active and run_start is not None:
@@ -912,6 +937,7 @@ def _hitbox_active_ranges(
                 )
                 run_start = None
             prev_active = active
+            previous_frame = frame_number
         if run_start is not None:
             last_frame = statuses[index][-1][0]
             ranges.append(
@@ -948,6 +974,10 @@ def _action_summary(character: Character, action: Action) -> ActionSummary:
 def get_framedata(
     character_query: str | int,
     action_query: str | int,
+    *,
+    hitbox_id: int | None = None,
+    phase_id: str | None = None,
+    spot: Spot | None = None,
 ) -> FramedataResult:
     """Return typed framedata for a character/action query.
 
@@ -1004,6 +1034,16 @@ def get_framedata(
         segments.extend(_action_segments(character, entry.action))
         summaries.append(_action_summary(character, entry.action))
 
+    phase_error = None
+    try:
+        phase_hitboxes = get_hitbox_phases(character_query, action_query, hitbox_id=hitbox_id,
+                                         phase_id=phase_id, spot=spot)
+    except HitboxPhaseError as exc:
+        if any(v is not None for v in (hitbox_id, phase_id, spot)):
+            raise
+        phase_hitboxes = ()
+        phase_error = str(exc)
+
     return FramedataResult(
         character=character.name,
         character_id=int(character.value),
@@ -1012,6 +1052,8 @@ def get_framedata(
         resolved_actions=tuple(summaries),
         tags=tuple(_collect_tags(character, actions)),
         segments=tuple(segments),
+        phase_hitboxes=phase_hitboxes,
+        phase_data_error=phase_error,
     )
 
 
@@ -1122,10 +1164,10 @@ def get_raw_framedata_csv(
             action = Action(action_id)
             if not _attack_state_matches(character, action, frame_number, attack_state):
                 continue
-            rows.append(row)  # type: ignore[arg-type]
-            if len(rows) >= max_rows:
+            if len(rows) == max_rows:
                 truncated = True
                 break
+            rows.append(row)  # type: ignore[arg-type]
 
     return RawFramedataCsvResult(
         character=character.name,
