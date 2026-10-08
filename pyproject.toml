@@ -40,7 +40,8 @@ Repository = "https://github.com/vladfi1/libmelee"
 include = ["melee*"]
 
 [tool.setuptools.package-data]
-melee = ["*.csv", "*.ini"]
+melee = ["*.csv", "*.ini", "hitbox_catalog.json"]
+"melee.bot.data" = ["*.json"]
 
 [tool.setuptools.dynamic]
 version = {attr = "melee.version.__version__"}

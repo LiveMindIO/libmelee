@@ -261,7 +261,7 @@ class FrameData:
         return AttackState.ATTACKING
 
 
-    def range_forward(self, character, action, action_frame):
+    def range_forward(self, character, action, action_frame, *, hitbox_id=None, phase_id=None, spot=None):
         """Returns the maximum remaining range of the given attack, in the forward direction
             (relative to how the character starts facing)
 
@@ -272,6 +272,8 @@ class FrameData:
             action (enums.Action): The action we're interested in
             action_frame (int): The frame of the action we're interested in
         """
+        if any(v is not None for v in (hitbox_id, phase_id, spot)):
+            return self._phase_range(character, action, action_frame, True, hitbox_id, phase_id, spot)
         attackrange = 0
         lastframe = self.last_hitbox_frame(character, action)
         for i in range(action_frame+1, lastframe+1):
@@ -289,7 +291,7 @@ class FrameData:
                 attackrange = max(attackingframe["hitbox_4_size"] + attackingframe["hitbox_4_x"], attackrange)
         return attackrange
 
-    def range_backward(self, character, action, action_frame):
+    def range_backward(self, character, action, action_frame, *, hitbox_id=None, phase_id=None, spot=None):
         """Returns the maximum remaining range of the given attack, in the backwards direction
         (relative to how the character starts facing)
 
@@ -300,6 +302,8 @@ class FrameData:
             action (enums.Action): The action we're interested in
             action_frame (int): The frame of the action we're interested in
         """
+        if any(v is not None for v in (hitbox_id, phase_id, spot)):
+            return self._phase_range(character, action, action_frame, False, hitbox_id, phase_id, spot)
         attackrange = 0
         lastframe = self.last_hitbox_frame(character, action)
         for i in range(action_frame+1, lastframe+1):
@@ -318,7 +322,24 @@ class FrameData:
         return abs(attackrange)
 
 
-    def in_range(self, attacker, defender, stage):
+    def _phase_range(self, character, action, action_frame, forward, hitbox_id, phase_id, spot):
+        from melee.bot.hitbox_phases import select_hitbox_phases
+
+        groups = select_hitbox_phases(character, action, hitbox_id=hitbox_id, phase_id=phase_id, spot=spot)
+        extents = [frame.x + frame.radius if forward else frame.radius - frame.x
+                   for group in groups for phase in group.phases for frame in phase.frames
+                   if frame.frame > action_frame]
+        return max([0.0, *extents])
+
+    def in_range_sweetspot(self, attacker, defender, stage):
+        """Approximate future contact with an explicitly curated sweet phase."""
+        return self.in_range(attacker, defender, stage, spot="sweet")
+
+    def in_range_sourspot(self, attacker, defender, stage):
+        """Approximate contact, not proof a competing sweetbox will not win."""
+        return self.in_range(attacker, defender, stage, spot="sour")
+
+    def in_range(self, attacker, defender, stage, *, hitbox_id=None, phase_id=None, spot=None):
         """Calculates if an attack is in range of a given defender
 
         Args:
@@ -333,8 +354,18 @@ class FrameData:
         Note:
             This considers the defending character to have a single hurtbox, centered
             at the x,y coordinates of the player (adjusted up a little to be centered)
+            Explicit phase selection uses separate ISO-derived static pose geometry,
+            never inferred CSV slot IDs. It predicts contact, not hitbox priority,
+            defender movement, invulnerability, blending, or dynamic bone behavior.
         """
         lastframe = self.last_hitbox_frame(attacker.character, attacker.action)
+        selected = None
+        if any(v is not None for v in (hitbox_id, phase_id, spot)):
+            from melee.bot.hitbox_phases import select_hitbox_phases
+
+            selected = select_hitbox_phases(attacker.character, attacker.action,
+                                           hitbox_id=hitbox_id, phase_id=phase_id, spot=spot)
+            lastframe = max(phase.end_frame for group in selected for phase in group.phases)
 
         # Adjust the defender's hurtbox up a little, to be more centered.
         #   the game keeps y coordinates based on the bottom of a character, not
@@ -399,6 +430,20 @@ class FrameData:
                 attacker_x += locomotion_x
                 attacker_y += locomotion_y
 
+            if selected is not None:
+                for group in selected:
+                    for phase in group.phases:
+                        if not (phase.combat.hits_grounded if defender.on_ground else phase.combat.hits_aerial):
+                            continue
+                        for frame in phase.frames:
+                            if frame.frame != i:
+                                continue
+                            x = attacker_x + frame.x * (-1 if attacker.facing_left() else 1)
+                            y = attacker_y + frame.y
+                            if math.hypot(x - defender.position.x, y - defender_y) < defender_size + frame.radius:
+                                return i
+                continue
+
             if attackingframe['hitbox_1_status'] or attackingframe['hitbox_2_status'] or \
                     attackingframe['hitbox_3_status'] or attackingframe['hitbox_4_status']:
                 # Calculate the x and y positions of all 4 hitboxes for this frame
@@ -429,13 +474,13 @@ class FrameData:
                 distance3 = math.sqrt((hitbox_3_x - defender.position.x)**2 + (hitbox_3_y - defender_y)**2)
                 distance4 = math.sqrt((hitbox_4_x - defender.position.x)**2 + (hitbox_4_y - defender_y)**2)
 
-                if distance1 < defender_size + float(attackingframe["hitbox_1_size"]):
+                if attackingframe['hitbox_1_status'] and distance1 < defender_size + float(attackingframe["hitbox_1_size"]):
                     return i
-                if distance2 < defender_size + float(attackingframe["hitbox_2_size"]):
+                if attackingframe['hitbox_2_status'] and distance2 < defender_size + float(attackingframe["hitbox_2_size"]):
                     return i
-                if distance3 < defender_size + float(attackingframe["hitbox_3_size"]):
+                if attackingframe['hitbox_3_status'] and distance3 < defender_size + float(attackingframe["hitbox_3_size"]):
                     return i
-                if distance4 < defender_size + float(attackingframe["hitbox_4_size"]):
+                if attackingframe['hitbox_4_status'] and distance4 < defender_size + float(attackingframe["hitbox_4_size"]):
                     return i
         return 0
 
