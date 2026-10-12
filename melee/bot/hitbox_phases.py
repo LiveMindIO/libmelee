@@ -172,7 +172,7 @@ def get_hitbox_phases(
     from melee.bot.framedata_query import resolve_actions, resolve_character
 
     character = resolve_character(character_query)
-    actions = resolve_actions(character, action_query)
+    actions = resolve_actions(character, action_query, require_csv=False)
     groups = tuple(
         group
         for entry in actions
