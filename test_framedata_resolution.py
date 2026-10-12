@@ -16,6 +16,33 @@ from melee.enums import Action, Character
 
 
 class FramedataResolutionTests(unittest.TestCase):
+    def test_kirby_dash_attack_matches_exact_numeric_query(self):
+        for operation in (get_framedata, get_raw_framedata_csv, get_hitbox_phases):
+            with self.subTest(operation=operation.__name__):
+                numeric = operation("kirby", 351)
+                if operation is get_hitbox_phases:
+                    self.assertTrue(numeric)
+                    self.assertEqual(operation("kirby", "DASH_ATTACK"), numeric)
+                else:
+                    self.assertEqual(operation("kirby", "DASH_ATTACK"), replace(numeric, action_query="DASH_ATTACK"))
+        self.assertEqual(resolve_actions(Character.KIRBY, 50, require_csv=False)[0].action_id, 50)
+        self.assertEqual(resolve_actions(Character.KIRBY, 352, require_csv=False)[0].action_id, 352)
+
+    def test_kirby_named_dash_attack_phases_do_not_require_csv_rows(self):
+        expected = get_hitbox_phases("kirby", 351)
+        self.assertTrue(expected)
+        with patch.dict(_frame_data().framedata, {Character.KIRBY: {}}):
+            get_framedata.cache_clear()
+            for operation in (get_framedata, get_raw_framedata_csv):
+                with self.subTest(operation=operation.__name__), self.assertRaisesRegex(FramedataQueryError,
+                                                                                       "no framedata"):
+                    operation("kirby", "DASH_ATTACK")
+            self.assertEqual(get_hitbox_phases("kirby", "DASH_ATTACK"), expected)
+
+    def test_label_replacement_does_not_confuse_guard_with_shield_startup(self):
+        self.assertEqual(resolve_actions(Character.YOSHI, "SHIELD", require_csv=False)[0].action_id, 179)
+        self.assertEqual(resolve_actions(Character.YOSHI, "SHIELD_STARTUP", require_csv=False)[0].action_id, 345)
+
     def test_game_and_watch_named_normals_match_exact_numeric_queries(self):
         for query, action_id in (("NAIR", 347), ("BAIR", 348), ("UAIR", 349), ("DOWNTILT", 345)):
             for operation in (get_framedata, get_raw_framedata_csv, get_hitbox_phases):

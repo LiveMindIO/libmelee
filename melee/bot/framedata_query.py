@@ -749,12 +749,15 @@ def resolve_actions(
     if enum_action is not None:
         if enum_action.value < 341:
             # Some fighters replace common normals with character-owned states.
-            # Reuse the authoritative identifier table, not CSV presence or a
-            # fuzzy label, and keep aerial landing identities separate.
+            # Reuse exact authoritative labels/identifiers, not CSV presence or
+            # substring matching, and keep aerial landing identities separate.
             enum_action = next(
                 (entry.action for entry in _match_actions_by_label(
                     character, token, require_csv=False, exact_only=True,
-                ) if entry.action_id >= 341 and _normalize_token(entry.action_state or "") == normalized),
+                ) if entry.action_id >= 341 and (
+                    _normalize_token(entry.action_state or "") == normalized
+                    or entry.action_label == action_name(character, enum_action)
+                )),
                 enum_action,
             )
         # Known identities never fall through to a different move just because
