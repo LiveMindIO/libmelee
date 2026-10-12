@@ -84,6 +84,26 @@ _SPECIAL_SLOT_ALIASES: Final[dict[str, str]] = {
     "b-down": "down-special",
 }
 _NORMALIZE_RE = re.compile(r"[^a-z0-9]+")
+# Common shorthand must resolve exactly before label substring matching.
+# In particular, "dsmash" is a substring of "Forward Smash", not Down Smash.
+_COMMON_ACTION_ALIASES: Final[dict[str, str]] = {
+    "fsmash": "Forward Smash",
+    "usmash": "Up Smash",
+    "dsmash": "Down Smash",
+    "ftilt": "Forward Tilt",
+    "utilt": "Up Tilt",
+    "dtilt": "Down Tilt",
+    "neutralair": "Neutral Air",
+    "neutralaerial": "Neutral Air",
+    "forwardair": "Forward Air",
+    "forwardaerial": "Forward Air",
+    "backair": "Back Air",
+    "backaerial": "Back Air",
+    "upair": "Up Air",
+    "upaerial": "Up Air",
+    "downair": "Down Air",
+    "downaerial": "Down Air",
+}
 _SPECIAL_SLOT_BY_NORMALIZED: Final[dict[str, str]] = {
     _NORMALIZE_RE.sub("", alias.strip().lower()): slot
     for alias, slot in _SPECIAL_SLOT_ALIASES.items()
@@ -609,7 +629,7 @@ def _resolve_action_entry(character: Character, action: Action) -> ResolvedActio
     )
 
 
-def _resolve_special_slot(character: Character, slot: str) -> list[ResolvedAction]:
+def _resolve_special_slot(character: Character, slot: str, *, require_csv: bool = True) -> list[ResolvedAction]:
     """Return the sub-actions for one of ``character``'s special-move slots.
 
     ``slot`` may be ``"neutral-special"``, ``"side-special"``,
@@ -637,7 +657,7 @@ def _resolve_special_slot(character: Character, slot: str) -> list[ResolvedActio
             action = Action(action_id)
         except ValueError:
             continue
-        if action in available_actions:
+        if not require_csv or action in available_actions:
             actions.append(_resolve_action_entry(character, action))
     if not actions:
         msg = f"no framedata for {character.name} {normalized!r}"
@@ -645,7 +665,9 @@ def _resolve_special_slot(character: Character, slot: str) -> list[ResolvedActio
     return actions
 
 
-def _match_actions_by_label(character: Character, query: str) -> list[ResolvedAction]:
+def _match_actions_by_label(
+    character: Character, query: str, *, require_csv: bool = True, exact_only: bool = False,
+) -> list[ResolvedAction]:
     """Fuzzy-match ``query`` against action labels / enum names / state idents.
 
     Tries exact normalized matches first, falling back to substring matches.
@@ -653,8 +675,12 @@ def _match_actions_by_label(character: Character, query: str) -> list[ResolvedAc
     """
     normalized = _normalize_token(query)
     frame_data = _frame_data()
+    # Independent phase evidence uses the character's authoritative action
+    # table, not CSV presence. Do not admit other fighters' relative states.
+    actions = (list(frame_data.framedata[character]) if require_csv else
+               [action for action in Action if action_state_ident(character, action.value) is not None])
     matches: list[ResolvedAction] = []
-    for action in frame_data.framedata[character]:
+    for action in actions:
         entry = _resolve_action_entry(character, action)
         candidates = {
             _normalize_token(entry.action_label),
@@ -663,8 +689,8 @@ def _match_actions_by_label(character: Character, query: str) -> list[ResolvedAc
         }
         if normalized in candidates:
             matches.append(entry)
-    if not matches:
-        for action in frame_data.framedata[character]:
+    if not matches and not exact_only:
+        for action in actions:
             entry = _resolve_action_entry(character, action)
             candidates = (
                 _normalize_token(entry.action_label),
@@ -676,7 +702,9 @@ def _match_actions_by_label(character: Character, query: str) -> list[ResolvedAc
     return sorted(matches, key=lambda entry: entry.action_id)
 
 
-def resolve_actions(character: Character, action_query: str | int) -> list[ResolvedAction]:
+def resolve_actions(
+    character: Character, action_query: str | int, *, require_csv: bool = True,
+) -> list[ResolvedAction]:
     """Resolve ``action_query`` to one or more :class:`ResolvedAction` entries.
 
     Accepts:
@@ -692,11 +720,16 @@ def resolve_actions(character: Character, action_query: str | int) -> list[Resol
     Args:
         character: Already-resolved :class:`Character`.
         action_query: Slug, enum name, numeric ID, or special-slot alias.
+        require_csv: Reject missing historical rows by default. Independent
+            hitbox-phase queries resolve exact identities without this limit.
     """
     frame_data = _frame_data()
     if isinstance(action_query, int):
-        action = Action(action_query)
-        if not frame_data.framedata[character].get(action):
+        try:
+            action = Action(action_query)
+        except ValueError as exc:
+            raise FramedataQueryError(f"unknown action id: {action_query}") from exc
+        if require_csv and not frame_data.framedata[character].get(action):
             msg = f"no framedata for {character.name} action id {action_query}"
             raise FramedataQueryError(msg)
         return [_resolve_action_entry(character, action)]
@@ -705,24 +738,37 @@ def resolve_actions(character: Character, action_query: str | int) -> list[Resol
     if not _normalize_token(token):
         raise FramedataQueryError("action query must contain letters or digits")
     if token.isdigit():
-        return resolve_actions(character, int(token))
+        return resolve_actions(character, int(token), require_csv=require_csv)
 
     normalized = _normalize_token(token)
     slot = _SPECIAL_SLOT_BY_NORMALIZED.get(normalized)
     if slot is not None:
-        return _resolve_special_slot(character, slot)
+        return _resolve_special_slot(character, slot, require_csv=require_csv)
 
-    try:
-        enum_action = Action[token.upper()]
-    except KeyError:
-        enum_action = None
-    else:
-        if frame_data.framedata[character].get(enum_action):
-            return [_resolve_action_entry(character, enum_action)]
+    enum_action = Action.__members__.get(token.upper())
+    if enum_action is not None:
+        # Known identities never fall through to a different move just because
+        # their rows are missing (e.g. Roy DAIR -> the label "Forward Air").
+        return resolve_actions(character, enum_action.value, require_csv=require_csv)
 
-    label_matches = _match_actions_by_label(character, token)
+    alias_label = _COMMON_ACTION_ALIASES.get(normalized)
+    if character == Character.NESS and normalized in {"fsmash", "forwardsmash"}:
+        alias_label = "Side Smash"
+    # Prove exact label identity against the action table before consulting
+    # sparse CSV evidence. Missing rows must not activate substring fallback.
+    exact_matches = _match_actions_by_label(character, alias_label or token, require_csv=False, exact_only=True)
+    if exact_matches:
+        if not require_csv:
+            return exact_matches
+        available = [entry for entry in exact_matches if frame_data.framedata[character].get(entry.action)]
+        if available:
+            return available
+        raise FramedataQueryError(f"no framedata for {character.name} {alias_label or token}")
+    label_matches = _match_actions_by_label(character, alias_label or token, require_csv=require_csv)
     if label_matches:
         return label_matches
+    if alias_label is not None:
+        raise FramedataQueryError(f"no framedata for {character.name} {alias_label}")
 
     msg = f"unknown action for {character.name}: {action_query!r}"
     raise FramedataQueryError(msg)
