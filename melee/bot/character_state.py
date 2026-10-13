@@ -452,8 +452,8 @@ class CharacterStatus(Enum):
     clears; treated as a subset of hitstun by :func:`in_hitstun`."""
 
     Tumbling = auto()
-    """Airborne knockback tumble (``TUMBLING``) after reported hitstun has
-    cleared. Permits aerial attacks, specials, tether Z-air, and aerial jump,
+    """Airborne knockback tumble (``TUMBLING`` / DamageFall) after engine hitstun.
+    Ignores stale reported hitstun. Permits aerial attacks, specials, tether Z-air, and aerial jump,
     but not air dodge."""
 
     Shielding = auto()
@@ -2105,6 +2105,12 @@ def _stale_hitstun_is_actionable(player: LibPlayerState, frame_data: FrameData) 
     if isinstance(player.action, UnknownAnimation):
         return True
     action = player.action
+    # DamageFall IASA permits SpecialAir, aerial jumps/attacks and a fresh
+    # horizontal-stick exit without a hitstun-counter gate. Its engine action
+    # is authoritative even when Extract Menu Info retains a positive counter.
+    # See doldecomp ftCo_DamageFall.c:ftCo_DamageFall_IASA.
+    if action is Action.TUMBLING:
+        return True
     if action is Action.AIRDODGE:
         return True
     if action in _FALSE_HITSTUN_NEUTRAL_ACTIONS:

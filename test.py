@@ -4884,6 +4884,24 @@ class SimpleControlsInputTests(unittest.TestCase):
         samus_controls, _ = self.controls(samus)
         self.assertTrue(samus_controls.character_state.can_attack(AttackType.Z_AIR))
 
+        for stale_frames in (1, 2, 30):
+            with self.subTest(stale_frames=stale_frames):
+                player.hitstun_frames_left = stale_frames
+                self.assertIs(controls.character_state.get_state(), CharacterStatus.Tumbling)
+                self.assertFalse(controls.character_state.in_hitstun())
+                self.assertTrue(controls.character_state.can_attack(AttackType.NAIR))
+                self.assertTrue(controls.character_state.can_attack(AttackType.UP_B))
+                self.assertTrue(controls.character_state.can_jump())
+                self.assertFalse(controls.character_state.can_airdodge())
+                self.assertFalse(controls.character_state.can_attack(AttackType.GRAB))
+
+        player.hitlag_left = 1
+        self.assertIs(controls.character_state.get_state(), CharacterStatus.HitLag)
+        self.assertTrue(controls.character_state.in_hitstun())
+        self.assertFalse(controls.character_state.can_attack(AttackType.NAIR))
+        self.assertFalse(controls.character_state.can_jump())
+        player.hitlag_left = 0
+        player.action = melee.Action.DAMAGE_FLY_HIGH
         player.hitstun_frames_left = 2
         self.assertIs(controls.character_state.get_state(), CharacterStatus.Hitstun)
 
