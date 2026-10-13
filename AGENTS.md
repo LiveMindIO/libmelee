@@ -421,8 +421,8 @@ uv pip install --python .venv/bin/python .
   It accepts common `LANDING` once character-specific normal landing lag expires,
   but rejects `KNEE_BEND`, `LANDING_SPECIAL`, aerial landing lag, shield stun,
   and hitlag.
-- `Action.TUMBLING` classifies as `CharacterStatus.Tumbling` after reported
-  hitstun clears. DamageFall permits aerial attacks, specials, tether Z-air, and
+- `Action.TUMBLING` is post-hitstun DamageFall and ignores stale positive
+  hitstun counters; hitlag still blocks input. DamageFall permits aerial attacks, specials, tether Z-air, and
   aerial jump, but not air dodge or ground grab.
 - Short hops require releasing X/Y before `Action.KNEE_BEND` jump squat ends. For
   `N` jump-squat frames, hold jump for at most `N - 1` committed game frames;

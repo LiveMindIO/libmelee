@@ -868,7 +868,8 @@ libmelee ``FrameData.is_roll`` includes this; the dodging state."""
     SHIELD_BREAK_STAND_D = 0xd2
     """Standing up from shield break (face-down)."""
     SHIELD_BREAK_TEETER = 0xd3
-    """Teetering on the edge while dazed from shield break."""
+    """Shield-break dizzy wobble (decomp FuraFura), not edge teetering.
+    The historical member name is retained for compatibility."""
     # --- Grab (attacker side; Classifies as actively holding a grab) ---
     GRAB = 0xd4
     """Initial grab reach (Z or L+A). Has a brief grab hitbox. Classifies as
