@@ -30,6 +30,9 @@ uv pip install --python .venv/bin/python .
   compatibility. Current Slippi telemetry has no remaining-frame countdown, so
   parsed states retain its default `0`. Do not restore action-based heuristic
   countdown tracking; callers must use `PlayerState.invulnerable`.
+- Halo descent can report hurtbox collision state zero. The boolean preserves
+  that packet, not overall targetability; tactical code may separately exclude
+  halo/entry actions without inventing a post-respawn timer.
 
 ## Bot Protocol And Base
 
@@ -260,6 +263,9 @@ uv pip install --python .venv/bin/python .
   roundoff clamp one representable float inward. Ledgedash's default ECB-bottom
   world-Y threshold is 0.25 for standard main-stage ledges and is intentionally
   configurable.
+  Optional `minimum_jump_frames=0` requires at least that many advancing game
+  frames between jump and air-dodge input requests, in addition to ECB clearance.
+  Zero preserves the existing route; the active frame limit still bounds delays.
 
 ## Simple Controls
 
@@ -421,6 +427,8 @@ uv pip install --python .venv/bin/python .
   It accepts common `LANDING` once character-specific normal landing lag expires,
   but rejects `KNEE_BEND`, `LANDING_SPECIAL`, aerial landing lag, shield stun,
   and hitlag.
+- DK grounded cargo wait/walk/turn (raw 351–355) also allow jumping. Cargo knee
+  bend, airborne cargo, landing/recovery and other fighters' colliding IDs do not.
 - `Action.TUMBLING` is post-hitstun DamageFall and ignores stale positive
   hitstun counters; hitlag still blocks input. DamageFall permits aerial attacks, specials, tether Z-air, and
   aerial jump, but not air dodge or ground grab.

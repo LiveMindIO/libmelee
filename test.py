@@ -995,6 +995,25 @@ class PostFrameParsingTests(unittest.TestCase):
                 self.assertIs(player.invulnerable, expected_invulnerable)
                 self.assertEqual(player.invulnerability_left, 0)
 
+    def test_respawn_descent_preserves_reported_hurtbox_state(self):
+        # Replay d0db14e5 reports state 0 during halo descent and state 1 only
+        # after leaving the halo. The boolean must not invent a halo timer.
+        game_state = melee.GameState(frame=0)
+        for action, hurtbox_state, expected in (
+            (melee.Action.ON_HALO_DESCENT, 0, False),
+            (melee.Action.ON_HALO_WAIT, 0, False),
+            (melee.Action.FALLING, 1, True),
+            (melee.Action.FAIR, 0, False),
+        ):
+            with self.subTest(action=action, hurtbox_state=hurtbox_state):
+                payload = self.post_frame_payload()
+                payload[7] = melee.Character.GANONDORF.value
+                payload[8:10] = action.value.to_bytes(2, "big")
+                payload[0x34] = hurtbox_state
+                self.parse_post_frame(game_state, payload)
+                self.assertIs(game_state.players[1].invulnerable, expected)
+                self.assertEqual(game_state.players[1].invulnerability_left, 0)
+
     def test_frame_index_normalization_includes_nana(self) -> None:
         game_state = melee.GameState(frame=0)
         payload = self.post_frame_payload()
@@ -5338,6 +5357,56 @@ class SimpleControlsInputTests(unittest.TestCase):
         self.assertTrue(can_jump(falling, self.frame_data))
         self.assertFalse(can_jump(no_jumps, self.frame_data))
         self.assertFalse(can_jump(hitstun, self.frame_data))
+
+    def test_can_jump_from_grounded_dk_cargo_wait_walk_and_turn(self) -> None:
+        for raw_action in range(351, 361):
+            with self.subTest(raw_action=raw_action):
+                player = melee.PlayerState(
+                    character=melee.Character.DK,
+                    action=melee.Action(raw_action),
+                    on_ground=True,
+                )
+                controls, _ = self.controls(player)
+                expected = raw_action <= 355
+                self.assertEqual(can_jump(player, self.frame_data), expected)
+                self.assertEqual(controls.character_state.can_jump(), expected)
+
+    def test_cargo_jump_rejects_airborne_other_characters_and_hitlag(self) -> None:
+        for raw_action in range(351, 356):
+            for character, on_ground, hitlag in (
+                (melee.Character.DK, False, 0),
+                (melee.Character.MARTH, True, 0),
+                (melee.Character.DK, True, 1),
+            ):
+                with self.subTest(raw_action=raw_action, character=character,
+                                  on_ground=on_ground, hitlag=hitlag):
+                    player = melee.PlayerState(
+                        character=character, action=melee.Action(raw_action),
+                        on_ground=on_ground, hitlag_left=hitlag,
+                    )
+                    controls, _ = self.controls(player)
+                    self.assertFalse(can_jump(player, self.frame_data))
+                    self.assertFalse(controls.character_state.can_jump())
+
+    def test_cargo_jump_keeps_existing_stale_hitstun_filter(self) -> None:
+        for raw_action in range(351, 356):
+            player = melee.PlayerState(
+                character=melee.Character.DK, action=melee.Action(raw_action),
+                on_ground=True, hitstun_frames_left=10,
+            )
+            controls, _ = self.controls(player)
+            with self.subTest(raw_action=raw_action):
+                self.assertTrue(can_jump(player, self.frame_data))
+                self.assertTrue(controls.character_state.can_jump())
+
+    def test_cargo_jump_preserves_real_hitstun_gate(self) -> None:
+        player = melee.PlayerState(
+            character=melee.Character.DK, action=melee.Action.DAMAGE_FLY_HIGH,
+            on_ground=True, hitstun_frames_left=10,
+        )
+        controls, _ = self.controls(player)
+        self.assertFalse(can_jump(player, self.frame_data))
+        self.assertFalse(controls.character_state.can_jump())
 
     def test_can_jump_during_late_normal_landing_iasa(self) -> None:
         boundaries = (
@@ -12916,6 +12985,49 @@ class TechniqueMontageTests(unittest.TestCase):
         )
         self.controls.take_calls()
         self.assertIs(self.tick(montage, melee.Action.STANDING), True)
+
+    def test_ledgedash_optional_jump_delay_requires_elapsed_frames_and_clearance(self):
+        montage = LedgedashMontage(angle_degrees=45.0, minimum_jump_frames=3)
+        ledge = dict(on_ground=False, off_stage=True, jumps_left=1, position_x=-70.0)
+        self.tick(montage, melee.Action.EDGE_HANGING, **ledge)
+        self.controls.take_calls()
+        self.tick(montage, melee.Action.FALLING, **ledge)
+        self.assertIn(("press_button", melee.Button.BUTTON_Y), self.controls.take_calls())
+        airborne = dict(on_ground=False, off_stage=True, jumps_left=0,
+                        position_x=-69.0, position_y=1.0)
+        # Jump input at frame 1; clear ECB at frame 2 is too early.
+        self.tick(montage, melee.Action.JUMPING_ARIAL_FORWARD, **airborne)
+        calls = self.controls.take_calls()
+        self.assertNotIn(("press_button", melee.Button.BUTTON_L), calls)
+        self.assertNotIn(("press_button", melee.Button.BUTTON_Y), calls)
+        # A repeated frame must not consume the requested game-frame delay.
+        self.frame = 2
+        self.tick(montage, melee.Action.JUMPING_ARIAL_FORWARD, **airborne)
+        self.assertNotIn(("press_button", melee.Button.BUTTON_L), self.controls.take_calls())
+        self.tick(montage, melee.Action.JUMPING_ARIAL_FORWARD, **airborne)
+        self.assertNotIn(("press_button", melee.Button.BUTTON_L), self.controls.take_calls())
+        # Frame 4 reaches the delay, but an uncleared ECB still blocks dodging.
+        self.tick(montage, melee.Action.FALLING, **(airborne | {"position_y": 0.0}))
+        self.assertNotIn(("press_button", melee.Button.BUTTON_L), self.controls.take_calls())
+        self.tick(montage, melee.Action.FALLING, **airborne)
+        self.assertIn(("press_button", melee.Button.BUTTON_L), self.controls.take_calls())
+
+    def test_ledgedash_jump_delay_rejects_negative_values(self):
+        with self.assertRaisesRegex(ValueError, "minimum_jump_frames"):
+            LedgedashMontage(angle_degrees=45.0, minimum_jump_frames=-1)
+
+    def test_ledgedash_jump_delay_keeps_active_timeout(self):
+        montage = LedgedashMontage(angle_degrees=45.0, minimum_jump_frames=100, frame_limit=3)
+        ledge = dict(on_ground=False, off_stage=True, jumps_left=1, position_x=-70.0)
+        self.tick(montage, melee.Action.EDGE_HANGING, **ledge)
+        self.tick(montage, melee.Action.FALLING, **ledge)
+        self.tick(montage, melee.Action.JUMPING_ARIAL_FORWARD,
+                  on_ground=False, jumps_left=0, position_y=1.0)
+        self.controls.take_calls()
+        self.assertFalse(self.tick(montage, melee.Action.JUMPING_ARIAL_FORWARD,
+                                   on_ground=False, jumps_left=0, position_y=1.0))
+        self.assertEqual(montage.get_montage_state(), MontageState.TimedOut)
+        self.assertEqual(self.controls.take_calls(), [("release_all",)])
 
     def test_ledgedash_does_not_release_without_a_double_jump(self):
         montage = LedgedashMontage(angle_degrees=45.0)

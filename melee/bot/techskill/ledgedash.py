@@ -37,6 +37,7 @@ class _LedgedashPhase(Enum):
 class _LedgedashState:
     phase: _LedgedashPhase
     jumps_before_request: int | None = None
+    jump_request_frame: int | None = None
 
 
 _AERIAL_JUMP_ACTIONS: Final = frozenset({Action.JUMPING_ARIAL_FORWARD, Action.JUMPING_ARIAL_BACKWARD})
@@ -61,6 +62,11 @@ class LedgedashMontage(StatefulInputMontage[_LedgedashState]):
     be overridden for other stage geometry or character-specific routing. Callers
     choose the air-dodge angle explicitly; its boundaries use the same inward
     floating-point clamp as ``WavedashMontage``.
+
+    ``minimum_jump_frames`` optionally delays the air-dodge input by that many
+    advancing game frames after the jump input request. ECB clearance remains
+    required; zero preserves the earliest-clearance route. Duplicate packets do
+    not advance the delay. The active frame limit still bounds the whole route.
     """
 
     def __init__(
@@ -70,6 +76,7 @@ class LedgedashMontage(StatefulInputMontage[_LedgedashState]):
         *,
         angle_degrees: float,
         minimum_ecb_bottom_y: float = 0.25,
+        minimum_jump_frames: int = 0,
         jump_button: Button = Button.BUTTON_Y,
         dodge_button: Button = Button.BUTTON_L,
     ) -> None:
@@ -82,10 +89,13 @@ class LedgedashMontage(StatefulInputMontage[_LedgedashState]):
         safe_angle_degrees = clamp_wavedash_angle(angle_degrees)
         if not math.isfinite(minimum_ecb_bottom_y):
             raise ValueError("minimum_ecb_bottom_y must be finite")
+        if minimum_jump_frames < 0:
+            raise ValueError("minimum_jump_frames must be nonnegative")
         validate_button(jump_button, frozenset({Button.BUTTON_X, Button.BUTTON_Y}), "jump_button")
         validate_button(dodge_button, frozenset({Button.BUTTON_L, Button.BUTTON_R}), "dodge_button")
         self._angle_degrees = safe_angle_degrees
         self._minimum_ecb_bottom_y = minimum_ecb_bottom_y
+        self._minimum_jump_frames = minimum_jump_frames
         self._jump_button = jump_button
         self._dodge_button = dodge_button
         self._character: Character | None = None
@@ -138,7 +148,7 @@ class LedgedashMontage(StatefulInputMontage[_LedgedashState]):
         state: GameState,
         input_state: _LedgedashState,
     ) -> tuple[_LedgedashState, InputMontage | bool | Abort]:
-        del opponent_state, state
+        del opponent_state
         player_state_value = player(player_state)
         if player_state_value is None or self._direction is None:
             controls.release_all()
@@ -164,18 +174,19 @@ class LedgedashMontage(StatefulInputMontage[_LedgedashState]):
             ):
                 self._apply_inward_drift(controls, player_state)
                 controls.press_button(self._jump_button)
-                return _LedgedashState(_LedgedashPhase.JumpRequested, player_state_value.jumps_left), self
+                return _LedgedashState(_LedgedashPhase.JumpRequested, player_state_value.jumps_left, state.frame), self
             case _LedgedashState(phase=_LedgedashPhase.ReleaseRequested), _:
                 return input_state, Abort("ledge release did not produce a viable falling state")
             case _LedgedashState(
                 phase=_LedgedashPhase.JumpRequested,
                 jumps_before_request=jumps_before_request,
+                jump_request_frame=jump_request_frame,
             ), action if action in _AERIAL_JUMP_ACTIONS or (
                 jumps_before_request is not None
                 and player_state_value.jumps_left < jumps_before_request
                 and player_state_value.speed_y_self > 0.0
             ):
-                input_state = _LedgedashState(_LedgedashPhase.Rising, jumps_before_request)
+                input_state = _LedgedashState(_LedgedashPhase.Rising, jumps_before_request, jump_request_frame)
             case _LedgedashState(phase=_LedgedashPhase.JumpRequested), _:
                 return input_state, Abort("aerial jump request was not confirmed")
             case _LedgedashState(phase=_LedgedashPhase.Rising), _:
@@ -198,7 +209,10 @@ class LedgedashMontage(StatefulInputMontage[_LedgedashState]):
                 return input_state, Abort("landing lag ended outside actionable ground movement")
 
         ecb_bottom_y = float(player_state_value.position.y) + float(player_state_value.ecb.bottom.y)
-        if ecb_bottom_y <= self._minimum_ecb_bottom_y:
+        if ecb_bottom_y <= self._minimum_ecb_bottom_y or (
+            input_state.jump_request_frame is not None
+            and state.frame - input_state.jump_request_frame < self._minimum_jump_frames
+        ):
             self._apply_inward_drift(controls, player_state)
             return input_state, self
 
