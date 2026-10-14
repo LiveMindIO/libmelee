@@ -2198,6 +2198,52 @@ class ControllerPacketIntentTests(unittest.TestCase):
         self.assertIsInstance(self.intent(player, neutral, pressed), AttackFrameData)
         self.assertIsNone(self.intent(player, pressed, neutral))
 
+    def test_cargo_jump_packet_does_not_predict_common_knee_bend(self) -> None:
+        for raw_action in range(351, 356):
+            for button in (melee.Button.BUTTON_X, melee.Button.BUTTON_Y):
+                for hitstun in (0, 1, 10):
+                    with self.subTest(action=raw_action, button=button, hitstun=hitstun):
+                        player = melee.PlayerState(
+                            character=melee.Character.DK,
+                            action=melee.Action(raw_action),
+                            on_ground=True,
+                            hitstun_frames_left=hitstun,
+                        )
+                        packet = ControllerPacket(buttons=frozenset({button}))
+                        self.assertIsNone(self.intent(player, ControllerPacket(), packet))
+                        self.assertIsNone(self.intent(player, packet, packet))
+
+    def test_common_ground_jump_packet_still_predicts_knee_bend(self) -> None:
+        for character in (melee.Character.DK, melee.Character.FOX):
+            for button in (melee.Button.BUTTON_X, melee.Button.BUTTON_Y):
+                with self.subTest(character=character, button=button):
+                    player = melee.PlayerState(
+                        character=character,
+                        action=melee.Action.STANDING,
+                        on_ground=True,
+                    )
+                    packet = ControllerPacket(buttons=frozenset({button}))
+                    self.assertIs(self.intent(player, ControllerPacket(), packet).action, melee.Action.KNEE_BEND)
+                    self.assertIsNone(self.intent(player, packet, packet))
+
+    def test_cargo_jump_packet_preserves_state_and_hitlag_exclusions(self) -> None:
+        packet = ControllerPacket(buttons=frozenset({melee.Button.BUTTON_Y}))
+        for character, grounded, hitlag, actions in (
+            (melee.Character.DK, True, 0, range(356, 361)),
+            (melee.Character.DK, False, 0, range(351, 356)),
+            (melee.Character.DK, True, 2, range(351, 356)),
+            (melee.Character.FOX, True, 0, range(351, 356)),
+        ):
+            for raw_action in actions:
+                with self.subTest(character=character, grounded=grounded, hitlag=hitlag, action=raw_action):
+                    player = melee.PlayerState(
+                        character=character,
+                        action=melee.Action(raw_action),
+                        on_ground=grounded,
+                        hitlag_left=hitlag,
+                    )
+                    self.assertIsNone(self.intent(player, ControllerPacket(), packet))
+
     def test_diagonal_inputs_do_not_fall_back_to_neutral_attacks(self) -> None:
         for grounded in (True, False):
             player = melee.PlayerState(
