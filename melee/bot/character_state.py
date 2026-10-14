@@ -286,6 +286,9 @@ _DK_CARGO_CARRY_ACTIONS: Final = frozenset(
 _DK_ACTIONABLE_CARGO_CARRY_ACTIONS: Final = frozenset(
     Action(action_id) for action_id in range(351, 359)
 )
+_DK_GROUND_CARGO_JUMP_ACTIONS: Final = frozenset(
+    Action(action_id) for action_id in range(351, 356)
+)
 _GRABBING_ENEMY_ACTIONS: Final = frozenset(
     {
         Action.GRAB,
@@ -2000,7 +2003,8 @@ def can_jump(player: LibPlayerState, frame_data: FrameData) -> bool:
     Actionable shield phases permit jump-canceling for the roster. Yoshi's unique
     shield permits it only from GuardOn_1 (the powershield state); shield stun does
     not. Common ``LANDING`` permits jumping once the character's normal landing
-    lag expires. Outside those states, the player must be in an actionable ground
+    lag expires. DK's grounded cargo wait, walk, and turn also permit jumping.
+    Outside those states, the player must be in an actionable ground
     or air state and retain an aerial jump when airborne.
     """
     # GuardSetOff (SHIELD_STUN) has an empty IASA; other common actionable shield
@@ -2009,6 +2013,11 @@ def can_jump(player: LibPlayerState, frame_data: FrameData) -> bool:
     # See https://github.com/doldecomp/melee/blob/a983c0f9cd41d4a46001c493a1929891ac80f9ab/src/melee/ft/chara/ftCommon/ftCo_Guard.c
     if player.hitlag_left > 0 or _in_real_hitstun(player, frame_data):
         return False
+    # CargoWait, CargoWalk, and CargoTurn check ftCo_8009BB1C in IASA.
+    # Cargo knee bend, air, and landing states do not offer a new ground jump.
+    # https://github.com/doldecomp/melee/blob/8bf51fe3e94c42fd51bf55e78a59744b7b8fbfc3/src/melee/ft/chara/ftCommon/ftCo_CargoJump.c
+    if player.on_ground and player.character is Character.DK and player.action in _DK_GROUND_CARGO_JUMP_ACTIONS:
+        return True
     if (
         player.on_ground
         and player.character is Character.YOSHI

@@ -326,7 +326,12 @@ class PlayerState:
     nana_squall_hammer_eligible: Optional[bool] = None
     """Inferred Squall recruitment eligibility, or None without a complete follower frame."""
     invulnerable: bool = False
-    """Whether Slippi reports the player's current hurtbox as invulnerable or intangible."""
+    """Whether Slippi reports the player's current hurtbox as invulnerable or intangible.
+
+    This is not an overall targetability flag: halo descent packets can report
+    a vulnerable hurtbox before the post-halo invulnerability begins. Callers
+    may separately exclude halo/entry actions from tactical target selection.
+    """
     invulnerability_left: int = 0
     """Compatibility attribute that remains ``0`` when populated from Slippi.
 

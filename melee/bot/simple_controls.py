@@ -658,6 +658,10 @@ def _packet_intent(
         if not character_state.can_jump():
             return None
         if player.on_ground:
+            # DK cargo jumps enter CargoKneebend, not the common jump squat.
+            # Leave that character-owned outcome unsupported by this predictor.
+            if character_state.is_carrying_enemy():
+                return None
             return _PacketIntent(Action.KNEE_BEND)
         # Slippi does not expose enough state to choose the forward/back aerial
         # jump animation before the next post-frame packet.
