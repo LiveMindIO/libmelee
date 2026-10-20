@@ -9,8 +9,9 @@ from melee.bot.character_state import CharacterState
 from melee.bot.logger import BotLogger
 from melee.bot.match_history import MatchHistory
 from melee.bot.simple_controls import SimpleControls
+from melee.bot.stage_selection import StageSelectionHistory
 from melee.controller import Controller
-from melee.enums import Character
+from melee.enums import Character, Stage
 from melee.framedata import FrameData
 from melee.gamestate import GameState
 
@@ -86,6 +87,14 @@ class BotProtocol(Protocol[A]):
         The runtime owns all character-select controller input so every player
         locks in before the centrally selected stage is started.
         """
+        ...
+
+    def ban_stage(self, history: StageSelectionHistory, remaining_stages: tuple[Stage, ...]) -> Stage | None:
+        """Ban one remaining stage; None requests the runtime's safe default."""
+        ...
+
+    def choose_stage(self, history: StageSelectionHistory, remaining_stages: tuple[Stage, ...]) -> Stage | None:
+        """Choose one remaining stage after strikes, without controller input."""
         ...
 
 
