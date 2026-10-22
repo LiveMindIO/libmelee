@@ -101,6 +101,7 @@ from melee.bot.techskill.common import (
     WAVEDASH_MIN_ANGLE_DEGREES,
     clamp_wavedash_angle,
 )
+from melee.bot.stage_selection import CharacterStageWinRate, StageBan, StageMatchup, StageSelectionHistory
 from melee.controller import fix_analog_stick
 from melee.ice_climbers import (
     NANA_BELAY_RADIUS,
@@ -725,6 +726,36 @@ class BotProtocolTests(unittest.TestCase):
 
     def test_base_bot_explicitly_implements_bot_protocol(self):
         self.assertIn(BotProtocol, BaseBot.__mro__)
+
+    def test_base_bot_stage_hooks_request_runtime_default(self):
+        history = StageSelectionHistory(
+            "opponent", "Opponent", melee.Character.FOX, melee.Character.FALCO, (), ()
+        )
+        remaining = (melee.Stage.BATTLEFIELD, melee.Stage.FINAL_DESTINATION)
+        bot = RecordingBot()
+        self.assertIsNone(bot.ban_stage(history, remaining))
+        self.assertIsNone(bot.choose_stage(history, remaining))
+
+    def test_stage_history_is_immutable_and_dnfs_are_not_losses(self):
+        rate = CharacterStageWinRate(melee.Character.FOX, melee.Stage.BATTLEFIELD, 2, 1, 8)
+        self.assertEqual(rate.win_rate, 2 / 3)
+        self.assertIsNone(CharacterStageWinRate(melee.Character.FOX, melee.Stage.BATTLEFIELD, 0, 0, 8).win_rate)
+        ban = StageBan(melee.Stage.FINAL_DESTINATION, "actor", "Actor", 1, True)
+        matchup = StageMatchup(
+            "round", melee.Character.FOX, (melee.Character.FALCO,), melee.Stage.BATTLEFIELD,
+            None, True, (ban,), "actor", melee.Stage.BATTLEFIELD,
+        )
+        history = StageSelectionHistory(
+            "opponent", "Opponent", melee.Character.FALCO, melee.Character.FOX,
+            (matchup,), (rate,), (ban,),
+        )
+        for value, field, replacement in (
+            (rate, "wins", 9), (ban, "port", 2), (matchup, "won", True),
+            (history, "current_bans", ()),
+        ):
+            with self.assertRaises(dataclasses.FrozenInstanceError):
+                setattr(value, field, replacement)
+        self.assertEqual(history.matchups[0].bans, (ban,))
 
     def test_base_bot_stores_injected_logger(self):
         bot = RecordingBot()

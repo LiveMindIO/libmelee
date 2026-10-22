@@ -36,6 +36,12 @@ uv pip install --python .venv/bin/python .
 
 ## Bot Protocol And Base
 
+- `BotProtocol` declares `ban_stage` / `choose_stage` with immutable
+  `StageSelectionHistory` and a tuple of remaining `Stage`s. Return one stage
+  or `None` for the embedding runtime's default. `BaseBot` provides nonabstract
+  `None` defaults. History/rates/provenance are supplied by the embedding runtime;
+  libmelee performs no persistence or controller input for these hooks.
+
 - `BotProtocol[A].game_tick` receives `custom: A` as its final argument. The
   embedding application owns that payload's type and semantics; libmelee does
   not interpret it. `CrowdControl` is a deprecated compatibility alias.

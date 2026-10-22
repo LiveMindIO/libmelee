@@ -13,8 +13,10 @@ from melee.bot.logger import BotLogger
 from melee.bot.match_history import MatchHistory
 from melee.bot.protocol import BotProtocol, CharacterSelection
 from melee.bot.simple_controls import SimpleControls
+from melee.bot.stage_selection import StageSelectionHistory
 from melee.bot.strategy import Exit, Strategy
 from melee.controller import Controller
+from melee.enums import Stage
 from melee.framedata import FrameData
 from melee.gamestate import GameState
 
@@ -187,6 +189,14 @@ class BaseBot(BotProtocol[A], ABC, Generic[A]):
         /,
     ) -> None:
         """Run one frame of in-game AI logic."""
+
+    def ban_stage(self, history: StageSelectionHistory, remaining_stages: tuple[Stage, ...]) -> Stage | None:
+        """Use the embedding runtime's default strike unless overridden."""
+        return None
+
+    def choose_stage(self, history: StageSelectionHistory, remaining_stages: tuple[Stage, ...]) -> Stage | None:
+        """Use the embedding runtime's default stage unless overridden."""
+        return None
 
     @abstractmethod
     def select_character(
