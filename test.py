@@ -19,6 +19,7 @@ from typing_extensions import get_overloads
 import melee
 from test_framedata_resolution import FramedataResolutionTests as FramedataResolutionTests
 from test_hitbox_phases import HitboxPhaseTests as HitboxPhaseTests
+from test_hitbox_phases import PhaseLabelCsvTests as PhaseLabelCsvTests
 from melee.bot import (
     MIN_SHIELD,
     NANA_INPUT_DELAY_FRAMES,
@@ -2498,6 +2499,17 @@ class MenuHelperCharacterSelectTests(unittest.TestCase):
 
 
 class SimpleControlsInputTests(unittest.TestCase):
+    def test_documentation_does_not_teach_the_legacy_hold_loop(self) -> None:
+        module = inspect.getmodule(SimpleControls)
+        self.assertIsNotNone(module)
+        doc = inspect.getdoc(module)
+        self.assertIn("Hold-based attack workflow is deprecated", doc)
+        self.assertIn("InputMontage", doc)
+        self.assertIn("remains available for existing bots", doc)
+        for old in ("Typical loop", "self._attack_hold", "isinstance(result, Hold)"):
+            self.assertNotIn(old, doc)
+        self.assertIn("Deprecated for new bot workflows", inspect.getdoc(Hold))
+
     def setUp(self) -> None:
         self.frame_data = melee.FrameData()
 

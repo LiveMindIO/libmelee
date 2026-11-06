@@ -27,8 +27,27 @@ Marth's forward-smash and forward-air tipper/non-tipper, Roy's forward-smash
 hilt/tip, and Zelda's forward-air lightning/non-lightning kick. Exact frame,
 hitbox, bone, damage, angle, and element signatures must match the catalog;
 unknown variants remain unlabeled. Lower damage never automatically means sour.
-Add further labels only after reviewing the intended move variant and its exact
-script signature in `_CURATED_PHASES` and adding a regression test.
+Reviewed signatures live in packaged `melee/hitbox_phase_labels.csv`, not Python
+source. Schema version 1 has these ordered columns:
+
+```text
+schema_version,character,action,hitbox_id,bone_id,start_frame,end_frame,damage,angle,element,spot,label
+```
+
+Character/action values are numeric libmelee enum IDs; hitbox/bone IDs retain
+their engine identities. Frames are inclusive catalog frame numbers, unchanged
+by this CSV migration. Console normalizes public `PlayerState.action_frame` to
+1-based indexing; do not apply a blanket `+1` to extracted phases. Any future
+correction must audit each source's raw indexing and normalize exactly once.
+
+Every row must have version `1`, a valid exact signature, `sweet` or `sour`, and
+a nonempty label. Duplicate signatures (including identical duplicates) are
+errors. The loader caches validated rows once per process. A signature mismatch
+leaves the phase unlabeled, never guesses a replacement.
+
+Add labels only after reviewing the intended variant and its exact script
+signature and adding a regression test. This migration preserves all 19 labels
+and existing query results; it does not claim complete roster sweetspot coverage.
 
 `get_framedata` includes these groups in `phase_hitboxes`. Its optional
 `hitbox_id`, `phase_id`, and `spot="sweet"|"sour"` selectors filter that field

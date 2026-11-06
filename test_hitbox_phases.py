@@ -1,6 +1,10 @@
 """Offline numerical catalog, phase-selection, and query regressions."""
 
+import csv
+import dataclasses
 import hashlib
+import io
+import json
 import math
 import unittest
 from importlib.resources import files
@@ -10,11 +14,124 @@ import melee
 from melee.bot import framedata_query as query
 from melee.bot.hitbox_phases import (
     HitboxPhaseError,
+    _action_hitboxes,
     _catalog,
+    _phase_labels,
+    _read_phase_labels,
     get_hitbox_phases,
     get_sourspots,
     get_sweetspots,
 )
+
+
+class PhaseLabelCsvTests(unittest.TestCase):
+    def setUp(self):
+        self.rows = list(csv.reader(files("melee").joinpath("hitbox_phase_labels.csv").read_text().splitlines()))
+
+    def parse(self, rows):
+        source = io.StringIO()
+        csv.writer(source).writerows(rows)
+        source.seek(0)
+        return _read_phase_labels(source)
+
+    def test_every_reviewed_signature_matches_catalog_exactly(self):
+        observed = {}
+        for key in _catalog()["actions"]:
+            character, action = (int(value) for value in key.split(":"))
+            for group in _action_hitboxes(melee.Character(character), melee.Action(action)):
+                for phase in group.phases:
+                    if phase.spot is not None:
+                        signature = (
+                            melee.Character(character),
+                            melee.Action(action),
+                            group.hitbox_id,
+                            group.bone_id,
+                            phase.start_frame,
+                            phase.end_frame,
+                            phase.combat.damage,
+                            phase.combat.angle,
+                            phase.combat.element,
+                        )
+                        observed[signature] = (phase.spot, phase.label)
+        self.assertEqual(len(observed), 19)
+        self.assertEqual(observed, _phase_labels())
+
+    def test_all_phase_results_preserve_pre_csv_behavior(self):
+        # Captured from master 4743b7e before moving the 19 signatures to CSV.
+        results = {}
+        for key in sorted(_catalog()["actions"]):
+            character, action = (int(value) for value in key.split(":"))
+            results[key] = [
+                dataclasses.asdict(group)
+                for group in _action_hitboxes(melee.Character(character), melee.Action(action))
+            ]
+        encoded = json.dumps(results, sort_keys=True, separators=(",", ":")).encode()
+        self.assertEqual(len(results), 790)
+        self.assertEqual(
+            hashlib.sha256(encoded).hexdigest(), "4a8ab0781802081bb45be12763eb468a861d5ed01fb69c80ef892dd10568ec1a"
+        )
+
+    def test_invalid_headers_empty_data_and_duplicate_signatures_fail(self):
+        for rows in (
+            [],
+            self.rows[:1],
+            [self.rows[0][:-1], self.rows[1]],
+            [list(reversed(self.rows[0])), self.rows[1]],
+            [*self.rows, self.rows[1]],
+            [*self.rows, [*self.rows[1][:-2], "sour", "conflicting label"]],
+        ):
+            with self.subTest(rows=rows[-1:] if rows else rows):
+                with self.assertRaises(HitboxPhaseError):
+                    self.parse(rows)
+
+    def test_invalid_values_and_column_counts_fail(self):
+        cases = [
+            (0, "2"),
+            (1, "999"),
+            (2, "9999"),
+            (3, "-1"),
+            (4, "-1"),
+            (5, "0"),
+            (5, "17"),
+            (6, "13"),
+            (7, "-1"),
+            (8, "-1"),
+            (9, "-1"),
+            (10, "strong"),
+            (11, ""),
+            (11, " padded "),
+            (7, "18.0"),
+        ]
+        for column, value in cases:
+            row = self.rows[1].copy()
+            row[column] = value
+            with self.subTest(column=column, value=value):
+                with self.assertRaisesRegex(HitboxPhaseError, "row 2"):
+                    self.parse([self.rows[0], row])
+        for row in (self.rows[1][:-1], [*self.rows[1], "extra"]):
+            with self.assertRaises(HitboxPhaseError):
+                self.parse([self.rows[0], row])
+
+    def test_quoted_labels_and_cached_resource(self):
+        row = self.rows[1].copy()
+        row[-1] = "reviewed, named variant"
+        self.assertEqual(next(iter(self.parse([self.rows[0], row]).values())), ("sweet", "reviewed, named variant"))
+        self.assertIs(_phase_labels(), _phase_labels())
+
+    def test_mismatched_signature_remains_unlabeled(self):
+        labels = _phase_labels().copy()
+        original = next(iter(labels))
+        label = labels.pop(original)
+        labels[(*original[:6], original[6] + 1, *original[7:])] = label
+        _action_hitboxes.cache_clear()
+        try:
+            with patch("melee.bot.hitbox_phases._phase_labels", return_value=labels):
+                groups = _action_hitboxes(original[0], original[1])
+                phase = next(group.phases[0] for group in groups if group.hitbox_id == original[2])
+                self.assertIsNone(phase.spot)
+                self.assertIsNone(phase.label)
+        finally:
+            _action_hitboxes.cache_clear()
 
 
 class HitboxPhaseTests(unittest.TestCase):

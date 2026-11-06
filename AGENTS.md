@@ -275,6 +275,14 @@ uv pip install --python .venv/bin/python .
 
 ## Simple Controls
 
+- Hold-based bot workflows are deprecated. New bots use shipped montages for
+  multi-frame ownership and charged attacks. V1 Hold behavior remains supported
+  for historical bots and montage internals; do not add new Hold-loop tutorials
+  or runtime deprecation errors in this patch-safe cleanup.
+- Reviewed hitbox labels live in `melee/hitbox_phase_labels.csv` (schema 1).
+  Preserve exact signatures and current frame values; do not infer new labels
+  or blindly shift catalog frames. Full sweetspot/indexing audit remains separate.
+
 - `SimpleControls.tilt_analog(stick, x, y)` validates raw normalized coordinates
   for the main stick or C-stick and forwards them without resetting other pending
   inputs or flushing the controller.

@@ -1,0 +1,20 @@
+schema_version,character,action,hitbox_id,bone_id,start_frame,end_frame,damage,angle,element,spot,label
+1,2,66,0,7,14,16,18,32,2,sweet,early knee
+1,2,66,1,4,14,16,18,32,2,sweet,early knee
+1,2,66,0,7,17,30,6,361,0,sour,late knee
+1,2,66,1,4,17,30,6,361,0,sour,late knee
+1,18,60,3,76,10,13,20,361,3,sweet,tipper
+1,18,60,0,76,10,13,14,361,3,sour,non-tipper
+1,18,60,1,71,10,13,14,361,3,sour,non-tipper
+1,18,60,2,4,10,13,14,361,3,sour,non-tipper
+1,18,66,3,76,4,7,13,67,3,sweet,tipper
+1,18,66,0,76,4,7,10,361,3,sour,non-tipper
+1,18,66,1,71,4,7,9,361,3,sour,non-tipper
+1,18,66,2,25,4,7,9,361,3,sour,non-tipper
+1,26,60,0,78,12,14,20,361,3,sweet,hilt
+1,26,60,1,73,12,14,20,361,3,sweet,hilt
+1,26,60,2,4,12,14,20,361,3,sweet,hilt
+1,26,60,3,78,12,14,12,361,0,sour,blade tip
+1,19,66,2,10,8,11,20,361,2,sweet,lightning kick
+1,19,66,0,7,8,11,10,361,0,sour,non-lightning kick
+1,19,66,1,4,8,11,10,361,0,sour,non-lightning kick

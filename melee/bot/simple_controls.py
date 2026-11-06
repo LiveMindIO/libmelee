@@ -1,4 +1,4 @@
-"""Attack input application for Crowd Control bots.
+"""Attack input application for Melee bots.
 
 :class:`SimpleControls` layers stick/button input sequences on top of a
 :class:`melee.bot.character_state.CharacterState` instance. All high-level state
@@ -13,27 +13,12 @@ Bots normally receive a :class:`SimpleControls` instance from the runtime on eac
 deprecated thin delegates on :class:`SimpleControls` itself — those wrappers
 remain only for backward compatibility and will be removed.
 
-Typical loop::
-
-    hold = self._attack_hold
-    if hold is not None and not simple_controls.check_hold(hold):
-        hold = None
-
-    if hold is not None:
-        result = simple_controls.attack(hold.attack_type, hold=hold)
-    else:
-        result = simple_controls.attack(AttackType.FTILT)
-
-    if isinstance(result, Hold):
-        self._attack_hold = result
-    elif isinstance(result, AttackFrameData):
-        self._attack_hold = None
-        startup = result.frame_data.first_hitbox_frame(
-            result.character,
-            result.action,
-        )
-
-See :class:`SimpleControls` for return-value semantics and charge/release behavior.
+The Hold-based attack workflow is deprecated for new bots. Use the shipped
+:class:`~melee.bot.InputMontage` implementations for multi-frame input ownership,
+including :class:`~melee.bot.SmashAttackMontage` for charged smashes. Retain and
+tick the montage on successive game frames; do not flush the controller yourself.
+The V1 Hold API remains available for existing bots and montage internals.
+See :class:`SimpleControls` for its legacy return-value and release semantics.
 """
 
 from __future__ import annotations
@@ -812,6 +797,10 @@ def _observed_action_frame_data(
 class Hold:
     """Token for a multi-frame attack input sequence.
 
+    Deprecated for new bot workflows. Use an input montage instead. The token
+    remains supported for existing bots and montage internals; the following
+    describes V1 compatibility behavior, not a recommended bot loop.
+
     Pass the same ``Hold`` back to :meth:`SimpleControls.attack` on subsequent
     frames (via ``hold=``) so input or charge windows continue. Validate with
     :meth:`SimpleControls.check_hold` before continuing; release early charge
@@ -924,7 +913,9 @@ class SimpleControls:
     ``simple_controls.character_state`` rather than the deprecated thin delegates
     defined below (``can_attack``, ``get_state``, ``in_hitstun``, …).
 
-    Return semantics for :meth:`attack`:
+    The Hold-based workflow is deprecated for new bots; use input montages for
+    multi-frame sequences. The following :meth:`attack` return semantics remain
+    supported for V1 compatibility and montage internals:
 
     * ``None`` — the move cannot begin or continue (wrong action state, hitstun,
       grab, invulnerability, commit timeout, or ``hold`` token mismatch).

@@ -5,45 +5,70 @@ Only explicitly curated phases have sweet/sour labels. Absence of a label
 does not mean a move has no sweetspot. IDs are scoped to character/action.
 """
 
+import csv
 import json
 from dataclasses import dataclass
 from functools import cache, lru_cache
 from importlib.resources import files
-from typing import Literal
+from typing import Literal, TextIO
 
 from melee.enums import Action, Character
 
 Spot = Literal["sweet", "sour"]
 
-# Reviewed NTSC 1.02 phase signatures. Each entry binds character, runtime
-# action, engine hitbox ID, bone, inclusive frames, damage, angle, and element.
-# These named knee/tipper/hilt/lightning variants are not a global strength
-# ranking. A signature mismatch intentionally leaves the phase unlabeled.
-_CURATED_PHASES = {
-    (Character.CPTFALCON, Action.FAIR, 0, 7, 14, 16, 18, 32, 2): ("sweet", "early knee"),
-    (Character.CPTFALCON, Action.FAIR, 1, 4, 14, 16, 18, 32, 2): ("sweet", "early knee"),
-    (Character.CPTFALCON, Action.FAIR, 0, 7, 17, 30, 6, 361, 0): ("sour", "late knee"),
-    (Character.CPTFALCON, Action.FAIR, 1, 4, 17, 30, 6, 361, 0): ("sour", "late knee"),
-    (Character.MARTH, Action.FSMASH_MID, 3, 76, 10, 13, 20, 361, 3): ("sweet", "tipper"),
-    (Character.MARTH, Action.FSMASH_MID, 0, 76, 10, 13, 14, 361, 3): ("sour", "non-tipper"),
-    (Character.MARTH, Action.FSMASH_MID, 1, 71, 10, 13, 14, 361, 3): ("sour", "non-tipper"),
-    (Character.MARTH, Action.FSMASH_MID, 2, 4, 10, 13, 14, 361, 3): ("sour", "non-tipper"),
-    (Character.MARTH, Action.FAIR, 3, 76, 4, 7, 13, 67, 3): ("sweet", "tipper"),
-    (Character.MARTH, Action.FAIR, 0, 76, 4, 7, 10, 361, 3): ("sour", "non-tipper"),
-    (Character.MARTH, Action.FAIR, 1, 71, 4, 7, 9, 361, 3): ("sour", "non-tipper"),
-    (Character.MARTH, Action.FAIR, 2, 25, 4, 7, 9, 361, 3): ("sour", "non-tipper"),
-    (Character.ROY, Action.FSMASH_MID, 0, 78, 12, 14, 20, 361, 3): ("sweet", "hilt"),
-    (Character.ROY, Action.FSMASH_MID, 1, 73, 12, 14, 20, 361, 3): ("sweet", "hilt"),
-    (Character.ROY, Action.FSMASH_MID, 2, 4, 12, 14, 20, 361, 3): ("sweet", "hilt"),
-    (Character.ROY, Action.FSMASH_MID, 3, 78, 12, 14, 12, 361, 0): ("sour", "blade tip"),
-    (Character.ZELDA, Action.FAIR, 2, 10, 8, 11, 20, 361, 2): ("sweet", "lightning kick"),
-    (Character.ZELDA, Action.FAIR, 0, 7, 8, 11, 10, 361, 0): ("sour", "non-lightning kick"),
-    (Character.ZELDA, Action.FAIR, 1, 4, 8, 11, 10, 361, 0): ("sour", "non-lightning kick"),
-}
+_PhaseSignature = tuple[Character, Action, int, int, int, int, int, int, int]
+_LABEL_COLUMNS = (
+    "schema_version",
+    "character",
+    "action",
+    "hitbox_id",
+    "bone_id",
+    "start_frame",
+    "end_frame",
+    "damage",
+    "angle",
+    "element",
+    "spot",
+    "label",
+)
 
 
 class HitboxPhaseError(ValueError):
     """Phase selection or verified data is unavailable."""
+
+
+def _read_phase_labels(source: TextIO) -> dict[_PhaseSignature, tuple[Spot, str]]:
+    """Read reviewed signatures without guessing labels for unknown variants."""
+    reader = csv.reader(source, strict=True)
+    if next(reader, None) != list(_LABEL_COLUMNS):
+        raise HitboxPhaseError("invalid hitbox phase label CSV header")
+    labels: dict[_PhaseSignature, tuple[Spot, str]] = {}
+    for row in reader:
+        try:
+            if len(row) != len(_LABEL_COLUMNS) or row[0] != "1":
+                raise ValueError("invalid schema version or column count")
+            character, action = Character(int(row[1])), Action(int(row[2]))
+            hitbox, bone, start, end, damage, angle, element = map(int, row[3:10])
+            if min(hitbox, bone, damage, angle, element) < 0 or start < 1 or end < start:
+                raise ValueError("invalid signature range")
+            spot, label = row[10:12]
+            if spot not in ("sweet", "sour") or not label.strip() or label != label.strip():
+                raise ValueError("invalid spot or label")
+            signature = (character, action, hitbox, bone, start, end, damage, angle, element)
+            if signature in labels:
+                raise ValueError("duplicate signature")
+            labels[signature] = (spot, label)
+        except ValueError as exc:
+            raise HitboxPhaseError(f"invalid hitbox phase label CSV row {reader.line_num}: {exc}") from exc
+    if not labels:
+        raise HitboxPhaseError("empty hitbox phase label CSV")
+    return labels
+
+
+@lru_cache(maxsize=1)
+def _phase_labels() -> dict[_PhaseSignature, tuple[Spot, str]]:
+    with files("melee").joinpath("hitbox_phase_labels.csv").open("r", encoding="utf-8", newline="") as source:
+        return _read_phase_labels(source)
 
 
 @dataclass(frozen=True)
@@ -115,7 +140,7 @@ def _action_hitboxes(character: Character, action: Action) -> tuple[ActionHitbox
                 combat["angle"],
                 combat["element"],
             )
-            spot, label = _CURATED_PHASES.get(signature, (None, None))
+            spot, label = _phase_labels().get(signature, (None, None))
             phases.append(
                 HitboxPhase(
                     phase["phase_id"],
