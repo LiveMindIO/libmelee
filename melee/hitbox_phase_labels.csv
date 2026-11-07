@@ -354,3 +354,19 @@ schema_version,character,action,hitbox_id,bone_id,start_frame,end_frame,damage,a
 1,14,65,1,7,7,33,10,361,0,sour,late kick
 1,14,65,2,4,3,6,14,361,0,sweet,clean kick
 1,14,65,2,4,7,33,10,361,0,sour,late kick
+1,10,60,0,15,13,14,14,361,0,sweet,hammer head
+1,10,60,1,10,13,14,10,361,0,sour,hammer handle
+1,10,67,0,15,8,11,12,361,0,sweet,hammer head
+1,10,67,1,11,8,11,11,361,0,sour,hammer handle
+1,10,68,0,15,6,9,9,70,0,sweet,clean hammer reach
+1,10,68,0,15,10,23,7,70,0,sour,late hammer reach
+1,10,68,1,11,6,9,9,70,0,sweet,clean hammer reach
+1,10,68,1,11,10,23,7,70,0,sour,late hammer reach
+1,11,60,0,15,13,14,14,361,0,sweet,hammer head
+1,11,60,1,10,13,14,10,361,0,sour,hammer handle
+1,11,67,0,15,8,11,12,361,0,sweet,hammer head
+1,11,67,1,11,8,11,11,361,0,sour,hammer handle
+1,11,68,0,15,6,9,9,70,0,sweet,clean hammer reach
+1,11,68,0,15,10,23,7,70,0,sour,late hammer reach
+1,11,68,1,11,6,9,9,70,0,sweet,clean hammer reach
+1,11,68,1,11,10,23,7,70,0,sour,late hammer reach

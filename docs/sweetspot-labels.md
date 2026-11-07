@@ -1,8 +1,8 @@
 # Additional reviewed sweetspot labels
 
-These annotations extend the original 19 signatures by 336, for 355 labeled
-phases across 78 character/action pairs. The additions cover eight, 34 and
-31 actions respectively, listed below.
+These annotations extend the original 19 signatures by 352, for 371 labeled
+phases across 84 character/action pairs. The additions cover eight, 34, 31 and
+six actions respectively, listed below.
 They do not modify the NTSC-U 1.02 numerical catalog, geometry or frame indexing.
 
 ## Evidence
@@ -237,3 +237,29 @@ with the previously linked FightCore dataset. Additional character sources:
   adjudicated sweet/sour interpretation; no labels are inferred from maxima.
 - Ice Climbers leader/partner behavior and Peach float-state aliases are not
   covered by reviewing another fighter/state. No coverage is implied for them.
+
+## Ice Climbers static hammer variants: 16 additional signatures
+
+Popo (10) and Nana (11) each have independently matched catalog signatures for
+the following selections. These are script-base values, not partner-adjusted
+damage, the combined damage of two climbers, or a claim about either climber's
+current runtime role. Labels do not derive one character's coverage by aliasing
+the other. All listed sweet/sour differences remain within one action.
+
+| Raw action | Sweet engine IDs and frames | Other phases |
+| --- | --- | --- |
+| 60 forward smash | 0, bone 15: 13–14, hammer head, 14% | 1, bone 10: hammer handle, 10% |
+| 67 back air | 0, bone 15: 8–11, hammer head, 12% | 1, bone 11: hammer handle, 11% |
+| 68 up air | 0/1, bones 15/11: 6–9, clean hammer reach, 9% | Same IDs/bones: 10–23, late reach, 7% |
+
+Evidence: [character moveset revision 2062476](https://www.ssbwiki.com/index.php?title=Ice_Climbers_(SSBM)&oldid=2062476#Moveset)
+and [FightCore 209](https://data.fightcore.gg/characters/209/iceclimbers).
+Independent bone/offset tables agree for
+[forward smash, revision 1394122](https://www.ssbwiki.com/index.php?title=Ice_Climbers_(SSBM)/Forward_smash&oldid=1394122)
+and [back air, revision 1392758](https://www.ssbwiki.com/index.php?title=Ice_Climbers_(SSBM)/Back_aerial&oldid=1392758).
+
+Forward air remains unlabeled for both characters. The static catalog's ID 0
+reports angle 270, while leader/partner rules affect its actual meteor behavior.
+A shared character article and equal script records do not prove equal runtime
+behavior. Partner damage scaling and forward-air angle adjustment require a
+separate runtime audit; no catalog values are rewritten to simulate them here.
