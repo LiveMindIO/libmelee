@@ -96,6 +96,22 @@ _ROSTER_SWEET_PHASES = {
     (11, 60): ((0, 13, 14),),
     (11, 67): ((0, 8, 11),),
     (11, 68): ((0, 6, 9), (1, 6, 9)),
+    (1, 50): ((0, 4, 7), (1, 4, 7)),
+    (1, 60): ((0, 12, 16), (1, 12, 16), (2, 12, 16)),
+    (1, 63): ((0, 7, 9), (1, 7, 9)),
+    (1, 65): ((0, 4, 7), (1, 4, 7), (2, 4, 7)),
+    (22, 50): ((1, 4, 7),),
+    (22, 60): ((0, 12, 16), (1, 12, 16), (2, 12, 16)),
+    (22, 63): ((0, 7, 10), (1, 7, 10)),
+    (22, 65): ((0, 4, 7), (1, 4, 7), (2, 4, 7)),
+    (4, 56): ((0, 4, 4), (1, 4, 4)),
+    (4, 351): ((0, 9, 15),),
+    (4, 58): ((0, 13, 15), (1, 13, 15), (2, 13, 15)),
+    (4, 60): ((0, 13, 15), (1, 13, 15), (2, 13, 15)),
+    (4, 62): ((0, 13, 15), (1, 13, 15), (2, 13, 15)),
+    (4, 64): ((0, 7, 9), (1, 7, 9), (2, 7, 9), (3, 7, 9)),
+    (18, 367): ((0, 5, 5),),
+    (18, 368): ((0, 5, 5),),
 }
 
 
@@ -128,7 +144,7 @@ class PhaseLabelCsvTests(unittest.TestCase):
                             phase.combat.element,
                         )
                         observed[signature] = (phase.spot, phase.label)
-        self.assertEqual(len(observed), 371)
+        self.assertEqual(len(observed), 453)
         self.assertEqual(observed, _phase_labels())
 
     def test_all_phase_results_preserve_numbers_and_original_labels(self):
@@ -280,6 +296,23 @@ class HitboxPhaseTests(unittest.TestCase):
             },
             {(0, 16, 23), (1, 16, 23)},
         )
+
+    def test_dolphin_slash_alias_retains_ground_and_air_identity(self):
+        groups = get_sweetspots("marth", "up-b")
+        self.assertEqual(
+            [
+                (g.action_id, g.hitbox_id, p.start_frame, p.end_frame, p.combat.damage, p.label)
+                for g in groups
+                for p in g.phases
+            ],
+            [(367, 0, 5, 5, 13, "startup tip"), (368, 0, 5, 5, 13, "startup tip")],
+        )
+        # Charge levels are not positional/temporal sweetspots.
+        for action in (343, 344, 347):
+            with self.subTest(action=action):
+                groups = get_hitbox_phases("marth", action)
+                self.assertTrue(groups)
+                self.assertTrue(all(p.spot is None for g in groups for p in g.phases))
 
     def test_knee_groups_two_phases_per_physical_hitbox(self):
         groups = get_hitbox_phases("captain_falcon", "FAIR")

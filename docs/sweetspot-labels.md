@@ -1,8 +1,8 @@
 # Additional reviewed sweetspot labels
 
-These annotations extend the original 19 signatures by 352, for 371 labeled
-phases across 84 character/action pairs. The additions cover eight, 34, 31 and
-six actions respectively, listed below.
+These annotations extend the original 19 signatures by 434, for 453 labeled
+phases across 100 character/action pairs. The additions cover eight, 34, 31,
+six and 16 actions respectively, listed below.
 They do not modify the NTSC-U 1.02 numerical catalog, geometry or frame indexing.
 
 ## Evidence
@@ -263,3 +263,41 @@ reports angle 270, while leader/partner rules affect its actual meteor behavior.
 A shared character article and equal script records do not prove equal runtime
 behavior. Partner damage scaling and forward-air angle adjustment require a
 separate runtime audit; no catalog values are rewritten to simulate them here.
+
+## Fox, Falco, Kirby and Dolphin Slash: 82 additional signatures
+
+All engine IDs in each listed clean window are sweet, except Dolphin Slash,
+which selects only the named startup tip. Remaining phases are sour. Exact
+angle differences are preserved, including Falco's clean body forward-smash
+angle and Kirby's front/back down-smash trajectories.
+
+| Character | Raw action / move | Sweet engine IDs and frames |
+| --- | --- | --- |
+| Fox | 50 dash attack | 0/1: 4–7 |
+| Fox | 60 forward smash | 0/1/2: 12–16 |
+| Fox | 63 up smash | 0/1: 7–9, NTSC 18% |
+| Fox | 65 neutral air | 0/1/2: 4–7 |
+| Falco | 50 dash attack | 1: 4–7; no invented ID 0 |
+| Falco | 60 forward smash | 0/1/2: 12–16 |
+| Falco | 63 up smash | 0/1: 7–10 |
+| Falco | 65 neutral air | 0/1/2: 4–7 |
+| Kirby | 56 up tilt | 0/1: 4 |
+| Kirby | 351 dash attack | 0: 9–15, NTSC 8% |
+| Kirby | 58 / 60 / 62 angled forward smashes | 0/1/2: 13–15 in each action |
+| Kirby | 64 down smash | 0/1/2/3: 7–9 |
+| Marth | 367 grounded / 368 aerial Dolphin Slash | 0: 5, startup tip; non-tip startup and every leap hit sour |
+
+Fox/Falco/Kirby descriptions and per-ID values use the previously linked
+character revisions and FightCore datasets. Each action's independent catalog
+signature is checked, including all three Kirby forward-smash angles.
+Kirby's Wiki down-smash summary lists a 10% late hit, but FightCore and the
+catalog retain 12% for IDs 0/1 and 10% for IDs 2/3; no values are flattened.
+
+[Marth up-special revision 2056097](https://www.ssbwiki.com/index.php?title=Marth_(SSBM)/Up_special&oldid=2056097)
+explicitly identifies the disjoint startup sweetspot and records the frame-5
+13% tip, frame-5 10% non-tip hits, and frame-6–10 7%/6% leap hits. Both raw
+catalog actions independently match these signatures. FightCore's ground/air
+Dolphin Slash records have placeholder frame 0 and split startup/leap values
+between entries; they do not establish different ground/air power here.
+The public `up-b` query retains both action identities. Shield Breaker's charge
+levels remain unlabeled, not treated as alternative sweetspots.
