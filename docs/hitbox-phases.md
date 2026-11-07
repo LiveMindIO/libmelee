@@ -22,9 +22,10 @@ per-frame static geometry accompany damage, angle, knockback growth, set/base
 knockback, element, shield damage, hit group, and grounded/aerial target flags.
 Raw angle `361` retains the engine's context-dependent Sakurai-angle sentinel.
 
-The initial reviewed sweet/sour signatures are Falcon's early/late knee,
-Marth's forward-smash and forward-air tipper/non-tipper, Roy's forward-smash
-hilt/tip, and Zelda's forward-air lightning/non-lightning kick. Exact frame,
+Reviewed sweet/sour signatures include sword tip/hilt variants, lightning kicks,
+meteor/spike variants, spatial foot/arm/weapon zones, and clean/late attacks.
+The coverage tables in [sweetspot-labels.md](sweetspot-labels.md) list the
+reviewed actions; other attacks are not automatically classified. Exact frame,
 hitbox, bone, damage, angle, and element signatures must match the catalog;
 unknown variants remain unlabeled. Lower damage never automatically means sour.
 Reviewed signatures live in packaged `melee/hitbox_phase_labels.csv`, not Python
@@ -46,8 +47,20 @@ errors. The loader caches validated rows once per process. A signature mismatch
 leaves the phase unlabeled, never guesses a replacement.
 
 Add labels only after reviewing the intended variant and its exact script
-signature and adding a regression test. This migration preserves all 19 labels
-and existing query results; it does not claim complete roster sweetspot coverage.
+signature and adding a regression test. The initial CSV migration preserved
+19 labels; source-backed additions bring coverage to 355 labeled phases across
+78 character/action pairs. Numerical data, geometry, frames and original labels
+are unchanged. This is not complete roster sweetspot coverage. See
+[sweetspot-labels.md](sweetspot-labels.md) for added signatures and sources.
+
+The meteor/spike `sweet` labels select those specific edgeguard variants;
+their `sour` counterparts remain useful attacks, not universally worse choices.
+Both early and late Young Link fire meteors are sweet; the late hit is stronger.
+Luigi's meteor and Falcon's nipple spike deal the same damage as their other
+hitboxes. Neither maximum damage nor early timing is a general labeling rule.
+Dr. Mario's late neutral air is sweet, while Sheik's foot back air remains
+sweet in both its clean and late phases. Labels compare named variants within
+an action, not across different moves or successive hits of a multihit attack.
 
 `get_framedata` includes these groups in `phase_hitboxes`. Its optional
 `hitbox_id`, `phase_id`, and `spot="sweet"|"sour"` selectors filter that field
