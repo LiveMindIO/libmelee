@@ -535,3 +535,9 @@ schema_version,character,action,hitbox_id,bone_id,start_frame,end_frame,damage,a
 1,9,350,0,109,15,18,17,80,0,sweet,pan head
 1,9,350,1,109,15,18,15,80,0,sour,pan handle
 1,9,350,2,86,15,18,15,361,0,sour,pan inner hit
+1,12,68,0,47,3,4,4,80,0,sour,early tail launcher
+1,12,68,0,47,5,6,4,0,0,sweet,mid tail semi-spike
+1,12,68,0,47,7,8,4,130,0,sour,late tail launcher
+1,12,68,1,50,3,4,4,80,0,sour,early tail launcher
+1,12,68,1,50,5,6,4,0,0,sweet,mid tail semi-spike
+1,12,68,1,50,7,8,4,130,0,sour,late tail launcher

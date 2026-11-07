@@ -132,6 +132,7 @@ _ROSTER_SWEET_PHASES = {
     (9, 346): ((0, 6, 9),),
     (9, 349): ((3, 15, 18),),
     (9, 350): ((0, 15, 18),),
+    (12, 68): ((0, 5, 6), (1, 5, 6)),
 }
 
 
@@ -164,7 +165,7 @@ class PhaseLabelCsvTests(unittest.TestCase):
                             phase.combat.element,
                         )
                         observed[signature] = (phase.spot, phase.label)
-        self.assertEqual(len(observed), 536)
+        self.assertEqual(len(observed), 542)
         self.assertEqual(observed, _phase_labels())
 
     def test_all_phase_results_preserve_numbers_and_original_labels(self):
@@ -302,6 +303,9 @@ class HitboxPhaseTests(unittest.TestCase):
             (9, 351),
             (5, 53),
             (5, 66),
+            (23, 68),
+            (16, 68),
+            (3, 64),
         ):
             with self.subTest(character=character, action=action):
                 groups = get_hitbox_phases(character, action)
@@ -366,6 +370,16 @@ class HitboxPhaseTests(unittest.TestCase):
                         for g in get_hitbox_phases("roy", action)
                     )
                 )
+
+    def test_pikachu_mid_tail_selection_is_not_damage_or_earliest_ranking(self):
+        for group in get_hitbox_phases("pikachu", "UAIR"):
+            self.assertEqual(
+                [(p.combat.damage, p.combat.angle, p.spot) for p in group.phases],
+                [(4, 80, "sour"), (4, 0, "sweet"), (4, 130, "sour")],
+            )
+        clone = get_hitbox_phases("pichu", "UAIR")
+        self.assertTrue(clone)
+        self.assertTrue(all(p.combat.angle == 80 and p.spot is None for g in clone for p in g.phases))
 
     def test_temporal_labels_do_not_reduce_to_global_damage_ranks(self):
         # The entire clean Pikachu tail window is sweet, including 17%/18% zones.

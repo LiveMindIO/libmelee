@@ -1,8 +1,8 @@
 # Additional reviewed sweetspot labels
 
-These annotations extend the original 19 signatures by 517, for 536 labeled
-phases across 120 character/action pairs. Successive batches cover eight, 34,
-31, six, 16, 13, two, one, two and two character/action pairs, listed below.
+These annotations extend the original 19 signatures by 523, for 542 labeled
+phases across 121 character/action pairs. Successive batches cover eight, 34,
+31, six, 16, 13, two, one, two, two and one character/action pairs, listed below.
 They do not modify the NTSC-U 1.02 numerical catalog, geometry or frame indexing.
 
 ## Evidence
@@ -476,3 +476,29 @@ Tests preserve both branches' different angles and the separate strike windows
 of third-down and fourth-down, and require the current 18-action query to remain
 unlabeled. No claim is made that those branches have no sweetspots; their exact
 timing and per-strike spatial roles remain unresolved.
+
+## Pikachu up-air semi-spike: six additional signatures
+
+Pikachu action 68 selects the middle tail semi-spike, not the earliest phase
+or a maximum-damage zone. Both IDs 0/1 (bones 47/50) retain 4% throughout:
+
+| Frames | Angle | Selection |
+| --- | --- | --- |
+| 3–4 | 80 | sour, early tail launcher |
+| 5–6 | 0 | sweet, mid tail semi-spike |
+| 7–8 | 130 | sour, late tail launcher |
+
+[Move revision 809680](https://www.ssbwiki.com/index.php?title=Pikachu_(SSBM)/Up_aerial&oldid=809680)
+explicitly identifies the middle hit's edgeguard semi-spike and independently
+records each ID, bone and timing window. FightCore 237 agrees with all three
+angles and windows. `sweet` selects this specific edgeguard variant; the two
+launching phases remain useful for juggling and are not universally inferior.
+Equal damage is deliberately not used to merge or rank the phases.
+
+Pichu action 68 independently has three 4% windows at 4–5, 6–7 and 8–9, but
+every ID in every window uses angle 80. FightCore 221 agrees. No Pikachu
+semi-spike label is copied onto the clone's different signatures.
+
+Mewtwo up-air revision 1392909 and DK down-smash revision 1389252 also confirm
+their numerical tail/limb zones without identifying a named sweet/sour variant.
+Both remain unlabeled; their damage gradients alone do not resolve that question.
