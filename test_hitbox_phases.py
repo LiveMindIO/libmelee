@@ -128,6 +128,8 @@ _ROSTER_SWEET_PHASES = {
     (4, 65): ((0, 10, 17),),
     (25, 68): ((0, 6, 10), (1, 6, 10)),
     (8, 365): ((0, 1, 9),),
+    (9, 344): ((0, 3, 6), (1, 3, 6), (2, 3, 6)),
+    (9, 346): ((0, 6, 9),),
 }
 
 
@@ -160,7 +162,7 @@ class PhaseLabelCsvTests(unittest.TestCase):
                             phase.combat.element,
                         )
                         observed[signature] = (phase.spot, phase.label)
-        self.assertEqual(len(observed), 521)
+        self.assertEqual(len(observed), 529)
         self.assertEqual(observed, _phase_labels())
 
     def test_all_phase_results_preserve_numbers_and_original_labels(self):
@@ -292,6 +294,9 @@ class HitboxPhaseTests(unittest.TestCase):
             (26, 368),
             (14, 357),
             (14, 362),
+            (9, 345),
+            (9, 347),
+            (9, 348),
         ):
             with self.subTest(character=character, action=action):
                 groups = get_hitbox_phases(character, action)
@@ -299,6 +304,17 @@ class HitboxPhaseTests(unittest.TestCase):
                 self.assertTrue(all(p.spot is None for g in groups for p in g.phases))
                 with self.assertRaises(HitboxPhaseError):
                     get_sweetspots(character, action)
+
+    def test_peach_float_labels_match_independent_common_action_records(self):
+        for common, floating in ((65, 344), (67, 346)):
+            with self.subTest(common=common, floating=floating):
+                common_groups = get_hitbox_phases("peach", common)
+                float_groups = get_hitbox_phases("peach", floating)
+                self.assertEqual(
+                    tuple(dataclasses.replace(g, action_id=floating) for g in common_groups),
+                    float_groups,
+                )
+                self.assertTrue(all(g.action_id == floating for g in get_sweetspots("peach", floating)))
 
     def test_temporal_labels_do_not_reduce_to_global_damage_ranks(self):
         # The entire clean Pikachu tail window is sweet, including 17%/18% zones.

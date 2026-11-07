@@ -1,8 +1,8 @@
 # Additional reviewed sweetspot labels
 
-These annotations extend the original 19 signatures by 502, for 521 labeled
-phases across 116 character/action pairs. Successive batches cover eight, 34,
-31, six, 16, 13, two and one character/action pairs, listed below.
+These annotations extend the original 19 signatures by 510, for 529 labeled
+phases across 118 character/action pairs. Successive batches cover eight, 34,
+31, six, 16, 13, two, one and two character/action pairs, listed below.
 They do not modify the NTSC-U 1.02 numerical catalog, geometry or frame indexing.
 
 ## Evidence
@@ -234,8 +234,9 @@ with the previously linked FightCore dataset. Additional character sources:
   adjudicated separately below; neither uses a generic early-best rule.
 - Zelda and Mewtwo down-air damage zones still lack an
   adjudicated sweet/sour interpretation; no labels are inferred from maxima.
-- Ice Climbers leader/partner behavior and Peach float-state aliases are not
-  covered by reviewing another fighter/state. No coverage is implied for them.
+- Ice Climbers leader/partner behavior and Peach float states are not covered
+  merely by reviewing another fighter/state. The independently verified float
+  neutral/back-air additions below do not imply coverage of other float attacks.
 
 ## Ice Climbers static hammer variants: 16 additional signatures
 
@@ -395,3 +396,30 @@ Further recovery-attack review leaves these actions unlabeled:
   No static sweetspot is inferred from its runtime power range.
 
 Regression controls require every listed excluded action to remain unlabeled.
+
+## Peach float neutral and back air: eight additional signatures
+
+The catalog independently contains neutral-air action 344 and back-air action
+346, not merely the common 65/67 records. Each new label matches that alternate
+action's own IDs, bones, combat signature and phase window:
+
+| Raw action | Sweet phases | Sour phases |
+| --- | --- | --- |
+| 344 float neutral air | IDs 0/1/2, bones 100/74/4: 3–6, 14%, clean twirl | 7–23, 10%/10%/9%, late twirl |
+| 346 float back air | ID 0, bone 4: 6–9, 14%, clean hip | 10–22, 10%, late hip |
+
+The catalog-pinned doldecomp revision
+[`d15c9cff` motion table](https://github.com/doldecomp/melee/blob/d15c9cffe939611627b3a7a77a446705d2998f5f/src/melee/ft/chara/ftPeach/ftPe_Init.c)
+explicitly assigns 344/346 to `FloatAttackAirN`/`FloatAttackAirB`, with the same
+common aerial submotions as neutral/back air. Its
+[`ftPe_FloatAttack.c` callbacks](https://github.com/doldecomp/melee/blob/d15c9cffe939611627b3a7a77a446705d2998f5f/src/melee/ft/chara/ftPeach/ftPe_FloatAttack.c)
+handle float continuation, movement and landing without replacing attack power.
+The previously cited Peach clean/late move evidence therefore applies to these
+independently matched records. Tests compare complete combat and geometry frames
+between the common and float records, not just their maximum damage.
+
+Float forward/up/down air (345/347/348) remain unlabeled, like their common
+counterparts. This change does not infer sweetspots for equal-damage forward-air
+zones, rank up-air zones by damage, or classify down-air multihit strikes as
+decay phases. It does not change query aliases, float movement, landing lag,
+or engine timing.

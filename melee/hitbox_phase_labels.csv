@@ -520,3 +520,11 @@ schema_version,character,action,hitbox_id,bone_id,start_frame,end_frame,damage,a
 1,25,68,1,7,14,16,6,0,0,sour,late semi-spike
 1,8,365,0,0,1,9,25,361,2,sweet,clean PK Thunder 2
 1,8,365,0,0,10,36,20,361,2,sour,late PK Thunder 2
+1,9,344,0,100,3,6,14,361,0,sweet,clean twirl
+1,9,344,0,100,7,23,10,361,0,sour,late twirl
+1,9,344,1,74,3,6,14,361,0,sweet,clean twirl
+1,9,344,1,74,7,23,10,361,0,sour,late twirl
+1,9,344,2,4,3,6,14,361,0,sweet,clean twirl
+1,9,344,2,4,7,23,9,361,0,sour,late twirl
+1,9,346,0,4,6,9,14,361,0,sweet,clean hip
+1,9,346,0,4,10,22,10,361,0,sour,late hip
