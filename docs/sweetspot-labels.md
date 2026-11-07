@@ -1,8 +1,8 @@
 # Additional reviewed sweetspot labels
 
-These annotations extend the original 19 signatures by 434, for 453 labeled
-phases across 100 character/action pairs. The additions cover eight, 34, 31,
-six and 16 actions respectively, listed below.
+These annotations extend the original 19 signatures by 491, for 510 labeled
+phases across 113 character/action pairs. The additions cover eight, 34, 31,
+six, 16 and 13 actions respectively, listed below.
 They do not modify the NTSC-U 1.02 numerical catalog, geometry or frame indexing.
 
 ## Evidence
@@ -301,3 +301,39 @@ Dolphin Slash records have placeholder frame 0 and split startup/leap values
 between entries; they do not establish different ground/air power here.
 The public `up-b` query retains both action identities. Shield Breaker's charge
 levels remain unlabeled, not treated as alternative sweetspots.
+
+## Remaining clean hits and sustained slide: 57 additional signatures
+
+The clean/early temporal selections below preserve all target flags, angle
+variants and script phase boundaries. They do not select only maximum-damage
+spatial zones: Peach/Zelda's weaker clean zones are included with their stronger
+clean zones. Other phases are sour, except the sustained Dr. Mario slide noted
+below. No new behavior is inferred from damage alone.
+
+| Character | Raw action / move | Sweet engine IDs and frames |
+| --- | --- | --- |
+| Dr. Mario | 56 up tilt | 0/1/2: 4 |
+| Dr. Mario | 63 up smash | 0/1: 9–10; both ground/air target variants retained |
+| Dr. Mario | 67 back air | 0/1: 6–8, clean semi-spike |
+| Dr. Mario | 50 dash attack | 0: 6–9 and 1: 6–25, strong slide |
+| Peach | 53 forward tilt | 0/1/2: 6–7, all three clean zones |
+| Peach | 50 dash attack | 0/1: 6–8 |
+| Sheik | 50 dash attack | 0/1: 6 |
+| Pikachu | 60 forward smash | 0: 16–18, early jolt; 19–21 and 22–23 phases sour |
+| Pikachu | 67 back air | 0/1: 4–7; landing attack is a separate action |
+| Jigglypuff | 56 up tilt | 0/1: 8–9 |
+| Jigglypuff | 60 forward smash | 0/1: 12–15 |
+| Game & Watch | 66 forward air | 0/1: 10–12 |
+| Zelda | 50 dash attack | 0/1: 6–8 |
+
+Evidence: the previously linked character moveset revisions and FightCore
+datasets. [Dr. Mario dash attack, revision 1952263](https://www.ssbwiki.com/index.php?title=Dr._Mario_(SSBM)/Dash_attack&oldid=1952263)
+independently confirms that only ID 0 weakens at frame 10: ID 1 remains at 9%
+through frame 25. Its unchanged 6–25 phase remains sweet throughout; no synthetic
+split is added merely to align its window with ID 0 or FightCore's row grouping.
+
+[Sheik down smash, revision 1651635](https://www.ssbwiki.com/index.php?title=Sheik_(SSBM)/Down_smash&oldid=1651635)
+identifies three separate strikes at 5–9, 16–19 and 22–24. It remains unlabeled:
+the moveset summary's clean/late wording must not turn successive hit roles into
+sweet/sour phases. Missing Mario, Bowser, DK and Jigglypuff dash-attack results
+also remain gaps; nearby forward-tilt action IDs are not substitutes.

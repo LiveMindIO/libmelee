@@ -112,6 +112,19 @@ _ROSTER_SWEET_PHASES = {
     (4, 64): ((0, 7, 9), (1, 7, 9), (2, 7, 9), (3, 7, 9)),
     (18, 367): ((0, 5, 5),),
     (18, 368): ((0, 5, 5),),
+    (21, 56): ((0, 4, 4), (1, 4, 4), (2, 4, 4)),
+    (21, 63): ((0, 9, 10), (1, 9, 10)),
+    (21, 67): ((0, 6, 8), (1, 6, 8)),
+    (21, 50): ((0, 6, 9), (1, 6, 25)),
+    (9, 53): ((0, 6, 7), (1, 6, 7), (2, 6, 7)),
+    (9, 50): ((0, 6, 8), (1, 6, 8)),
+    (7, 50): ((0, 6, 6), (1, 6, 6)),
+    (12, 60): ((0, 16, 18),),
+    (12, 67): ((0, 4, 7), (1, 4, 7)),
+    (15, 56): ((0, 8, 9), (1, 8, 9)),
+    (15, 60): ((0, 12, 15), (1, 12, 15)),
+    (24, 66): ((0, 10, 12), (1, 10, 12)),
+    (19, 50): ((0, 6, 8), (1, 6, 8)),
 }
 
 
@@ -144,7 +157,7 @@ class PhaseLabelCsvTests(unittest.TestCase):
                             phase.combat.element,
                         )
                         observed[signature] = (phase.spot, phase.label)
-        self.assertEqual(len(observed), 453)
+        self.assertEqual(len(observed), 510)
         self.assertEqual(observed, _phase_labels())
 
     def test_all_phase_results_preserve_numbers_and_original_labels(self):
@@ -271,6 +284,7 @@ class HitboxPhaseTests(unittest.TestCase):
             (16, 69),
             (10, 66),
             (11, 66),
+            (7, 64),
         ):
             with self.subTest(character=character, action=action):
                 groups = get_hitbox_phases(character, action)
@@ -313,6 +327,17 @@ class HitboxPhaseTests(unittest.TestCase):
                 groups = get_hitbox_phases("marth", action)
                 self.assertTrue(groups)
                 self.assertTrue(all(p.spot is None for g in groups for p in g.phases))
+
+    def test_doctor_slide_retains_sustained_strong_hitbox(self):
+        groups = get_hitbox_phases("doc", "DASH_ATTACK")
+        self.assertEqual(
+            [(g.hitbox_id, p.start_frame, p.end_frame, p.combat.damage, p.spot)
+             for g in groups for p in g.phases],
+            [(0, 6, 9, 9, "sweet"), (0, 10, 25, 8, "sour"), (1, 6, 25, 9, "sweet")],
+        )
+        # ID 1 remains strong after ID 0 weakens; do not split or shorten it.
+        sustained = get_sweetspots("doc", "DASH_ATTACK")[1].phases[0]
+        self.assertEqual(len(sustained.frames), 20)
 
     def test_knee_groups_two_phases_per_physical_hitbox(self):
         groups = get_hitbox_phases("captain_falcon", "FAIR")
