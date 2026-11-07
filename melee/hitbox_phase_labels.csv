@@ -509,3 +509,12 @@ schema_version,character,action,hitbox_id,bone_id,start_frame,end_frame,damage,a
 1,19,50,0,89,9,13,8,90,2,sour,late hit
 1,19,50,1,0,6,8,9,361,2,sweet,clean hit
 1,19,50,1,0,9,13,7,361,2,sour,late hit
+1,4,65,0,4,10,17,10,361,0,sweet,clean spin
+1,4,65,0,4,18,29,8,361,0,sour,mid spin
+1,4,65,0,4,30,34,6,361,0,sour,late spin
+1,25,68,0,6,6,10,13,361,0,sweet,clean kick
+1,25,68,0,6,11,13,12,30,0,sour,mid semi-spike
+1,25,68,0,6,14,16,8,0,0,sour,late semi-spike
+1,25,68,1,7,6,10,12,361,0,sweet,clean kick
+1,25,68,1,7,11,13,10,30,0,sour,mid semi-spike
+1,25,68,1,7,14,16,6,0,0,sour,late semi-spike

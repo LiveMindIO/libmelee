@@ -1,8 +1,8 @@
 # Additional reviewed sweetspot labels
 
-These annotations extend the original 19 signatures by 491, for 510 labeled
-phases across 113 character/action pairs. The additions cover eight, 34, 31,
-six, 16 and 13 actions respectively, listed below.
+These annotations extend the original 19 signatures by 500, for 519 labeled
+phases across 115 character/action pairs. The additions cover eight, 34, 31,
+six, 16, 13 and two actions respectively, listed below.
 They do not modify the NTSC-U 1.02 numerical catalog, geometry or frame indexing.
 
 ## Evidence
@@ -229,11 +229,10 @@ with the previously linked FightCore dataset. Additional character sources:
   zones and clean sour zone both deal 13%; their damage equality does not merge
   the distinct spatial roles. Labels avoid inventing a bone-name mapping.
 - Yoshi back air has four successive hits with decreasing damage, not four
-  power-decay phases of one hit. It remains unlabeled. Ganondorf up air includes
-  a deliberately useful reverse semi-spike; its contextual variants remain
-  unclassified rather than applying a generic early-best rule.
-- Kirby neutral air's overlapping script-creation behavior needs separate
-  engine-priority review. Zelda and Mewtwo down-air damage zones still lack an
+  power-decay phases of one hit. It remains unlabeled. Ganondorf up air's useful
+  reverse semi-spikes and Kirby neutral air's surviving clean phase are
+  adjudicated separately below; neither uses a generic early-best rule.
+- Zelda and Mewtwo down-air damage zones still lack an
   adjudicated sweet/sour interpretation; no labels are inferred from maxima.
 - Ice Climbers leader/partner behavior and Peach float-state aliases are not
   covered by reviewing another fighter/state. No coverage is implied for them.
@@ -337,3 +336,30 @@ identifies three separate strikes at 5–9, 16–19 and 22–24. It remains unla
 the moveset summary's clean/late wording must not turn successive hit roles into
 sweet/sour phases. Missing Mario, Bowser, DK and Jigglypuff dash-attack results
 also remain gaps; nearby forward-tilt action IDs are not substitutes.
+
+## Kirby spin and Ganondorf reverse kick: nine additional signatures
+
+| Character | Raw action / move | Sweet engine IDs and frames | Sour phases |
+| --- | --- | --- | --- |
+| Kirby | 65 neutral air | 0, bone 4: 10–17, 10% clean spin | 18–29 mid 8%; 30–34 late 6% |
+| Ganondorf | 68 up air | 0/1, bones 6/7: 6–10, clean kick | 11–13 mid 30-degree and 14–16 late zero-degree semi-spikes |
+
+[Kirby neutral-air revision 2055946](https://www.ssbwiki.com/index.php?title=Kirby_(SSBM)/Neutral_aerial&oldid=2055946)
+records the exact catalog windows and explains that the scripted 12% creation
+is overwritten before an active game frame by an already-expired frame timer.
+FightCore 210 instead lists a 12% frame-10 hit and starts 10% at frame 11.
+That discrepancy is not repaired by shifting frames: annotations select only
+the catalog's surviving 10% phase, consistent with the move-specific article.
+No 12% hit, extra hitbox, or landing hit is synthesized. Independent engine
+execution/creation-priority verification remains outside this label-only review.
+
+[Ganondorf up-air revision 2035075](https://www.ssbwiki.com/index.php?title=Ganondorf_(SSBM)/Up_aerial&oldid=2035075)
+and FightCore 216 independently match the clean/mid/late windows and both IDs.
+The article explicitly calls the mid/late semi-spikes useful for reverse
+edgeguards (the Tipman). `sweet` selects the named clean variant, not the best
+edgeguard: the `sour` phases retain descriptive semi-spike labels and their
+30/0-degree trajectories. Neither clean ID is discarded by damage ranking.
+
+Zelda down-air revision 1393941 and Mewtwo down-air revision 1764236 confirm
+the catalog's distinct zones but provide no named sweet/sour interpretation.
+They remain unlabeled; numerical damage differences alone are insufficient.

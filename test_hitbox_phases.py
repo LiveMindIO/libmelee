@@ -125,6 +125,8 @@ _ROSTER_SWEET_PHASES = {
     (15, 60): ((0, 12, 15), (1, 12, 15)),
     (24, 66): ((0, 10, 12), (1, 10, 12)),
     (19, 50): ((0, 6, 8), (1, 6, 8)),
+    (4, 65): ((0, 10, 17),),
+    (25, 68): ((0, 6, 10), (1, 6, 10)),
 }
 
 
@@ -157,7 +159,7 @@ class PhaseLabelCsvTests(unittest.TestCase):
                             phase.combat.element,
                         )
                         observed[signature] = (phase.spot, phase.label)
-        self.assertEqual(len(observed), 510)
+        self.assertEqual(len(observed), 519)
         self.assertEqual(observed, _phase_labels())
 
     def test_all_phase_results_preserve_numbers_and_original_labels(self):
@@ -278,8 +280,6 @@ class HitboxPhaseTests(unittest.TestCase):
             (24, 363),
             (24, 372),
             (14, 67),
-            (25, 68),
-            (4, 65),
             (19, 69),
             (16, 69),
             (10, 66),
@@ -331,13 +331,35 @@ class HitboxPhaseTests(unittest.TestCase):
     def test_doctor_slide_retains_sustained_strong_hitbox(self):
         groups = get_hitbox_phases("doc", "DASH_ATTACK")
         self.assertEqual(
-            [(g.hitbox_id, p.start_frame, p.end_frame, p.combat.damage, p.spot)
-             for g in groups for p in g.phases],
+            [(g.hitbox_id, p.start_frame, p.end_frame, p.combat.damage, p.spot) for g in groups for p in g.phases],
             [(0, 6, 9, 9, "sweet"), (0, 10, 25, 8, "sour"), (1, 6, 25, 9, "sweet")],
         )
         # ID 1 remains strong after ID 0 weakens; do not split or shorten it.
         sustained = get_sweetspots("doc", "DASH_ATTACK")[1].phases[0]
         self.assertEqual(len(sustained.frames), 20)
+
+    def test_kirby_spin_does_not_invent_unobserved_early_hit(self):
+        groups = get_hitbox_phases("kirby", "NAIR")
+        self.assertEqual(
+            [(g.hitbox_id, p.start_frame, p.end_frame, p.combat.damage, p.spot) for g in groups for p in g.phases],
+            [(0, 10, 17, 10, "sweet"), (0, 18, 29, 8, "sour"), (0, 30, 34, 6, "sour")],
+        )
+
+    def test_ganondorf_sour_kicks_preserve_useful_semi_spikes(self):
+        groups = get_hitbox_phases("ganondorf", "UAIR", spot="sour")
+        self.assertEqual(
+            [
+                (g.hitbox_id, p.start_frame, p.end_frame, p.combat.damage, p.combat.angle, p.label)
+                for g in groups
+                for p in g.phases
+            ],
+            [
+                (0, 11, 13, 12, 30, "mid semi-spike"),
+                (0, 14, 16, 8, 0, "late semi-spike"),
+                (1, 11, 13, 10, 30, "mid semi-spike"),
+                (1, 14, 16, 6, 0, "late semi-spike"),
+            ],
+        )
 
     def test_knee_groups_two_phases_per_physical_hitbox(self):
         groups = get_hitbox_phases("captain_falcon", "FAIR")
