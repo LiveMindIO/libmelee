@@ -381,11 +381,19 @@ Libmelee includes concrete technique montages:
   are clamped one representable value inside the accepted interval. It succeeds
   only after `LANDING_SPECIAL` ends in an actionable grounded state and aborts if
   the observed state skips past jump squat before the air-dodge request.
-- `SuperWavedashMontage(direction)` performs Samus's standard grounded bomb
+- `SuperWavedashMontage(direction)` performs Samus's bomb
   super wavedash. It schedules opposite and desired horizontal inputs for bomb
   animation frames 41 and 42, then returns the stick to neutral for maximum
-  travel. Standing and crouched bomb starts use the same animation-frame window;
-  the height-dependent falling variant is intentionally unsupported.
+  travel. `swd_type` selects `SWDType.Grounded` (default), `PlatformLaunch`, or
+  `Aerial`. Grounded starts require ground. Aerial waits without input until the
+  stock bomb trajectory predicts first landing on observed one-based frame 40.
+  It uses matching live geometry, including sloped segments and junctions;
+  missing geometry or unsuitable height leaves the montage waiting.
+  `SWDType.PlatformLaunch` instead approaches a flat semisolid edge and reverses
+  during morph-ball physics to carry a burst into the air. It requires matching
+  collision geometry, aborts on missed inputs or failed departure, and leaves
+  recovery to the caller. This stock-physics route is model-tested, not yet
+  live-emulator validated. See [research and limits](docs/super-wavedash.md).
 - `DoubleJumpCancelMontage(attack_type, attack_delay_frames=0)` supports Yoshi,
   Ness, Peach, and Mewtwo with any standard aerial. It can own the first jump or
   start in air, forces a fresh double-jump edge, and confirms the aerial through

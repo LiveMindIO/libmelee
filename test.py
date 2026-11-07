@@ -78,6 +78,7 @@ from melee.bot import (
     StickReferenceAxis,
     Strategy,
     SuperWavedashMontage,
+    SWDType,
     SwordDanceMontage,
     WavedashDirection,
     WavedashMontage,
@@ -6488,6 +6489,313 @@ class TechniqueMontageTests(unittest.TestCase):
         )
         self.assertIn(("press_button", melee.Button.BUTTON_B), self.controls.take_calls())
 
+    def test_super_wavedash_airborne_start_lands_without_resetting_animation(self):
+        for direction in WavedashDirection:
+            for height in (0.0, 27.2):
+                with self.subTest(direction=direction, height=height):
+                    landing_frame = 40
+                    geometry = self.launch_geometry(-50, 50, height)
+                    montage = SuperWavedashMontage(direction, swd_type=SWDType.Aerial)
+                    self.assertIs(self.tick(montage, melee.Action.FALLING,
+                        character=melee.Character.SAMUS, on_ground=False,
+                        position_y=height + 14.4, stage_geometry=geometry), montage)
+                    self.assertIn(("press_button", melee.Button.BUTTON_B), self.controls.take_calls())
+                    for frame in range(1, 43):
+                        grounded = frame >= landing_frame
+                        self.assertIs(self.tick(montage,
+                            melee.Action.SAMUS_SPECIAL_LW_BOMB if grounded else melee.Action.SAMUS_SPECIAL_AIR_LW_BOMB,
+                            character=melee.Character.SAMUS, action_frame=frame,
+                            on_ground=grounded, position_y=height if grounded else height + 5,
+                            stage_geometry=geometry), montage)
+                        calls = self.controls.take_calls()
+                        if frame in (40, 41):
+                            expected = (direction is WavedashDirection.Right) == (frame == 41)
+                            self.assertEqual(self.requested_stick_coordinates(calls), (1.0 if expected else 0.0, 0.5))
+                        else:
+                            self.assertEqual(calls, [("release_all",)])
+                    self.assertIs(self.tick(montage, melee.Action.STANDING,
+                        character=melee.Character.SAMUS, position_y=height, stage_geometry=geometry), True)
+                    self.controls.take_calls()
+
+    @staticmethod
+    def launch_geometry(left=90.0, right=100.0, height=27.2):
+        # Split and reversed segment endpoints must not become false edges.
+        middle = (left + right) / 2
+        kind = melee.gamestate.StageSurfaceKind.SEMISOLID
+        point = melee.gamestate.StagePoint
+        segments = (
+            melee.gamestate.StageSegment(1, point(middle, height), point(left, height), kind),
+            melee.gamestate.StageSegment(2, point(right, height), point(middle, height), kind),
+        )
+        surface = melee.gamestate.StageSurface(kind, segments)
+        return melee.gamestate.StageGeometry(melee.Stage.FINAL_DESTINATION, 0, segments, (surface,))
+
+    def test_super_wavedash_aerial_waits_without_input_until_height_window(self):
+        montage = SuperWavedashMontage(WavedashDirection.Right, swd_type=SWDType.Aerial)
+        geometry = self.launch_geometry(-50, 50, 27.2)
+        for clearance in (40, 15.2, 13.6, 5):
+            self.assertIs(self.tick(montage, melee.Action.FALLING,
+                character=melee.Character.SAMUS, on_ground=False,
+                position_y=27.2 + clearance, stage_geometry=geometry), montage)
+            self.assertIs(montage.get_montage_state(), MontageState.Waiting)
+            self.assertEqual(self.controls.take_calls(), [])
+        self.assertIs(self.tick(montage, melee.Action.FALLING,
+            character=melee.Character.SAMUS, on_ground=False,
+            position_y=27.2 + 14.4, stage_geometry=geometry), montage)
+        self.assertIn(("press_button", melee.Button.BUTTON_B), self.controls.take_calls())
+        self.assertIsNot(montage.get_montage_state(), MontageState.Waiting)
+
+    def test_super_wavedash_aerial_height_predicts_first_landing_at_frame_40(self):
+        # Independent trajectory with stock gravity/terminal speed: a suitable
+        # height crosses the morph ECB bottom on frame 40, not frames 1..39.
+        for surface_height in (0, 27.2, 52.7):
+            for drift in (-0.3, 0.0, 0.3):
+                with self.subTest(height=surface_height, drift=drift):
+                    geometry = self.launch_geometry(-100, 100, surface_height)
+                    montage = SuperWavedashMontage(WavedashDirection.Left, swd_type=SWDType.Aerial)
+                    self.assertIs(self.tick(montage, melee.Action.FALLING,
+                        character=melee.Character.SAMUS, on_ground=False,
+                        position_y=surface_height + 14.4, speed_air_x_self=drift,
+                        stage_geometry=geometry), montage)
+                    self.assertIn(("press_button", melee.Button.BUTTON_B), self.controls.take_calls())
+                    y, vy, x = surface_height + 14.4, 0.9, 0.0
+                    for frame in range(1, 41):
+                        previous_bottom = y + 2
+                        vy = max(vy - 0.066, -1.4)
+                        y = y + vy
+                        grounded = vy < 0 and previous_bottom > surface_height >= y + 2
+                        self.assertEqual(grounded, frame == 40)
+                        result = self.tick(montage,
+                            melee.Action.SAMUS_SPECIAL_LW_BOMB if grounded else melee.Action.SAMUS_SPECIAL_AIR_LW_BOMB,
+                            character=melee.Character.SAMUS, action_frame=frame, on_ground=grounded,
+                            position_x=x, position_y=surface_height if grounded else y,
+                            speed_air_x_self=drift, speed_y_self=vy, stage_geometry=geometry)
+                        self.assertIs(result, montage)
+                        self.controls.take_calls()
+
+    def test_super_wavedash_aerial_rejects_missing_geometry_and_intercepting_surface(self):
+        floor = self.launch_geometry(-50, 50, 0)
+        upper = self.launch_geometry(-50, 50, 7)
+        intercepted = dataclasses.replace(floor, surfaces=floor.surfaces + upper.surfaces,
+            segments=floor.segments + upper.segments)
+        dynamic = dataclasses.replace(floor, stage=melee.Stage.FOUNTAIN_OF_DREAMS, requested_at_frame=-1000)
+        for geometry, drift, grounded in (
+            (None, 0, False), (intercepted, 0, False), (dynamic, 0, False),
+            (dataclasses.replace(floor, requested_at_frame=100), 0, False),
+            (floor, 0, True),
+        ):
+            montage = SuperWavedashMontage(WavedashDirection.Right, swd_type=SWDType.Aerial)
+            self.assertIs(self.tick(montage, melee.Action.STANDING if grounded else melee.Action.FALLING,
+                character=melee.Character.SAMUS, on_ground=grounded,
+                position_y=14.4, speed_air_x_self=drift, stage_geometry=geometry), montage)
+            self.assertIs(montage.get_montage_state(), MontageState.Waiting)
+            self.assertEqual(self.controls.take_calls(), [])
+
+    def test_super_wavedash_aerial_accepts_slopes_and_junctions_on_stadium(self):
+        point = melee.gamestate.StagePoint
+        kind = melee.gamestate.StageSurfaceKind.SOLID_FLOOR
+        segment = melee.gamestate.StageSegment
+        for points in (
+            ((-20, -10), (20, 10)),  # Ascending slope.
+            ((-20, 10), (20, -10)),  # Descending slope.
+            ((-20, -10), (0, 0), (20, -10)),  # Crest junction.
+            ((-20, 10), (0, 0), (20, 10)),  # Valley junction.
+            ((-20, 0), (0, 0), (20, 10)),  # Flat/slope junction.
+        ):
+            with self.subTest(points=points):
+                segments = tuple(segment(i, point(*a), point(*b), kind)
+                    for i, (a, b) in enumerate(zip(points, points[1:])))
+                surface = melee.gamestate.StageSurface(kind, segments)
+                geometry = melee.gamestate.StageGeometry(melee.Stage.POKEMON_STADIUM,
+                    self.frame, segments, (surface,))
+                montage = SuperWavedashMontage(WavedashDirection.Right, swd_type=SWDType.Aerial)
+                self.assertIs(self.tick(montage, melee.Action.FALLING,
+                    character=melee.Character.SAMUS, on_ground=False,
+                    position_y=14.4, stage_geometry=geometry), montage)
+                self.assertIsNot(montage.get_montage_state(), MontageState.Waiting)
+                self.assertIn(("press_button", melee.Button.BUTTON_B), self.controls.take_calls())
+
+    def test_super_wavedash_aerial_neutral_brakes_horizontal_velocity(self):
+        for velocity in (-2.0, 2.0):
+            geometry = self.launch_geometry(-5, 5, 0)
+            montage = SuperWavedashMontage(WavedashDirection.Right, swd_type=SWDType.Aerial)
+            self.tick(montage, melee.Action.FALLING, character=melee.Character.SAMUS,
+                on_ground=False, position_y=14.4, speed_air_x_self=velocity, stage_geometry=geometry)
+            self.assertIsNot(montage.get_montage_state(), MontageState.Waiting)
+            self.assertIn(("press_button", melee.Button.BUTTON_B), self.controls.take_calls())
+
+    def test_super_wavedash_grounded_mode_waits_in_air(self):
+        montage = SuperWavedashMontage(WavedashDirection.Right)
+        self.assertIs(self.tick(montage, melee.Action.FALLING,
+            character=melee.Character.SAMUS, on_ground=False, position_y=14.4), montage)
+        self.assertIs(montage.get_montage_state(), MontageState.Waiting)
+        self.assertEqual(self.controls.take_calls(), [])
+
+    def test_super_wavedash_aerial_aborts_instead_of_retrying_wrong_height(self):
+        for failure in ("missed input", "early landing", "late landing", "changed geometry"):
+            with self.subTest(failure=failure):
+                geometry = self.launch_geometry(-50, 50, 0)
+                montage = SuperWavedashMontage(WavedashDirection.Right, swd_type=SWDType.Aerial)
+                self.tick(montage, melee.Action.FALLING, character=melee.Character.SAMUS,
+                    on_ground=False, position_y=14.4, stage_geometry=geometry)
+                self.controls.take_calls()
+                result = self.tick(montage,
+                    melee.Action.FALLING if failure == "missed input" else (
+                        melee.Action.SAMUS_SPECIAL_LW_BOMB if failure == "early landing"
+                        else melee.Action.SAMUS_SPECIAL_AIR_LW_BOMB),
+                    character=melee.Character.SAMUS, on_ground=failure == "early landing",
+                    action_frame=40 if failure == "late landing" else 20,
+                    stage_geometry=None if failure == "changed geometry" else geometry)
+                self.assertIsInstance(result, Abort)
+                self.assertTrue(all(call == ("release_all",) for call in self.controls.take_calls()))
+
+    def prepare_platform_reversal(self, direction, *, height=27.2, offset=0.0):
+        geometry = self.launch_geometry(90 + offset, 100 + offset, height)
+        sign = 1 if direction is WavedashDirection.Right else -1
+        x = (99.6 if sign > 0 else 90.4) + offset
+        montage = SuperWavedashMontage(direction, swd_type=SWDType.PlatformLaunch)
+        for action, frame, grounded in (
+            (melee.Action.FALLING, 1, False),
+            (melee.Action.SAMUS_SPECIAL_AIR_LW_BOMB, 1, False),
+            (melee.Action.SAMUS_SPECIAL_LW_BOMB, 12, True),
+            (melee.Action.SAMUS_SPECIAL_LW_BOMB, 13, True),
+            (melee.Action.SAMUS_SPECIAL_LW_BOMB, 14, True),
+        ):
+            self.assertIs(self.tick(montage, action, character=melee.Character.SAMUS,
+                action_frame=frame, on_ground=grounded, position_x=x, position_y=height,
+                stage_geometry=geometry), montage)
+            calls = self.controls.take_calls()
+        self.assertEqual(self.requested_stick_coordinates(calls), (0.0 if sign > 0 else 1.0, 0.5))
+        return montage, geometry, x, sign
+
+    def test_super_wavedash_platform_launch_uses_surface_not_stage_coordinates(self):
+        for direction in WavedashDirection:
+            for height, offset in ((27.2, 0.0), (52.7, -187.3)):
+                with self.subTest(direction=direction, height=height):
+                    montage, geometry, x, sign = self.prepare_platform_reversal(direction, height=height, offset=offset)
+                    self.assertIs(self.tick(montage, melee.Action.SAMUS_SPECIAL_LW_BOMB,
+                        character=melee.Character.SAMUS, action_frame=15, position_x=x - sign * 0.8,
+                        position_y=height, speed_ground_x_self=-sign * 0.8, stage_geometry=geometry), montage)
+                    self.assertEqual(self.requested_stick_coordinates(self.controls.take_calls()), (1.0 if sign > 0 else 0.0, 0.5))
+                    self.assertIs(self.tick(montage, melee.Action.SAMUS_SPECIAL_AIR_LW_BOMB,
+                        character=melee.Character.SAMUS, action_frame=16, on_ground=False,
+                        off_stage=True, position_x=x + sign * 0.6, position_y=height,
+                        speed_air_x_self=sign * 1.4, stage_geometry=geometry), True)
+                    self.assertEqual(self.controls.take_calls(), [("release_all",)])
+
+    def test_super_wavedash_platform_approach_reaches_edge_under_stock_physics_model(self):
+        for direction in WavedashDirection:
+            with self.subTest(direction=direction):
+                geometry = self.launch_geometry()
+                montage = SuperWavedashMontage(direction, swd_type=SWDType.PlatformLaunch)
+                self.tick(montage, melee.Action.STANDING, character=melee.Character.SAMUS, stage_geometry=geometry)
+                self.controls.take_calls()
+                x, velocity, grounded = 95.0, 3.0, True
+                for frame in range(10, 40):
+                    result = self.tick(montage,
+                        melee.Action.SAMUS_SPECIAL_LW_BOMB if grounded else melee.Action.SAMUS_SPECIAL_AIR_LW_BOMB,
+                        character=melee.Character.SAMUS, action_frame=frame, on_ground=grounded,
+                        position_x=x, position_y=27.2, speed_ground_x_self=velocity if grounded else 0,
+                        speed_air_x_self=velocity if not grounded else 0, stage_geometry=geometry)
+                    calls = self.controls.take_calls()
+                    if result is True:
+                        break
+                    self.assertIs(result, montage)
+                    requests = [call for call in calls if call[0] == "tilt_stick"]
+                    stick = 0.0
+                    if requests:
+                        coordinates = self.requested_stick_coordinates(calls)
+                        stick = 2 * coordinates[0] - 1
+                    # Independent scalar model of CalcGroundAccel_AccelToVel:
+                    # same-direction acceleration clamps; reversal does not.
+                    acceleration, target = stick * 2.2, stick * 0.8
+                    if stick == 0:
+                        velocity = 0.0
+                    elif velocity * acceleration >= 0:
+                        velocity = min(velocity + acceleration, target) if stick > 0 else max(velocity + acceleration, target)
+                    else:
+                        velocity += acceleration
+                    x += velocity
+                    grounded = 90 <= x <= 100
+                else:
+                    self.fail("platform launch did not finish within the morph window")
+                self.assertFalse(grounded)
+                self.assertGreater(velocity if direction is WavedashDirection.Right else -velocity, 0.8)
+
+    def test_super_wavedash_platform_launch_rejects_ordinary_air_drift(self):
+        montage, geometry, x, sign = self.prepare_platform_reversal(WavedashDirection.Right)
+        self.tick(montage, melee.Action.SAMUS_SPECIAL_LW_BOMB, character=melee.Character.SAMUS,
+            action_frame=15, position_x=x - 0.8, position_y=27.2,
+            speed_ground_x_self=-0.8, stage_geometry=geometry)
+        self.controls.take_calls()
+        result = self.tick(montage, melee.Action.SAMUS_SPECIAL_AIR_LW_BOMB,
+            character=melee.Character.SAMUS, action_frame=16, on_ground=False,
+            position_x=100.1, position_y=27.2, speed_air_x_self=0.7, stage_geometry=geometry)
+        self.assertIsInstance(result, Abort)
+        self.assertIn("airborne", result.reason)
+
+    def test_super_wavedash_platform_launch_rejects_unsupported_geometry(self):
+        for failure in ("solid", "slope", "height mismatch", "stale", "future"):
+            with self.subTest(failure=failure):
+                self.frame = 0
+                geometry = self.launch_geometry()
+                if failure == "solid":
+                    kind = melee.gamestate.StageSurfaceKind.SOLID_FLOOR
+                    segments = tuple(dataclasses.replace(segment, kind=kind) for segment in geometry.segments)
+                    geometry = dataclasses.replace(geometry, segments=segments,
+                        surfaces=(melee.gamestate.StageSurface(kind, segments),))
+                elif failure == "slope":
+                    segment = melee.gamestate.StageSegment(1,
+                        melee.gamestate.StagePoint(90, 26), melee.gamestate.StagePoint(100, 28),
+                        melee.gamestate.StageSurfaceKind.SEMISOLID)
+                    geometry = dataclasses.replace(geometry, segments=(segment,),
+                        surfaces=(melee.gamestate.StageSurface(segment.kind, (segment,)),))
+                elif failure == "stale":
+                    geometry = dataclasses.replace(geometry, stage=melee.Stage.FOUNTAIN_OF_DREAMS,
+                        requested_at_frame=-31)
+                elif failure == "future":
+                    geometry = dataclasses.replace(geometry, requested_at_frame=100)
+                montage = SuperWavedashMontage(WavedashDirection.Right, swd_type=SWDType.PlatformLaunch)
+                initial_geometry = dataclasses.replace(geometry, requested_at_frame=0)
+                self.assertIs(self.tick(montage, melee.Action.STANDING,
+                    character=melee.Character.SAMUS, stage_geometry=initial_geometry), montage)
+                self.controls.take_calls()
+                result = self.tick(montage, melee.Action.SAMUS_SPECIAL_LW_BOMB,
+                    character=melee.Character.SAMUS, action_frame=12, position_x=95,
+                    position_y=28.2 if failure == "height mismatch" else 27.2,
+                    stage_geometry=geometry)
+                self.assertIsInstance(result, Abort)
+                self.assertTrue(all(call == ("release_all",) for call in self.controls.take_calls()))
+
+    def test_super_wavedash_platform_launch_rejects_missed_input_or_changed_platform(self):
+        for failure in ("skipped animation", "skipped game frame", "moving platform", "no geometry", "wrong velocity"):
+            with self.subTest(failure=failure):
+                montage, geometry, x, sign = self.prepare_platform_reversal(WavedashDirection.Right)
+                if failure == "skipped game frame":
+                    self.frame += 1
+                result = self.tick(montage, melee.Action.SAMUS_SPECIAL_LW_BOMB,
+                    character=melee.Character.SAMUS,
+                    action_frame=16 if failure == "skipped animation" else 15,
+                    position_x=x - 0.8, position_y=27.2,
+                    speed_ground_x_self=0 if failure == "wrong velocity" else -0.8,
+                    stage_geometry=None if failure == "no geometry" else (
+                        self.launch_geometry(height=28) if failure == "moving platform" else geometry))
+                self.assertIsInstance(result, Abort)
+                self.assertTrue(all(call == ("release_all",) for call in self.controls.take_calls()))
+
+    def test_super_wavedash_platform_launch_does_not_accept_grounded_burst_as_success(self):
+        montage, geometry, x, sign = self.prepare_platform_reversal(WavedashDirection.Right)
+        self.tick(montage, melee.Action.SAMUS_SPECIAL_LW_BOMB, character=melee.Character.SAMUS,
+            action_frame=15, position_x=x - 0.8, position_y=27.2,
+            speed_ground_x_self=-0.8, stage_geometry=geometry)
+        self.controls.take_calls()
+        result = self.tick(montage, melee.Action.SAMUS_SPECIAL_LW_BOMB,
+            character=melee.Character.SAMUS, action_frame=16, position_x=99.9,
+            position_y=27.2, speed_ground_x_self=1.4, stage_geometry=geometry)
+        self.assertIsInstance(result, Abort)
+        self.assertIn("airborne", result.reason)
+        self.assertTrue(all(call == ("release_all",) for call in self.controls.take_calls()))
+
     def test_super_wavedash_rejects_falling_route_at_frame_40_and_neutralizes(self):
         montage = SuperWavedashMontage(WavedashDirection.Right)
         self.assertIs(
@@ -7191,6 +7499,7 @@ class TechniqueMontageTests(unittest.TestCase):
         ecb_bottom_y=0.0,
         speed_y_self=0.0,
         speed_ground_x_self=0.0,
+        speed_air_x_self=0.0,
         main_stick_x=0.5,
         hitlag_left=0,
         hitstun_frames_left=0,
@@ -7202,6 +7511,8 @@ class TechniqueMontageTests(unittest.TestCase):
         stage_geometry=None,
     ):
         game_state = melee.GameState(frame=self.frame, stage_geometry=stage_geometry)
+        if stage_geometry is not None:
+            game_state.stage = stage_geometry.stage
         player = melee.PlayerState(
             character=character,
             action=action,
@@ -7211,6 +7522,7 @@ class TechniqueMontageTests(unittest.TestCase):
             jumps_left=jumps_left,
             speed_y_self=speed_y_self,
             speed_ground_x_self=speed_ground_x_self,
+            speed_air_x_self=speed_air_x_self,
             hitlag_left=hitlag_left,
             hitstun_frames_left=hitstun_frames_left,
             is_powershield=is_powershield,
