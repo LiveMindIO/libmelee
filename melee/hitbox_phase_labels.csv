@@ -518,3 +518,5 @@ schema_version,character,action,hitbox_id,bone_id,start_frame,end_frame,damage,a
 1,25,68,1,7,6,10,12,361,0,sweet,clean kick
 1,25,68,1,7,11,13,10,30,0,sour,mid semi-spike
 1,25,68,1,7,14,16,6,0,0,sour,late semi-spike
+1,8,365,0,0,1,9,25,361,2,sweet,clean PK Thunder 2
+1,8,365,0,0,10,36,20,361,2,sour,late PK Thunder 2

@@ -127,6 +127,7 @@ _ROSTER_SWEET_PHASES = {
     (19, 50): ((0, 6, 8), (1, 6, 8)),
     (4, 65): ((0, 10, 17),),
     (25, 68): ((0, 6, 10), (1, 6, 10)),
+    (8, 365): ((0, 1, 9),),
 }
 
 
@@ -159,7 +160,7 @@ class PhaseLabelCsvTests(unittest.TestCase):
                             phase.combat.element,
                         )
                         observed[signature] = (phase.spot, phase.label)
-        self.assertEqual(len(observed), 519)
+        self.assertEqual(len(observed), 521)
         self.assertEqual(observed, _phase_labels())
 
     def test_all_phase_results_preserve_numbers_and_original_labels(self):
@@ -285,6 +286,12 @@ class HitboxPhaseTests(unittest.TestCase):
             (10, 66),
             (11, 66),
             (7, 64),
+            (6, 356),
+            (6, 357),
+            (26, 367),
+            (26, 368),
+            (14, 357),
+            (14, 362),
         ):
             with self.subTest(character=character, action=action):
                 groups = get_hitbox_phases(character, action)

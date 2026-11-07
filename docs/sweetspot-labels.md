@@ -1,8 +1,8 @@
 # Additional reviewed sweetspot labels
 
-These annotations extend the original 19 signatures by 500, for 519 labeled
-phases across 115 character/action pairs. The additions cover eight, 34, 31,
-six, 16, 13 and two actions respectively, listed below.
+These annotations extend the original 19 signatures by 502, for 521 labeled
+phases across 116 character/action pairs. Successive batches cover eight, 34,
+31, six, 16, 13, two and one character/action pairs, listed below.
 They do not modify the NTSC-U 1.02 numerical catalog, geometry or frame indexing.
 
 ## Evidence
@@ -363,3 +363,35 @@ edgeguard: the `sour` phases retain descriptive semi-spike labels and their
 Zelda down-air revision 1393941 and Mewtwo down-air revision 1764236 confirm
 the catalog's distinct zones but provide no named sweet/sour interpretation.
 They remain unlabeled; numerical damage differences alone are insufficient.
+
+## PK Thunder 2 and recovery-attack exclusions
+
+Ness raw action 365, ID 0, bone 0 now labels the clean PK Thunder 2 body hit
+at catalog frames 1–9 (25%, electric, angle 361) sweet, and the late body hit
+at 10–36 (20%, electric, angle 361) sour. The
+[Ness moveset revision 2062474](https://www.ssbwiki.com/index.php?title=Ness_(SSBM)&oldid=2062474#Moveset)
+explicitly distinguishes these clean/late body hits. The catalog supplies the
+exact phase windows; these are action-local frames, not time since starting the
+steerable projectile. No projectile head/tail labels are implied. FightCore 243's
+PK Thunder entries describe the 8% head and 1% tail with placeholder frame 0,
+not the 25%/20% body collision, and cannot validate these body-hit windows.
+
+Further recovery-attack review leaves these actions unlabeled:
+
+- Link grounded Spin Attack (356): the catalog weakens IDs 0–2 at frame 14,
+  FightCore 238 at frame 15, and
+  [move revision 1930330](https://www.ssbwiki.com/index.php?title=Link_(SSBM)/Up_special&oldid=1930330)
+  at frame 16. The move article also retains strong ID 3 throughout the late
+  phase, matching the catalog's unbroken 8–41 phase, whereas FightCore omits it
+  from the late row. Resolve the script timing independently before labeling;
+  neither a blanket frame shift nor truncating ID 3 reconciles these accounts.
+- Link aerial Spin Attack (357): five successive strikes with different linker
+  and finisher properties, not one clean/late hit.
+- Roy grounded/aerial Blazer (367/368): seven successive strikes, with separate
+  blade/tip zones. Their spatial roles need per-strike adjudication; labeling
+  only the higher-damage opener would conflate hit roles with sweetspots.
+- Yoshi grounded Egg Roll actions 357/362: catalog base damage 4 does not
+  represent the live speed-dependent 4–13% damage reported by the moveset.
+  No static sweetspot is inferred from its runtime power range.
+
+Regression controls require every listed excluded action to remain unlabeled.
