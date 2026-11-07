@@ -336,6 +336,37 @@ class HitboxPhaseTests(unittest.TestCase):
                     expected,
                 )
 
+    def test_roy_dance_branches_do_not_inherit_meteor_or_sweetspot_labels(self):
+        groups = get_hitbox_phases("roy", "side-b")
+        self.assertEqual({g.action_id for g in groups}, set(range(349, 367)))
+        self.assertTrue(all(p.spot is None for g in groups for p in g.phases))
+        with self.assertRaises(HitboxPhaseError):
+            get_sweetspots("roy", "side-b")
+        for action, clean_angles in ((352, (280, 280, 280, 270)), (361, (60, 60, 60, 60))):
+            with self.subTest(action=action):
+                branch = get_hitbox_phases("roy", action)
+                self.assertEqual(
+                    [(g.hitbox_id, g.phases[0].combat.angle) for g in branch],
+                    list(enumerate(clean_angles)),
+                )
+                self.assertTrue(
+                    all([(p.start_frame, p.end_frame) for p in g.phases] == [(12, 13), (14, 16)] for g in branch)
+                )
+        # The down branches have successive hits, not one decaying hit.
+        for action, expected in (
+            (354, [(15, 15), (17, 17), (19, 19), (21, 21)]),
+            (363, [(15, 15), (17, 17), (19, 19), (21, 21)]),
+            (357, [(12, 14), (18, 20), (24, 26), (30, 32), (36, 37)]),
+            (366, [(12, 14), (18, 20), (24, 26), (30, 32), (36, 37)]),
+        ):
+            with self.subTest(action=action):
+                self.assertTrue(
+                    all(
+                        [(p.start_frame, p.end_frame) for p in g.phases] == expected
+                        for g in get_hitbox_phases("roy", action)
+                    )
+                )
+
     def test_temporal_labels_do_not_reduce_to_global_damage_ranks(self):
         # The entire clean Pikachu tail window is sweet, including 17%/18% zones.
         sweet = get_sweetspots("pikachu", "USMASH")

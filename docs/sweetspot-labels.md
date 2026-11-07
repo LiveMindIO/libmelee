@@ -449,3 +449,30 @@ Bowser forward-tilt revision 1434005 and forward-air revision 1643623 were also
 checked. They confirm three spatial damage zones but do not adjudicate a named
 sweet/sour selection. Those attacks remain unlabeled rather than treating the
 largest damage value as sufficient evidence.
+
+## Double-Edge Dance audit: no additional labels
+
+All 18 Roy side-special actions (349–366) were reviewed without adding labels.
+The [move table revision 2056103](https://www.ssbwiki.com/index.php?title=Roy_(SSBM)/Side_special&oldid=2056103)
+records individual engine IDs and distinguishes successive down-branch hits
+from the third-up branch's clean/late phases. Its timing agrees with catalog
+action 349 at 6–8 but is one frame later for the subsequent listed branches
+(for example, third-up clean 13–14 versus catalog 12–13). FightCore 223 has
+placeholder frame 0 for these branches and cannot adjudicate that conflict.
+No blanket offset is applied, and labels are deferred pending a script-timing
+audit rather than making an unqualified exact-window claim.
+
+There is also a substantive ground/air distinction: grounded third-up action
+352 has clean ID 0/1/2 angles 280 and ID 3 angle 270, whereas aerial action
+361 has clean angle 60 on every ID. Both have late angle 60. The catalog-pinned
+[`ftFe_Init.c` motion table](https://github.com/doldecomp/melee/blob/d15c9cffe939611627b3a7a77a446705d2998f5f/src/melee/ft/chara/ftEmblem/ftFe_Init.c)
+assigns these to distinct `SpecialS3Hi` and `SpecialAirS3Hi` submotions.
+[Double-Edge Dance revision 2019055](https://www.ssbwiki.com/index.php?title=Double-Edge_Dance&oldid=2019055)
+describes the Melee third-up meteor and its sourspot but does not establish
+equivalent aerial behavior. Grounded meteor labels must not be copied into the
+aerial branch merely because the damage values match.
+
+Tests preserve both branches' different angles and the separate strike windows
+of third-down and fourth-down, and require the current 18-action query to remain
+unlabeled. No claim is made that those branches have no sweetspots; their exact
+timing and per-strike spatial roles remain unresolved.
