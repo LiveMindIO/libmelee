@@ -130,6 +130,8 @@ _ROSTER_SWEET_PHASES = {
     (8, 365): ((0, 1, 9),),
     (9, 344): ((0, 3, 6), (1, 3, 6), (2, 3, 6)),
     (9, 346): ((0, 6, 9),),
+    (9, 349): ((3, 15, 18),),
+    (9, 350): ((0, 15, 18),),
 }
 
 
@@ -162,7 +164,7 @@ class PhaseLabelCsvTests(unittest.TestCase):
                             phase.combat.element,
                         )
                         observed[signature] = (phase.spot, phase.label)
-        self.assertEqual(len(observed), 529)
+        self.assertEqual(len(observed), 536)
         self.assertEqual(observed, _phase_labels())
 
     def test_all_phase_results_preserve_numbers_and_original_labels(self):
@@ -297,6 +299,9 @@ class HitboxPhaseTests(unittest.TestCase):
             (9, 345),
             (9, 347),
             (9, 348),
+            (9, 351),
+            (5, 53),
+            (5, 66),
         ):
             with self.subTest(character=character, action=action):
                 groups = get_hitbox_phases(character, action)
@@ -315,6 +320,21 @@ class HitboxPhaseTests(unittest.TestCase):
                     float_groups,
                 )
                 self.assertTrue(all(g.action_id == floating for g in get_sweetspots("peach", floating)))
+
+    def test_peach_weapon_zones_keep_separate_ids_and_angles(self):
+        for action, expected in (
+            (349, [(0, 13, 45, "sour"), (1, 13, 45, "sour"), (2, 13, 361, "sour"), (3, 17, 45, "sweet")]),
+            (350, [(0, 17, 80, "sweet"), (1, 15, 80, "sour"), (2, 15, 361, "sour")]),
+        ):
+            with self.subTest(action=action):
+                self.assertEqual(
+                    [
+                        (g.hitbox_id, p.combat.damage, p.combat.angle, p.spot)
+                        for g in get_hitbox_phases("peach", action)
+                        for p in g.phases
+                    ],
+                    expected,
+                )
 
     def test_temporal_labels_do_not_reduce_to_global_damage_ranks(self):
         # The entire clean Pikachu tail window is sweet, including 17%/18% zones.

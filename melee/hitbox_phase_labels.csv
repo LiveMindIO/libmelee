@@ -528,3 +528,10 @@ schema_version,character,action,hitbox_id,bone_id,start_frame,end_frame,damage,a
 1,9,344,2,4,7,23,9,361,0,sour,late twirl
 1,9,346,0,4,6,9,14,361,0,sweet,clean hip
 1,9,346,0,4,10,22,10,361,0,sour,late hip
+1,9,349,0,109,15,18,13,45,0,sour,club shaft
+1,9,349,1,109,15,18,13,45,0,sour,club shaft
+1,9,349,2,86,15,18,13,361,0,sour,club inner hit
+1,9,349,3,109,15,18,17,45,0,sweet,club tip
+1,9,350,0,109,15,18,17,80,0,sweet,pan head
+1,9,350,1,109,15,18,15,80,0,sour,pan handle
+1,9,350,2,86,15,18,15,361,0,sour,pan inner hit

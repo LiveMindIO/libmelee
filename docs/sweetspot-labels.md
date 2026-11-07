@@ -1,8 +1,8 @@
 # Additional reviewed sweetspot labels
 
-These annotations extend the original 19 signatures by 510, for 529 labeled
-phases across 118 character/action pairs. Successive batches cover eight, 34,
-31, six, 16, 13, two, one and two character/action pairs, listed below.
+These annotations extend the original 19 signatures by 517, for 536 labeled
+phases across 120 character/action pairs. Successive batches cover eight, 34,
+31, six, 16, 13, two, one, two and two character/action pairs, listed below.
 They do not modify the NTSC-U 1.02 numerical catalog, geometry or frame indexing.
 
 ## Evidence
@@ -423,3 +423,29 @@ counterparts. This change does not infer sweetspots for equal-damage forward-air
 zones, rank up-air zones by damage, or classify down-air multihit strikes as
 decay phases. It does not change query aliases, float movement, landing lag,
 or engine timing.
+
+## Peach club and pan: seven additional signatures
+
+| Raw action | Sweet zone at frames 15–18 | Sour zones at frames 15–18 |
+| --- | --- | --- |
+| 349 golf club | ID 3, bone 109, 17%, club tip | IDs 0/1, bone 109, 13%, shaft; ID 2, bone 86, 13%, inner hit |
+| 350 frying pan | ID 0, bone 109, 17%, pan head | ID 1, bone 109, 15%, handle; ID 2, bone 86, 15%, inner hit |
+
+[Peach moveset revision 2062455](https://www.ssbwiki.com/index.php?title=Peach_(SSBM)&oldid=2062455#Moveset)
+explicitly names the club tip and pan head sweetspots. The
+[forward-smash table revision 2012125](https://www.ssbwiki.com/index.php?title=Peach_(SSBM)/Forward_smash&oldid=2012125)
+independently records their IDs, bones, weapon-local offsets and 15–18 timing.
+FightCore 240 agrees with the catalog's per-weapon damage and angles but has
+placeholder frame 0, so it is not used to establish timing. The pinned
+`ftPe_Init.c` motion table linked above assigns 349/350/351 separately to club,
+pan and racket submotions. No selected weapon or charge level is inferred.
+
+Racket action 351 remains unlabeled. Its three zones all deal 12%, with ID 0
+having higher base knockback than IDs 1/2; that difference alone does not
+establish a named sweetspot. Club/pan inner hits retain their distinct Sakurai
+angles instead of inheriting the weapon head's 45/80-degree trajectory.
+
+Bowser forward-tilt revision 1434005 and forward-air revision 1643623 were also
+checked. They confirm three spatial damage zones but do not adjudicate a named
+sweet/sour selection. Those attacks remain unlabeled rather than treating the
+largest damage value as sufficient evidence.
