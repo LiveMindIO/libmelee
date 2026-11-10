@@ -61,21 +61,16 @@ def _matching_geometry(state: GameState) -> bool:
 
 
 def _floor_contact_y(segment: StageSegment, x: float) -> float | None:
-    """Root height where the lower morph ECB meets this floor segment.
+    """Root height where the morph ECB bottom point crosses this segment.
 
-    Bottom=(0,2), sides=(+/-3,5). Clip the lower diamond against the
-    segment's X interval; extrema of each linear piece occur at its ends.
-    Shared endpoints therefore participate without treating a seam as a ledge.
+    mpColl_80044628_Floor sweeps bottom=(0,2) with zero expansion.
+    Shared endpoints participate, but the diamond's sides cannot land.
     """
     a, b = sorted((segment.start, segment.end), key=lambda point: point.x)
-    if b.x <= a.x:
-        return None
-    left, right = max(a.x, x - _BOMB_ECB_HALF_WIDTH), min(b.x, x + _BOMB_ECB_HALF_WIDTH)
-    if left > right:
+    if b.x <= a.x or not a.x <= x <= b.x:
         return None
     slope = (b.y - a.y) / (b.x - a.x)
-    candidates = (left, right, max(left, min(x, right)))
-    return max(a.y + slope * (px - a.x) - (_BOMB_ECB_BOTTOM + abs(px - x)) for px in candidates)
+    return a.y + slope * (x - a.x) - _BOMB_ECB_BOTTOM
 
 
 def _aerial_landing_surface(player_state: CharacterState, state: GameState) -> StageSurface | None:

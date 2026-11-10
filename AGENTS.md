@@ -185,7 +185,8 @@ uv pip install --python .venv/bin/python .
   `SWDType.Grounded` (default), `PlatformLaunch`, or `Aerial`. Grounded requires
   ground; Aerial waits for a height predicting first landing on observed frame
   40 using stock bomb physics and matching live collision geometry, including
-  slopes and connected junctions on stable transformed Stadium. Neutral bomb
+  slopes and connected junctions on stable transformed Stadium. Floor contacts
+  sweep only the ECB bottom point, not the diamond's sides. Neutral bomb
   input brakes horizontal velocity, rather than retaining pre-bomb drift.
   Missing geometry or unsuitable height leaves it waiting without input.
   Landing does not reset animation time. `SWDType.PlatformLaunch` approaches a flat semisolid endpoint using

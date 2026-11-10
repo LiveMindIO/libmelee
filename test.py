@@ -6615,6 +6615,83 @@ class TechniqueMontageTests(unittest.TestCase):
                 self.assertIsNot(montage.get_montage_state(), MontageState.Waiting)
                 self.assertIn(("press_button", melee.Button.BUTTON_B), self.controls.take_calls())
 
+    def test_super_wavedash_aerial_floor_sweep_uses_bottom_not_diamond_edges(self):
+        # mpColl_80044628_Floor sweeps the bottom point with zero expansion;
+        # mpLineIntersectionH rejects a vertical path outside either endpoint.
+        platform_y = 27.20009994506836
+        left, right = 20.0, 57.60000228881836
+        platform = self.launch_geometry(left, right, platform_y)
+        main = self.launch_geometry(-68.4, 68.4, 0)
+        for reverse in (False, True):
+            surfaces = main.surfaces + platform.surfaces
+            geometry = dataclasses.replace(platform, stage=melee.Stage.BATTLEFIELD,
+                segments=main.segments + platform.segments,
+                surfaces=tuple(reversed(surfaces)) if reverse else surfaces)
+            for x, starts in ((19.5, False), (left - 0.0001, False),
+                    (left, True), (left + 0.0001, True),
+                    (right - 0.0001, True), (right, True),
+                    (right + 0.0001, False), (right + 0.5, False)):
+                with self.subTest(reverse=reverse, x=x):
+                    # Independent vertical bottom sweep against the two real
+                    # floor spans: outside the platform, main-floor contact is 59.
+                    y, vy = 41.10009994506836, 0.8999999761581421
+                    first_contact = None
+                    for frame in range(1, 60):
+                        previous_bottom = y + 2
+                        vy = max(vy - 0.066, -1.4)
+                        y += vy
+                        heights = (0, platform_y) if left <= x <= right else (0,)
+                        if vy < 0 and any(previous_bottom > height >= y + 2 for height in heights):
+                            first_contact = frame
+                            break
+                    self.assertEqual(first_contact, 40 if starts else 59)
+                    montage = SuperWavedashMontage(WavedashDirection.Right, swd_type=SWDType.Aerial)
+                    self.assertIs(self.tick(montage, melee.Action.FALLING,
+                        character=melee.Character.SAMUS, on_ground=False,
+                        position_x=x, position_y=41.10009994506836,
+                        stage_geometry=geometry), montage)
+                    calls = self.controls.take_calls()
+                    self.assertEqual(montage.get_montage_state() is not MontageState.Waiting, starts)
+                    if starts:
+                        self.assertIn(("press_button", melee.Button.BUTTON_B), calls)
+                    else:
+                        self.assertEqual(calls, [])
+
+    def test_super_wavedash_aerial_selects_first_contact_within_same_frame(self):
+        lower = self.launch_geometry(-50, 50, 0)
+        upper = self.launch_geometry(-50, 50, 0.5)
+        # Both crossings occur on frame 40. Keep only the upper surface after
+        # initiation: the public tick must retain that first contact, not abort.
+        for surfaces in (lower.surfaces + upper.surfaces, upper.surfaces + lower.surfaces):
+            geometry = dataclasses.replace(upper, surfaces=surfaces,
+                segments=lower.segments + upper.segments)
+            montage = SuperWavedashMontage(WavedashDirection.Right, swd_type=SWDType.Aerial)
+            self.assertIs(self.tick(montage, melee.Action.FALLING,
+                character=melee.Character.SAMUS, on_ground=False,
+                position_y=14.4, stage_geometry=geometry), montage)
+            self.assertIn(("press_button", melee.Button.BUTTON_B), self.controls.take_calls())
+            self.assertIs(self.tick(montage, melee.Action.SAMUS_SPECIAL_AIR_LW_BOMB,
+                character=melee.Character.SAMUS, on_ground=False, action_frame=1,
+                position_y=15, stage_geometry=upper), montage)
+            self.assertEqual(self.controls.take_calls(), [("release_all",)])
+
+    def test_super_wavedash_aerial_steep_slopes_use_bottom_height(self):
+        point = melee.gamestate.StagePoint
+        kind = melee.gamestate.StageSurfaceKind.SOLID_FLOOR
+        for ends in (((-10, -20), (10, 20)), ((-10, 20), (10, -20))):
+            for reverse in (False, True):
+                segment = melee.gamestate.StageSegment(0,
+                    point(*ends[1 if reverse else 0]), point(*ends[0 if reverse else 1]), kind)
+                surface = melee.gamestate.StageSurface(kind, (segment,))
+                geometry = melee.gamestate.StageGeometry(melee.Stage.POKEMON_STADIUM,
+                    self.frame, (segment,), (surface,))
+                montage = SuperWavedashMontage(WavedashDirection.Right, swd_type=SWDType.Aerial)
+                self.assertIs(self.tick(montage, melee.Action.FALLING,
+                    character=melee.Character.SAMUS, on_ground=False,
+                    position_y=14.4, stage_geometry=geometry), montage)
+                self.assertIsNot(montage.get_montage_state(), MontageState.Waiting)
+                self.assertIn(("press_button", melee.Button.BUTTON_B), self.controls.take_calls())
+
     def test_super_wavedash_aerial_neutral_brakes_horizontal_velocity(self):
         for velocity in (-2.0, 2.0):
             geometry = self.launch_geometry(-5, 5, 0)
