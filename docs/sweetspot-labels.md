@@ -502,3 +502,22 @@ semi-spike label is copied onto the clone's different signatures.
 Mewtwo up-air revision 1392909 and DK down-smash revision 1389252 also confirm
 their numerical tail/limb zones without identifying a named sweet/sour variant.
 Both remain unlabeled; their damage gradients alone do not resolve that question.
+
+## Rechecked multihit and partner exclusions
+
+[Roy neutral-air revision 1388991](https://www.ssbwiki.com/index.php?title=Roy_(SSBM)/Neutral_aerial&oldid=1388991)
+independently agrees with the catalog's first strike at 7–8 and second strike
+at 17–20. All four opener IDs deal 4%; the second strike has 8% inner zones
+and a 6% outer zone. The second strike is not a late decay phase of the first.
+Neither the stronger finisher nor its damage gradient alone establishes a named
+sweetspot. Preserve the opener's distinct 100/90-degree angles and the finisher's
+361 angles; keep this action unlabeled pending spatial-role adjudication.
+
+[Ice Climbers forward-air revision 1392757](https://www.ssbwiki.com/index.php?title=Ice_Climbers_(SSBM)/Forward_aerial&oldid=1392757)
+agrees with the 19–22 window, IDs 0/1/2, bones 15/15/11 and 11%/10%/9% base
+damage. The static catalog independently records identical Popo/Nana signatures:
+ID 0 angle 270 and IDs 1/2 angle 70. This shared script evidence does not resolve
+leader/partner runtime adjustments or demonstrate which overlapping zone wins.
+Both characters remain unlabeled, without replacing static values with inferred
+live angles or partner-scaled damage. Exact-signature regressions protect these
+three actions and require sweetspot selection to fail rather than guess.

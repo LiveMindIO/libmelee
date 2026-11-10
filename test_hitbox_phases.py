@@ -371,6 +371,54 @@ class HitboxPhaseTests(unittest.TestCase):
                     )
                 )
 
+    def test_unresolved_multihit_and_partner_zones_keep_exact_script_values(self):
+        for character, action, expected in (
+            (
+                "roy",
+                65,
+                [
+                    (0, 78, [(7, 8, 4, 100), (17, 20, 8, 361)]),
+                    (1, 73, [(7, 8, 4, 100), (17, 20, 8, 361)]),
+                    (2, 27, [(7, 8, 4, 100), (17, 20, 8, 361)]),
+                    (3, 78, [(7, 8, 4, 90), (17, 20, 6, 361)]),
+                ],
+            ),
+            (
+                "popo",
+                66,
+                [
+                    (0, 15, [(19, 22, 11, 270)]),
+                    (1, 15, [(19, 22, 10, 70)]),
+                    (2, 11, [(19, 22, 9, 70)]),
+                ],
+            ),
+            (
+                "nana",
+                66,
+                [
+                    (0, 15, [(19, 22, 11, 270)]),
+                    (1, 15, [(19, 22, 10, 70)]),
+                    (2, 11, [(19, 22, 9, 70)]),
+                ],
+            ),
+        ):
+            with self.subTest(character=character, action=action):
+                groups = get_hitbox_phases(character, action)
+                self.assertEqual(
+                    [
+                        (
+                            g.hitbox_id,
+                            g.bone_id,
+                            [(p.start_frame, p.end_frame, p.combat.damage, p.combat.angle) for p in g.phases],
+                        )
+                        for g in groups
+                    ],
+                    expected,
+                )
+                self.assertTrue(all(p.spot is None for g in groups for p in g.phases))
+                with self.assertRaises(HitboxPhaseError):
+                    get_sweetspots(character, action)
+
     def test_pikachu_mid_tail_selection_is_not_damage_or_earliest_ranking(self):
         for group in get_hitbox_phases("pikachu", "UAIR"):
             self.assertEqual(
