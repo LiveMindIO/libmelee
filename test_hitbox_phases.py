@@ -133,6 +133,8 @@ _ROSTER_SWEET_PHASES = {
     (9, 349): ((3, 15, 18),),
     (9, 350): ((0, 15, 18),),
     (12, 68): ((0, 5, 6), (1, 5, 6)),
+    (25, 347): ((2, 70, 72),),
+    (25, 348): ((2, 70, 72),),
 }
 
 
@@ -165,7 +167,7 @@ class PhaseLabelCsvTests(unittest.TestCase):
                             phase.combat.element,
                         )
                         observed[signature] = (phase.spot, phase.label)
-        self.assertEqual(len(observed), 542)
+        self.assertEqual(len(observed), 548)
         self.assertEqual(observed, _phase_labels())
 
     def test_all_phase_results_preserve_numbers_and_original_labels(self):
@@ -370,6 +372,53 @@ class HitboxPhaseTests(unittest.TestCase):
                         for g in get_hitbox_phases("roy", action)
                     )
                 )
+
+    def test_warlock_punch_keeps_ground_air_knockback_and_spatial_zones(self):
+        for action, base_knockback in ((347, 30), (348, 40)):
+            with self.subTest(action=action):
+                groups = get_hitbox_phases("ganondorf", action)
+                self.assertEqual(
+                    [
+                        (
+                            g.hitbox_id,
+                            g.bone_id,
+                            [
+                                (
+                                    p.start_frame,
+                                    p.end_frame,
+                                    p.combat.damage,
+                                    p.combat.angle,
+                                    p.combat.element,
+                                    p.combat.base_knockback,
+                                    p.spot,
+                                )
+                                for p in g.phases
+                            ],
+                        )
+                        for g in groups
+                    ],
+                    [
+                        (i, bone, [(70, 72, damage, 361, 13, base_knockback, spot)])
+                        for i, bone, damage, spot in ((0, 69, 30, "sour"), (1, 66, 32, "sour"), (2, 66, 34, "sweet"))
+                    ],
+                )
+        self.assertEqual({g.action_id for g in get_sweetspots("ganondorf", "neutral-b")}, {347, 348})
+
+    def test_koopa_klaw_does_not_rank_close_and_far_roles_by_damage(self):
+        for action in (347, 353):
+            with self.subTest(action=action):
+                groups = get_hitbox_phases("bowser", action)
+                self.assertEqual(
+                    [
+                        (g.hitbox_id, p.start_frame, p.end_frame, p.combat.damage, p.combat.angle)
+                        for g in groups
+                        for p in g.phases
+                    ],
+                    [(0, 16, 18, 8, 0), (1, 16, 18, 8, 0), (2, 16, 18, 12, 80), (3, 16, 18, 10, 80)],
+                )
+                self.assertTrue(all(p.spot is None for g in groups for p in g.phases))
+                with self.assertRaises(HitboxPhaseError):
+                    get_sweetspots("bowser", action)
 
     def test_unresolved_multihit_and_partner_zones_keep_exact_script_values(self):
         for character, action, expected in (

@@ -1,8 +1,8 @@
 # Additional reviewed sweetspot labels
 
-These annotations extend the original 19 signatures by 523, for 542 labeled
-phases across 121 character/action pairs. Successive batches cover eight, 34,
-31, six, 16, 13, two, one, two, two and one character/action pairs, listed below.
+These annotations extend the original 19 signatures by 529, for 548 labeled
+phases across 123 character/action pairs. Successive batches cover eight, 34,
+31, six, 16, 13, two, one, two, two, one and two character/action pairs, listed below.
 They do not modify the NTSC-U 1.02 numerical catalog, geometry or frame indexing.
 
 ## Evidence
@@ -521,3 +521,40 @@ leader/partner runtime adjustments or demonstrate which overlapping zone wins.
 Both characters remain unlabeled, without replacing static values with inferred
 live angles or partner-scaled damage. Exact-signature regressions protect these
 three actions and require sweetspot selection to fail rather than guess.
+
+## Warlock Punch shoulder: six additional signatures
+
+Ground action 347 and aerial action 348 each select ID 2, bone 66, at 70–72:
+the close shoulder sweetspot deals 34%. ID 1 on bone 66 deals 32% at the middle
+offset; ID 0 on bone 69 deals 30% at the far end. Those two zones are sour.
+Every zone retains angle 361, darkness element 13 and knockback growth 100.
+Ground base knockback is 30; aerial base knockback is 40. Equal damage and
+windows across the two actions do not erase that ground/air distinction.
+
+[Sweet-spot revision 2059342](https://www.ssbwiki.com/index.php?title=Sweet_spot_(hitbox)&oldid=2059342)
+explicitly identifies Warlock Punch's Melee shoulder sweetspot, including its
+Home-Run Contest use. The
+[move table revision 2059008](https://www.ssbwiki.com/index.php?title=Ganondorf_(SSBM)/Neutral_special&oldid=2059008)
+records each ID, bone, offset, ground/air knockback and the 70–72 window.
+[FightCore 216](https://data.fightcore.gg/characters/216/ganondorf) independently
+agrees with the grounded damage, timing, angle, element and knockback values;
+it does not establish the aerial base-knockback difference. The catalog-pinned
+[`ftGn_Init.c` motion table](https://github.com/doldecomp/melee/blob/d15c9cffe939611627b3a7a77a446705d2998f5f/src/melee/ft/chara/ftGanon/ftGn_Init.c)
+assigns 347/348 to distinct neutral-special ground/air submotions. Labels match
+both catalog records independently; no charge, reverse-punch or later-game
+variant is imported into Melee. Overlap priority and live connectivity remain
+outside this static selection.
+
+## Koopa Klaw: unresolved close/far roles
+
+[Koopa Klaw revision 2054640](https://www.ssbwiki.com/index.php?title=Koopa_Klaw&oldid=2054640)
+distinguishes the close command grab from the farther slash, bite and throws.
+It describes a swipe at 17–18 followed by a grab, whereas the
+[move table revision 2056108](https://www.ssbwiki.com/index.php?title=Bowser_(SSBM)/Side_special&oldid=2056108)
+lists hitboxes and grabboxes together at 16–18. The catalog's ground/air swipe
+actions 347/353 contain IDs 0/1 at 8%, angle 0, and IDs 2/3 at 12%/10%, angle
+80, all at 16–18. These numerical records do not prove capture sequencing,
+collision priority or which close/far role is preferable. Neither source names
+a sweet/sour selection. Keep both actions unlabeled and preserve their exact
+signatures; do not select ID 2 merely because it deals the most damage, or
+advertise the 8% records as proof of an ordinary damaging grab connection.

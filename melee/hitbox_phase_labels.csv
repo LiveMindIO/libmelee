@@ -541,3 +541,9 @@ schema_version,character,action,hitbox_id,bone_id,start_frame,end_frame,damage,a
 1,12,68,1,50,3,4,4,80,0,sour,early tail launcher
 1,12,68,1,50,5,6,4,0,0,sweet,mid tail semi-spike
 1,12,68,1,50,7,8,4,130,0,sour,late tail launcher
+1,25,347,0,69,70,72,30,361,13,sour,far punch
+1,25,347,1,66,70,72,32,361,13,sour,mid punch
+1,25,347,2,66,70,72,34,361,13,sweet,close shoulder
+1,25,348,0,69,70,72,30,361,13,sour,far punch
+1,25,348,1,66,70,72,32,361,13,sour,mid punch
+1,25,348,2,66,70,72,34,361,13,sweet,close shoulder
