@@ -181,7 +181,18 @@ uv pip install --python .venv/bin/python .
   input for engine frames 41 and 42; frame 42 schedules neutral. Standing and
   crouched starts share that underlying animation window. The standard route has
   landed in grounded bomb state 355 by observed frame 40; airborne bomb state 356
-  at that frame is the unsupported falling variant.
+  at that frame misses the ground-slide window. Keyword-only `swd_type` selects
+  `SWDType.Grounded` (default), `PlatformLaunch`, or `Aerial`. Grounded requires
+  ground; Aerial waits for a height predicting first landing on observed frame
+  40 using stock bomb physics and matching live collision geometry, including
+  slopes and connected junctions on stable transformed Stadium. Floor contacts
+  sweep only the ECB bottom point, not the diamond's sides. Neutral bomb
+  input brakes horizontal velocity, rather than retaining pre-bomb drift.
+  Missing geometry or unsuitable height leaves it waiting without input.
+  Landing does not reset animation time. `SWDType.PlatformLaunch` approaches a flat semisolid endpoint using
+  collision geometry and reverses into an airborne burst during morph physics.
+  It rejects changed/missing geometry and missed reversal frames. The platform
+  route is model-tested, not live-emulator validated; callers own recovery.
   `DoubleJumpCancelMontage(attack_type, attack_delay_frames=0)` supports Yoshi,
   Ness, Peach, and Mewtwo standard aerials from grounded or airborne starts. It
   resets airborne jump input for one committed frame before requesting the double
