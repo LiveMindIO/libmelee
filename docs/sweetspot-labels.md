@@ -615,3 +615,31 @@ independently records IDs, bones, offsets and 10–13 timing. Both hand zones ar
 selected; the two arm zones retain their different launch angle. [FightCore 242](https://data.fightcore.gg/characters/242/donkeykong)
 agrees with both moves' per-ID damage, angles, knockback and windows. Labels
 describe uncharged base signatures, not charge scaling or overlap priority.
+## Unresolved trajectory, landing and combo roles
+
+[DK forward-air revision 2030297](https://www.ssbwiki.com/index.php?title=Donkey_Kong_(SSBM)/Forward_aerial&oldid=2030297)
+distinguishes the early launcher from the late meteor and prefers the early
+hit for particular kill confirms, not every situation. All four catalog IDs
+retain 16% in both windows: 25–26 uses angle 361, base knockback 20/growth 100;
+27–29 uses angle 270, base 50/growth 80. IDs 2/3 also retain one extra shield
+damage. Equal damage does not erase the trajectory change, and higher base
+knockback alone does not make the meteor a sweetspot. No sweet/sour selection
+is adjudicated here.
+
+[Bowser up-smash revision 1666358](https://www.ssbwiki.com/index.php?title=Bowser_(SSBM)/Up_smash&oldid=1666358)
+describes an overlapping 20% shell zone and a rarely connecting 17% inner zone
+at 16–21, followed by a separate 12% landing hit at frame 30. The catalog keeps
+both IDs on bone 1, shell angle 90/base 40/growth 86/fire element 3, and landing
+angle 74/base 60/growth 100/normal element 0. Landing hits grounded targets only;
+shell hits also target aerial opponents. A static overlap description does not
+certify collision priority. Do not flatten the landing hit into ordinary damage
+decay or label the largest shell zone solely from damage.
+
+[Peach up-air revision 2060846](https://www.ssbwiki.com/index.php?title=Peach_(SSBM)/Up_aerial&oldid=2060846)
+identifies different combo roles for heel and middle zones at different target
+percents. IDs 0/1/2, bones 9/7/4, retain 14%/12%/11% at 7–11. Heel and middle
+launch at 80; the inner zone uses 361. All retain base knockback zero/growth 120.
+The source establishes spatial roles but not an adjudicated sweet/sour choice;
+keep every zone unlabeled rather than promote maximum damage to a universal
+selection. These three exclusions have exact-value and create/evolve tool
+regressions. They add no labels and do not establish live connectivity.

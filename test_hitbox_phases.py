@@ -505,6 +505,64 @@ class HitboxPhaseTests(unittest.TestCase):
                 with self.assertRaises(HitboxPhaseError):
                     get_sweetspots("bowser", action)
 
+    def test_unresolved_trajectory_landing_and_combo_roles_keep_exact_values(self):
+        cases = (
+            (
+                "dk",
+                66,
+                [
+                    (i, bone, [(25, 26, 16, 361, 20, 100, 0, True, shield), (27, 29, 16, 270, 50, 80, 0, True, shield)])
+                    for i, bone, shield in ((0, 52, 0), (1, 30, 0), (2, 51, 1), (3, 29, 1))
+                ],
+            ),
+            (
+                "bowser",
+                63,
+                [
+                    (i, 1, [(16, 21, damage, 90, 40, 86, 3, True, 0), (30, 30, 12, 74, 60, 100, 0, False, 0)])
+                    for i, damage in ((0, 20), (1, 17))
+                ],
+            ),
+            (
+                "peach",
+                68,
+                [
+                    (i, bone, [(7, 11, damage, angle, 0, 120, 0, True, 0)])
+                    for i, bone, damage, angle in ((0, 9, 14, 80), (1, 7, 12, 80), (2, 4, 11, 361))
+                ],
+            ),
+        )
+        for character, action, expected in cases:
+            with self.subTest(character=character, action=action):
+                groups = get_hitbox_phases(character, action)
+                self.assertEqual(
+                    [
+                        (
+                            g.hitbox_id,
+                            g.bone_id,
+                            [
+                                (
+                                    p.start_frame,
+                                    p.end_frame,
+                                    p.combat.damage,
+                                    p.combat.angle,
+                                    p.combat.base_knockback,
+                                    p.combat.knockback_growth,
+                                    p.combat.element,
+                                    p.combat.hits_aerial,
+                                    p.combat.shield_damage,
+                                )
+                                for p in g.phases
+                            ],
+                        )
+                        for g in groups
+                    ],
+                    expected,
+                )
+                self.assertTrue(all(p.spot is None for g in groups for p in g.phases))
+                with self.assertRaises(HitboxPhaseError):
+                    get_sweetspots(character, action)
+
     def test_unresolved_multihit_and_partner_zones_keep_exact_script_values(self):
         for character, action, expected in (
             (
