@@ -1,8 +1,8 @@
 # Additional reviewed sweetspot labels
 
-These annotations extend the original 19 signatures by 542, for 561 labeled
-phases across 127 character/action pairs. Successive batches cover eight, 34,
-31, six, 16, 13, two, one, two, two, one, two and four character/action pairs, listed below.
+These annotations extend the original 19 signatures by 550, for 569 labeled
+phases across 129 character/action pairs. Successive batches cover eight, 34,
+31, six, 16, 13, two, one, two, two, one, two, four and two character/action pairs, listed below.
 They do not modify the NTSC-U 1.02 numerical catalog, geometry or frame indexing.
 
 ## Evidence
@@ -501,7 +501,8 @@ semi-spike label is copied onto the clone's different signatures.
 
 Mewtwo up-air revision 1392909 and DK down-smash revision 1389252 also confirm
 their numerical tail/limb zones without identifying a named sweet/sour variant.
-Both remain unlabeled; their damage gradients alone do not resolve that question.
+That move-table-only review left both unlabeled. Mewtwo remains unresolved;
+the additional named DK character evidence below supersedes its exclusion.
 
 ## Rechecked multihit and partner exclusions
 
@@ -587,3 +588,30 @@ damage; all three zones retain angle 361, base knockback 20 and growth 100.
 The article's intermediate-angle tables do not justify synthesizing unavailable
 catalog actions 52/54, and Falcon's different forward-tilt zones are not inferred
 from these Ganondorf labels. Collision priority remains unverified.
+
+## DK smash zones: eight additional signatures
+
+| Raw action | Sweet phases | Sour phases |
+| --- | --- | --- |
+| 60 forward smash, 22–23 | ID 1, bone 0, 21%, arms | IDs 0/2/3, bone 0, 20%/19%/18%, hands/upper body/lower body |
+| 64 down smash, 10–13 | IDs 0/1, bones 52/30, 16%, angle 115, hands | IDs 2/3, bones 51/29, 14%, angle 98, arms |
+
+[DK character revision 2062459](https://www.ssbwiki.com/index.php?title=Donkey_Kong_(SSBM)&oldid=2062459)
+explicitly identifies forward smash's arm sweetspot and down smash's hand
+sweetspots in its changes-from-Smash-64 section, and maps their damage and
+anatomical roles in the moveset. This is additional named evidence beyond the
+down-smash numerical table previously reviewed; it supersedes that action's
+unlabeled exclusion rather than inferring a sweetspot from maximum damage.
+
+[Forward-smash revision 1930258](https://www.ssbwiki.com/index.php?title=Donkey_Kong_(SSBM)/Forward_smash&oldid=1930258)
+also names the elbow sweetspot and records each root-relative offset, ID and
+22–23 window. ID 0's hands and ID 1's arms retain base knockback 22/growth 94,
+while IDs 2/3 retain base 18/growth 100. All four remain at angle 361. Bone 0
+is the shared root, not a reason to collapse the four spatial zones or rename
+the bone itself to an arm.
+
+[Down-smash revision 1389252](https://www.ssbwiki.com/index.php?title=Donkey_Kong_(SSBM)/Down_smash&oldid=1389252)
+independently records IDs, bones, offsets and 10–13 timing. Both hand zones are
+selected; the two arm zones retain their different launch angle. [FightCore 242](https://data.fightcore.gg/characters/242/donkeykong)
+agrees with both moves' per-ID damage, angles, knockback and windows. Labels
+describe uncharged base signatures, not charge scaling or overlap priority.

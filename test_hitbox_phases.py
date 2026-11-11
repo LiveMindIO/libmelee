@@ -139,6 +139,8 @@ _ROSTER_SWEET_PHASES = {
     (25, 51): ((0, 9, 11),),
     (25, 53): ((0, 9, 11),),
     (25, 55): ((0, 9, 11),),
+    (3, 60): ((1, 22, 23),),
+    (3, 64): ((0, 10, 13), (1, 10, 13)),
 }
 
 
@@ -171,7 +173,7 @@ class PhaseLabelCsvTests(unittest.TestCase):
                             phase.combat.element,
                         )
                         observed[signature] = (phase.spot, phase.label)
-        self.assertEqual(len(observed), 561)
+        self.assertEqual(len(observed), 569)
         self.assertEqual(observed, _phase_labels())
 
     def test_all_phase_results_preserve_numbers_and_original_labels(self):
@@ -311,7 +313,6 @@ class HitboxPhaseTests(unittest.TestCase):
             (5, 66),
             (23, 68),
             (16, 68),
-            (3, 64),
         ):
             with self.subTest(character=character, action=action):
                 groups = get_hitbox_phases(character, action)
@@ -375,6 +376,47 @@ class HitboxPhaseTests(unittest.TestCase):
                         [(p.start_frame, p.end_frame) for p in g.phases] == expected
                         for g in get_hitbox_phases("roy", action)
                     )
+                )
+
+    def test_dk_smashes_keep_distinct_spatial_roles_and_knockback(self):
+        for action, expected in (
+            (
+                60,
+                [
+                    (0, 0, 22, 23, 20, 361, 22, 94, "sour"),
+                    (1, 0, 22, 23, 21, 361, 22, 94, "sweet"),
+                    (2, 0, 22, 23, 19, 361, 18, 100, "sour"),
+                    (3, 0, 22, 23, 18, 361, 18, 100, "sour"),
+                ],
+            ),
+            (
+                64,
+                [
+                    (0, 52, 10, 13, 16, 115, 35, 100, "sweet"),
+                    (1, 30, 10, 13, 16, 115, 35, 100, "sweet"),
+                    (2, 51, 10, 13, 14, 98, 35, 100, "sour"),
+                    (3, 29, 10, 13, 14, 98, 35, 100, "sour"),
+                ],
+            ),
+        ):
+            with self.subTest(action=action):
+                self.assertEqual(
+                    [
+                        (
+                            g.hitbox_id,
+                            g.bone_id,
+                            p.start_frame,
+                            p.end_frame,
+                            p.combat.damage,
+                            p.combat.angle,
+                            p.combat.base_knockback,
+                            p.combat.knockback_growth,
+                            p.spot,
+                        )
+                        for g in get_hitbox_phases("dk", action)
+                        for p in g.phases
+                    ],
+                    expected,
                 )
 
     def test_falcon_up_air_selects_both_clean_zones_without_inventing_late_hit(self):
