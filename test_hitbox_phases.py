@@ -563,6 +563,76 @@ class HitboxPhaseTests(unittest.TestCase):
                 with self.assertRaises(HitboxPhaseError):
                     get_sweetspots(character, action)
 
+    def test_mewtwo_spatial_gradients_do_not_imply_a_shared_tail_sweetspot(self):
+        cases = [(action, 6, 8, (21, 23, 25), (10, 8, 5), 361, (20, 10, 0), 100) for action in (51, 53, 55)] + [
+            (57, 5, 7, (21, 23, 25), (9, 8, 5), 80, (40, 40, 40), 80),
+            (67, 12, 15, (25, 23, 21), (9, 11, 13), 361, (0, 0, 0), 100),
+            (68, 9, 11, (21, 23, 25), (10, 12, 14), 55, (0, 0, 0), 100),
+            (69, 18, 21, (5, 14, 18), (14, 15, 16), 270, (10, 10, 10), 100),
+        ]
+        for action, start, end, bones, damages, angle, bases, growth in cases:
+            with self.subTest(action=action):
+                groups = get_hitbox_phases("mewtwo", action)
+                self.assertEqual(
+                    [
+                        (
+                            g.hitbox_id,
+                            g.bone_id,
+                            [
+                                (
+                                    p.start_frame,
+                                    p.end_frame,
+                                    p.combat.damage,
+                                    p.combat.angle,
+                                    p.combat.base_knockback,
+                                    p.combat.knockback_growth,
+                                )
+                                for p in g.phases
+                            ],
+                        )
+                        for g in groups
+                    ],
+                    [
+                        (i, bone, [(start, end, damage, angle, base, growth)])
+                        for i, (bone, damage, base) in enumerate(zip(bones, damages, bases, strict=True))
+                    ],
+                )
+                self.assertTrue(all(p.spot is None for g in groups for p in g.phases))
+                with self.assertRaises(HitboxPhaseError):
+                    get_sweetspots("mewtwo", action)
+
+    def test_mewtwo_up_tilt_changes_knockback_without_damage_decay(self):
+        groups = get_hitbox_phases("mewtwo", 56)
+        self.assertEqual(
+            [
+                (
+                    g.hitbox_id,
+                    g.bone_id,
+                    [
+                        (
+                            p.start_frame,
+                            p.end_frame,
+                            p.combat.damage,
+                            p.combat.angle,
+                            p.combat.base_knockback,
+                            p.combat.knockback_growth,
+                        )
+                        for p in g.phases
+                    ],
+                )
+                for g in groups
+            ],
+            [
+                (0, 5, [(6, 6, 10, 110, 0, 115), (7, 11, 10, 78, 60, 114)]),
+                (1, 21, [(6, 6, 8, 110, 70, 114), (7, 11, 8, 78, 60, 114)]),
+                (2, 23, [(6, 6, 6, 110, 70, 114), (7, 11, 6, 78, 50, 114)]),
+                (3, 25, [(6, 6, 5, 361, 0, 80), (7, 11, 5, 78, 40, 114)]),
+            ],
+        )
+        self.assertTrue(all(p.spot is None for g in groups for p in g.phases))
+        with self.assertRaises(HitboxPhaseError):
+            get_sweetspots("mewtwo", 56)
+
     def test_unresolved_multihit_and_partner_zones_keep_exact_script_values(self):
         for character, action, expected in (
             (

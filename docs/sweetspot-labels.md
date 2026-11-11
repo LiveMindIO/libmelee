@@ -643,3 +643,35 @@ The source establishes spatial roles but not an adjudicated sweet/sour choice;
 keep every zone unlabeled rather than promote maximum damage to a universal
 selection. These three exclusions have exact-value and create/evolve tool
 regressions. They add no labels and do not establish live connectivity.
+
+## Mewtwo tail gradients and up-tilt timing: unresolved selections
+
+The [character moveset revision 2062473](https://www.ssbwiki.com/index.php?title=Mewtwo_(SSBM)&oldid=2062473#Moveset)
+describes near/middle/far damage for tilts and aerials, but names a sweetspot
+only for forward smash's shadow blast. That existing forward-smash label does
+not establish a general Mewtwo tail rule. Up air's highest-damage zone is far
+on bone 25, while back air's is near on bone 21; their raw hitbox ID 2 therefore
+does not identify the same anatomy. Neither gradient alone establishes labels.
+
+| Actions | Catalog signatures (ID order) | Move evidence |
+| --- | --- | --- |
+| 51/53/55 forward tilt | 6–8, bones 21/23/25, 10%/8%/5%, angle 361, base 20/10/0, growth 100 | [2029922](https://www.ssbwiki.com/index.php?title=Mewtwo_(SSBM)/Forward_tilt&oldid=2029922), all three angles |
+| 57 down tilt | 5–7, bones 21/23/25, 9%/8%/5%, angle 80, base 40, growth 80 | [1668339](https://www.ssbwiki.com/index.php?title=Mewtwo_(SSBM)/Down_tilt&oldid=1668339) |
+| 67 back air | 12–15, bones 25/23/21, 9%/11%/13%, angle 361, base 0, growth 100 | [1392902](https://www.ssbwiki.com/index.php?title=Mewtwo_(SSBM)/Back_aerial&oldid=1392902) |
+| 68 up air | 9–11, bones 21/23/25, 10%/12%/14%, angle 55, base 0, growth 100 | [1392909](https://www.ssbwiki.com/index.php?title=Mewtwo_(SSBM)/Up_aerial&oldid=1392909) |
+| 69 down air | 18–21, bones 5/14/18, 14%/15%/16%, angle 270 throughout, base 10, growth 100 | [1764236](https://www.ssbwiki.com/index.php?title=Mewtwo_(SSBM)/Down_aerial&oldid=1764236) |
+
+[Up-tilt revision 1394885](https://www.ssbwiki.com/index.php?title=Mewtwo_(SSBM)/Up_tilt&oldid=1394885)
+distinguishes frame 6 from 7–11. Action 56 retains bones 5/21/23/25 and damage
+10%/8%/6%/5% in both phases. Frame 6 angles are 110/110/110/361, base knockback
+0/70/70/0 and growth 115/114/114/80. At 7–11 every angle is 78, bases are
+60/60/50/40 and growth is 114 throughout. These are not simple damage-decay
+phases: the tip's late knockback increases while other zones change differently.
+
+[FightCore 217](https://data.fightcore.gg/characters/217/mewtwo) independently
+matches these windows, per-ID damage, angles and knockback for the level tilt,
+up/down tilts and three aerials. The move tables supply the bones and angled
+tilt correspondence. Exact-value regressions cover all eight catalog actions;
+create/evolve tools reject guessed selections through both structured APIs.
+No labels, numerical values or frames change. These exclusions do not prove
+that the moves lack sweetspots or certify collision priority in live play.
