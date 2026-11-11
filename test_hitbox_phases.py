@@ -135,6 +135,10 @@ _ROSTER_SWEET_PHASES = {
     (12, 68): ((0, 5, 6), (1, 5, 6)),
     (25, 347): ((2, 70, 72),),
     (25, 348): ((2, 70, 72),),
+    (2, 68): ((0, 6, 10), (1, 6, 10)),
+    (25, 51): ((0, 9, 11),),
+    (25, 53): ((0, 9, 11),),
+    (25, 55): ((0, 9, 11),),
 }
 
 
@@ -167,7 +171,7 @@ class PhaseLabelCsvTests(unittest.TestCase):
                             phase.combat.element,
                         )
                         observed[signature] = (phase.spot, phase.label)
-        self.assertEqual(len(observed), 548)
+        self.assertEqual(len(observed), 561)
         self.assertEqual(observed, _phase_labels())
 
     def test_all_phase_results_preserve_numbers_and_original_labels(self):
@@ -371,6 +375,45 @@ class HitboxPhaseTests(unittest.TestCase):
                         [(p.start_frame, p.end_frame) for p in g.phases] == expected
                         for g in get_hitbox_phases("roy", action)
                     )
+                )
+
+    def test_falcon_up_air_selects_both_clean_zones_without_inventing_late_hit(self):
+        groups = get_hitbox_phases("captain_falcon", "UAIR")
+        self.assertEqual(
+            [
+                (
+                    g.hitbox_id,
+                    g.bone_id,
+                    [(p.start_frame, p.end_frame, p.combat.damage, p.combat.angle, p.spot) for p in g.phases],
+                )
+                for g in groups
+            ],
+            [
+                (0, 7, [(6, 10, 13, 361, "sweet"), (11, 13, 12, 30, "sour")]),
+                (1, 8, [(6, 10, 12, 361, "sweet"), (11, 13, 10, 30, "sour")]),
+            ],
+        )
+        self.assertEqual(len(get_sweetspots("captain_falcon", "UAIR")), 2)
+
+    def test_ganondorf_forward_tilt_selects_foot_independently_for_each_angle(self):
+        for action, damages in ((51, (14, 13, 12)), (53, (13, 12, 11)), (55, (12, 11, 10))):
+            with self.subTest(action=action):
+                groups = get_hitbox_phases("ganondorf", action)
+                self.assertEqual(
+                    [
+                        (
+                            g.hitbox_id,
+                            g.bone_id,
+                            [(p.start_frame, p.end_frame, p.combat.damage, p.combat.angle, p.spot) for p in g.phases],
+                        )
+                        for g in groups
+                    ],
+                    [
+                        (i, bone, [(9, 11, damage, 361, spot)])
+                        for i, bone, damage, spot in zip(
+                            (0, 1, 2), (13, 12, 4), damages, ("sweet", "sour", "sour"), strict=True
+                        )
+                    ],
                 )
 
     def test_warlock_punch_keeps_ground_air_knockback_and_spatial_zones(self):

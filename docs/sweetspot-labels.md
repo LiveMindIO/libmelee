@@ -1,8 +1,8 @@
 # Additional reviewed sweetspot labels
 
-These annotations extend the original 19 signatures by 529, for 548 labeled
-phases across 123 character/action pairs. Successive batches cover eight, 34,
-31, six, 16, 13, two, one, two, two, one and two character/action pairs, listed below.
+These annotations extend the original 19 signatures by 542, for 561 labeled
+phases across 127 character/action pairs. Successive batches cover eight, 34,
+31, six, 16, 13, two, one, two, two, one, two and four character/action pairs, listed below.
 They do not modify the NTSC-U 1.02 numerical catalog, geometry or frame indexing.
 
 ## Evidence
@@ -558,3 +558,32 @@ collision priority or which close/far role is preferable. Neither source names
 a sweet/sour selection. Keep both actions unlabeled and preserve their exact
 signatures; do not select ID 2 merely because it deals the most damage, or
 advertise the 8% records as proof of an ordinary damaging grab connection.
+
+## Falcon up air and Ganondorf forward tilt: 13 additional signatures
+
+| Character / raw action | Sweet phases | Sour phases |
+| --- | --- | --- |
+| Falcon / 68 up air | IDs 0/1, bones 7/8: 6–10, 13%/12%, angle 361, clean kick | Same IDs/bones: 11–13, 12%/10%, angle 30, mid semi-spike |
+| Ganondorf / 51 forward tilt up | ID 0, bone 13: 9–11, 14%, foot | IDs 1/2, bones 12/4: 13%/12%, leg/body |
+| Ganondorf / 53 forward tilt level | ID 0, bone 13: 9–11, 13%, foot | IDs 1/2, bones 12/4: 12%/11%, leg/body |
+| Ganondorf / 55 forward tilt down | ID 0, bone 13: 9–11, 12%, foot | IDs 1/2, bones 12/4: 11%/10%, leg/body |
+
+[Falcon up-air revision 2034965](https://www.ssbwiki.com/index.php?title=Captain_Falcon_(SSBM)/Up_aerial&oldid=2034965)
+records both IDs, bones and clean/mid windows. It explicitly describes the
+semi-spike's gimping use and explains that the scripted late hit is deleted on
+its creation frame, so no 14–16 phase survives. [FightCore 227](https://data.fightcore.gg/characters/227/captainfalcon)
+independently agrees with the two surviving windows and their combat values.
+Select both clean zones, including the 12% zone; do not rank equal 12% clean/mid
+damage as equivalent. The mid semi-spike remains useful, not universally worse.
+No absent late hit or Ganondorf zero-degree phase is copied into Falcon's data.
+This agreement does not independently certify engine execution order.
+
+[Ganondorf forward-tilt revision 2063293](https://www.ssbwiki.com/index.php?title=Ganondorf_(SSBM)/Forward_tilt&oldid=2063293)
+explicitly names the foot sweetspot and records IDs, bones, offsets and the 9–11
+window for all angles. [FightCore 216](https://data.fightcore.gg/characters/216/ganondorf)
+independently agrees with up, level and down damage, timing and combat values.
+Each catalog action is matched separately, preserving its own geometry and
+damage; all three zones retain angle 361, base knockback 20 and growth 100.
+The article's intermediate-angle tables do not justify synthesizing unavailable
+catalog actions 52/54, and Falcon's different forward-tilt zones are not inferred
+from these Ganondorf labels. Collision priority remains unverified.

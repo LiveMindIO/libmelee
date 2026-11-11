@@ -48,8 +48,8 @@ leaves the phase unlabeled, never guesses a replacement.
 
 Add labels only after reviewing the intended variant and its exact script
 signature and adding a regression test. The initial CSV migration preserved
-19 labels; source-backed additions bring coverage to 548 labeled phases across
-123 character/action pairs. Numerical data, geometry, frames and original labels
+19 labels; source-backed additions bring coverage to 561 labeled phases across
+127 character/action pairs. Numerical data, geometry, frames and original labels
 are unchanged. This is not complete roster sweetspot coverage. See
 [sweetspot-labels.md](sweetspot-labels.md) for added signatures and sources.
 

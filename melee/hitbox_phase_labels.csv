@@ -547,3 +547,16 @@ schema_version,character,action,hitbox_id,bone_id,start_frame,end_frame,damage,a
 1,25,348,0,69,70,72,30,361,13,sour,far punch
 1,25,348,1,66,70,72,32,361,13,sour,mid punch
 1,25,348,2,66,70,72,34,361,13,sweet,close shoulder
+1,2,68,0,7,6,10,13,361,0,sweet,clean kick
+1,2,68,0,7,11,13,12,30,0,sour,mid semi-spike
+1,2,68,1,8,6,10,12,361,0,sweet,clean kick
+1,2,68,1,8,11,13,10,30,0,sour,mid semi-spike
+1,25,51,0,13,9,11,14,361,0,sweet,foot
+1,25,51,1,12,9,11,13,361,0,sour,leg
+1,25,51,2,4,9,11,12,361,0,sour,body
+1,25,53,0,13,9,11,13,361,0,sweet,foot
+1,25,53,1,12,9,11,12,361,0,sour,leg
+1,25,53,2,4,9,11,11,361,0,sour,body
+1,25,55,0,13,9,11,12,361,0,sweet,foot
+1,25,55,1,12,9,11,11,361,0,sour,leg
+1,25,55,2,4,9,11,10,361,0,sour,body
