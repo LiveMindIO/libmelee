@@ -629,7 +629,7 @@ is adjudicated here.
 [Bowser up-smash revision 1666358](https://www.ssbwiki.com/index.php?title=Bowser_(SSBM)/Up_smash&oldid=1666358)
 describes an overlapping 20% shell zone and a rarely connecting 17% inner zone
 at 16–21, followed by a separate 12% landing hit at frame 30. The catalog keeps
-both IDs on bone 1, shell angle 90/base 40/growth 86/fire element 3, and landing
+both IDs on bone 1, shell angle 90/base 40/growth 86/slash element 3, and landing
 angle 74/base 60/growth 100/normal element 0. Landing hits grounded targets only;
 shell hits also target aerial opponents. A static overlap description does not
 certify collision priority. Do not flatten the landing hit into ordinary damage
