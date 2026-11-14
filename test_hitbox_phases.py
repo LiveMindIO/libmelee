@@ -633,6 +633,44 @@ class HitboxPhaseTests(unittest.TestCase):
         with self.assertRaises(HitboxPhaseError):
             get_sweetspots("mewtwo", 56)
 
+    def test_unresolved_kick_and_claw_zones_preserve_ntsc_combat_values(self):
+        for character, action, start, end, angle, growth, zones in (
+            ("captain_falcon", 51, 9, 11, 361, 100, ((14, 12, 10), (13, 12, 10), (4, 11, 10))),
+            ("captain_falcon", 53, 9, 11, 361, 100, ((14, 11, 10), (13, 11, 10), (4, 11, 10))),
+            ("captain_falcon", 55, 9, 11, 361, 100, ((14, 10, 0), (13, 10, 0), (4, 11, 10))),
+            ("bowser", 66, 8, 11, 361, 80, ((38, 14, 50), (34, 12, 50), (60, 11, 50))),
+            ("yoshi", 63, 11, 15, 75, 108, ((38, 14, 26), (37, 14, 26))),
+        ):
+            with self.subTest(character=character, action=action):
+                groups = get_hitbox_phases(character, action)
+                self.assertEqual(
+                    [
+                        (
+                            g.hitbox_id,
+                            g.bone_id,
+                            [
+                                (
+                                    p.start_frame,
+                                    p.end_frame,
+                                    p.combat.damage,
+                                    p.combat.angle,
+                                    p.combat.base_knockback,
+                                    p.combat.knockback_growth,
+                                )
+                                for p in g.phases
+                            ],
+                        )
+                        for g in groups
+                    ],
+                    [
+                        (i, bone, [(start, end, damage, angle, base, growth)])
+                        for i, (bone, damage, base) in enumerate(zones)
+                    ],
+                )
+                self.assertTrue(all(p.spot is None for g in groups for p in g.phases))
+                with self.assertRaises(HitboxPhaseError):
+                    get_sweetspots(character, action)
+
     def test_unresolved_multihit_and_partner_zones_keep_exact_script_values(self):
         for character, action, expected in (
             (

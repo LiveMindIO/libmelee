@@ -675,3 +675,28 @@ tilt correspondence. Exact-value regressions cover all eight catalog actions;
 create/evolve tools reject guessed selections through both structured APIs.
 No labels, numerical values or frames change. These exclusions do not prove
 that the moves lack sweetspots or certify collision priority in live play.
+
+## Falcon angled tilts, Bowser claw and Yoshi regional control
+
+[Falcon forward-tilt revision 1537370](https://www.ssbwiki.com/index.php?title=Captain_Falcon_(SSBM)/Forward_tilt&oldid=1537370)
+records 9–11 for all three available angles (51/53/55), with IDs 0/1/2 on
+bones 14/13/4. Up uses 12%/12%/11%, level uses 11% throughout, and down uses
+10%/10%/11%. Base knockback is 10 except the down angle's IDs 0/1, which use
+zero; angle 361 and growth 100 remain shared. The downward body zone is not
+weaker than the foot, unlike Ganondorf's labeled foot selections. No Falcon
+label is inferred from the related fighter or from each angle's maximum damage.
+
+[Bowser forward-air revision 1643623](https://www.ssbwiki.com/index.php?title=Bowser_(SSBM)/Forward_aerial&oldid=1643623)
+describes a claw swipe and several spacing/combo roles, but does not establish
+a sweet/sour selection among its three zones. Action 66 retains 8–11, IDs
+0/1/2 on bones 38/34/60, 14%/12%/11%, angle 361, base 50 and growth 80.
+The largest damage zone is not automatically a reviewed sweetspot.
+
+[Yoshi up-smash revision 2016021](https://www.ssbwiki.com/index.php?title=Yoshi_(SSBM)/Up_smash&oldid=2016021)
+explicitly separates NTSC 14%/base 26 from PAL 15%/base 30. The NTSC-U 1.02
+catalog's action 63 retains 14%/26 for both IDs, bones 38/37, at 11–15, angle
+75 and growth 108. Different sphere geometry is not itself a sweetspot; do not
+import the PAL buff or infer an intangibility window from numerical hitboxes.
+
+Exact-value and both-mode authoring regressions cover these five actions.
+All remain unlabeled; no numerical catalog, frame or existing label changes.
