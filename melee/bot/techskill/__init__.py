@@ -27,7 +27,7 @@ from melee.bot.techskill.storable_chargeable_special import (
     SamusChargeShotMontage,
     SheikNeedleStormMontage,
 )
-from melee.bot.techskill.super_wavedash import SuperWavedashMontage
+from melee.bot.techskill.super_wavedash import SWDType, SuperWavedashMontage
 from melee.bot.techskill.sword_dance import SwordDanceMontage
 from melee.bot.techskill.wavedash import WavedashMontage
 from melee.bot.techskill.yoshi_egg_throw import YoshiEggThrowMontage
@@ -57,6 +57,7 @@ __all__ = [
     "SmashAttackMontage",
     "SmashTurnJumpMontage",
     "SuperWavedashMontage",
+    "SWDType",
     "SwordDanceMontage",
     "WavedashDirection",
     "WavedashMontage",
