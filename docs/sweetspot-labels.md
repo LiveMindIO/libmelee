@@ -700,3 +700,43 @@ import the PAL buff or infer an intangibility window from numerical hitboxes.
 
 Exact-value and both-mode authoring regressions cover these five actions.
 All remain unlabeled; no numerical catalog, frame or existing label changes.
+
+## Target filters, trapping pulses and two-sided strikes
+
+These five actions remain unlabeled. Their differing damage, knockback or
+timing does not alone establish sweet/sour variants. Exact-value regressions
+and create/evolve tool checks retain the distinctions below, reject guessed
+sweet and sour selections, and preserve the numerical resource unchanged.
+
+- [Zelda down tilt, revision 1392811](https://www.ssbwiki.com/index.php?title=Zelda_(SSBM)/Down_tilt&oldid=1392811):
+  action 57, frames 5–7. IDs 0/1 share bone 16 and 7% damage, but ID 0 hits
+  grounded targets at 270 degrees and ID 1 hits aerial targets at 80 degrees.
+  IDs 2/3 (bones 13/4) hit both target types at 270 degrees for 8%. All use
+  base 20/growth 80. Do not describe both outer zones as meteor hits or use
+  their identical geometry to merge target-specific launch behavior.
+- [Zelda down air, revision 1393941](https://www.ssbwiki.com/index.php?title=Zelda_(SSBM)/Down_aerial&oldid=1393941):
+  action 69, frames 14–17. IDs 0/1 on bones 7/10 deal 8%/7%, with base
+  5/0 and growth 100/80; both hit grounded and aerial targets at 275 degrees.
+  The empty move overview supplies no named sweet/sour adjudication; the
+  largest damage or knockback is not sufficient evidence to invent one.
+- [Zelda neutral air, revision 2061136](https://www.ssbwiki.com/index.php?title=Zelda_(SSBM)/Neutral_aerial&oldid=2061136):
+  action 65 has five separate trapping pulses at 6–7, 10–11, 14–15, 18–19
+  and 22–23, followed by a 26–27 finisher. IDs 0/1 use 2%, angle 130,
+  weight-set knockback 70; IDs 2/3 use 3%, angle 90, weight-set 120/50.
+  All four finishers use 5%, angle 361 and base 40, but growth remains
+  130 for IDs 0/1 and 120 for IDs 2/3. Neither the finisher nor the 3%
+  trapping zones become sweetspots merely because they deal more damage.
+- [Samus down smash, revision 2040584](https://www.ssbwiki.com/index.php?title=Samus_(SSBM)/Down_smash&oldid=2040584):
+  action 64 uses two strikes, not clean/late power decay. Both bone-14 zones
+  deal 16% at 6–8 (base 110/growth 50), then 15% at 14–16 (base 90/growth
+  40); angle 120 remains shared. These are uncharged script values.
+- [Yoshi down smash, revision 1392005](https://www.ssbwiki.com/index.php?title=Yoshi_(SSBM)/Down_smash&oldid=1392005):
+  action 64 uses 14% at 6–8 and 12% at 21–22, angle 30/base 50 throughout.
+  IDs 0/1 retain growth 75; ID 2 changes from 60 to 80. Calling every
+  second-strike zone weaker would lose that independent knockback distinction.
+  The numerical table does not establish a named tail-tip sweetspot.
+
+These checks do not prove absence of useful spacing, true combos, or live
+collision priority. Article/projectile, partner and runtime modifications
+remain separate research boundaries; no labels or timing corrections follow
+from these exclusions.

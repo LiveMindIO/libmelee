@@ -671,6 +671,104 @@ class HitboxPhaseTests(unittest.TestCase):
                 with self.assertRaises(HitboxPhaseError):
                     get_sweetspots(character, action)
 
+    def test_zelda_target_filters_do_not_imply_sweetspot_roles(self):
+        for action, start, end, expected in (
+            (
+                57,
+                5,
+                7,
+                [
+                    (0, 16, 7, 270, 20, 80, True, False),
+                    (1, 16, 7, 80, 20, 80, False, True),
+                    (2, 13, 8, 270, 20, 80, True, True),
+                    (3, 4, 8, 270, 20, 80, True, True),
+                ],
+            ),
+            (69, 14, 17, [(0, 7, 8, 275, 5, 100, True, True), (1, 10, 7, 275, 0, 80, True, True)]),
+        ):
+            with self.subTest(action=action):
+                groups = get_hitbox_phases("zelda", action)
+                self.assertEqual(
+                    [
+                        (
+                            g.hitbox_id,
+                            g.bone_id,
+                            p.combat.damage,
+                            p.combat.angle,
+                            p.combat.base_knockback,
+                            p.combat.knockback_growth,
+                            p.combat.hits_grounded,
+                            p.combat.hits_aerial,
+                        )
+                        for g in groups
+                        for p in g.phases
+                    ],
+                    expected,
+                )
+                self.assertTrue(
+                    all((p.start_frame, p.end_frame, p.spot) == (start, end, None) for g in groups for p in g.phases)
+                )
+                with self.assertRaises(HitboxPhaseError):
+                    get_sweetspots("zelda", action)
+
+    def test_zelda_nair_preserves_trapping_pulses_and_separate_finisher(self):
+        groups = get_hitbox_phases("zelda", 65)
+        self.assertEqual([(g.hitbox_id, g.bone_id) for g in groups], [(0, 0), (1, 0), (2, 4), (3, 89)])
+        for group, (damage, angle, growth, weight_set, end_growth) in zip(
+            groups,
+            ((2, 130, 100, 70, 130), (2, 130, 100, 70, 130), (3, 90, 90, 120, 120), (3, 90, 90, 50, 120)),
+            strict=True,
+        ):
+            self.assertEqual(
+                [
+                    (
+                        p.start_frame,
+                        p.end_frame,
+                        p.combat.damage,
+                        p.combat.angle,
+                        p.combat.base_knockback,
+                        p.combat.knockback_growth,
+                        p.combat.weight_set_knockback,
+                    )
+                    for p in group.phases
+                ],
+                [(start, start + 1, damage, angle, 0, growth, weight_set) for start in (6, 10, 14, 18, 22)]
+                + [(26, 27, 5, 361, 40, end_growth, 0)],
+            )
+            self.assertTrue(all(p.spot is None for p in group.phases))
+        with self.assertRaises(HitboxPhaseError):
+            get_sweetspots("zelda", 65)
+
+    def test_two_sided_down_smashes_are_not_clean_and_late_variants(self):
+        for character, bones, strikes in (
+            ("samus", (14, 14), ((6, 8, 16, 120, 110, (50, 50)), (14, 16, 15, 120, 90, (40, 40)))),
+            ("yoshi", (20, 21, 21), ((6, 8, 14, 30, 50, (75, 75, 60)), (21, 22, 12, 30, 50, (75, 75, 80)))),
+        ):
+            with self.subTest(character=character):
+                groups = get_hitbox_phases(character, 64)
+                self.assertEqual([(g.hitbox_id, g.bone_id) for g in groups], list(enumerate(bones)))
+                for group in groups:
+                    self.assertEqual(
+                        [
+                            (
+                                p.start_frame,
+                                p.end_frame,
+                                p.combat.damage,
+                                p.combat.angle,
+                                p.combat.base_knockback,
+                                p.combat.knockback_growth,
+                            )
+                            for p in group.phases
+                        ],
+                        [
+                            (start, end, damage, angle, base, growths[group.hitbox_id])
+                            for start, end, damage, angle, base, growths in strikes
+                        ],
+                    )
+                    self.assertTrue(all(p.spot is None for p in group.phases))
+                with self.assertRaises(HitboxPhaseError):
+                    get_sweetspots(character, 64)
+
     def test_unresolved_multihit_and_partner_zones_keep_exact_script_values(self):
         for character, action, expected in (
             (
