@@ -1,5 +1,39 @@
 # Full-roster sweetspot audit
 
+## November 16 inventory checkpoint
+
+The seven reports account for all 790 catalog actions and nine explicit
+extraction failures at baseline `6aa09c70cd97e1665d3870fa53927fbfbd05f638`.
+They preserve the baseline's 569 labels across 129 actions; later candidate
+adjudication and annotation changes are separate from this historical snapshot.
+
+| Baseline disposition | Actions |
+| --- | ---: |
+| Existing labels reviewed | 125 |
+| Specific inference excluded with evidence | 237 |
+| Source interpretation unresolved | 303 |
+| Runtime/article limited | 125 |
+
+The remaining four baseline labeled actions have qualified unresolved
+dispositions, not missing inventory rows: Marth jab 2 (18:45), Peach dash attack
+(9:50), Yoshi neutral air (14:65) and Jigglypuff forward air (15:66).
+Their rows record timing, bone or named-role conflicts rather than silently
+certifying the preserved annotations. Reports contain 141 gap records and
+55 proposed phase annotations, none automatically applied. There are 491 source
+records, including 59 failed retrieval records; these are not unique-URL counts.
+The separate candidate review also considers two Ice Climbers meteor phases
+that shard G initially left unresolved.
+
+The boundary audit identifies 10,089 MotionState contexts, of which 8,497 were
+outside the CSV inputs. The CSV's 1,592 pairs comprise 790 catalog actions,
+nine explicit failures and 793 ambiguous omissions. An omission does not prove
+that an action has no hitboxes. All 145 Kirby copied states lack CSV/catalog
+coverage. See `boundaries.md` for provenance and precise scope.
+
+The checker passes all seven shards and six malformed-inventory controls.
+**Semantic full-roster completion remains blocked** by unresolved interpretation,
+missing extraction, runtime/article behavior and source conflicts.
+
 Seven disjoint fighter shards cover the catalog's 27 internal character
 contexts: 26 selectable fighters, with Popo and Nana checked separately.
 `group-a.json` through `group-g.json` record one disposition for every catalog

@@ -9,7 +9,7 @@ import json
 import re
 import sys
 from collections import Counter
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 ROOT = Path(__file__).resolve().parents[1]
 GROUPS = {
@@ -75,7 +75,19 @@ def validate(catalog, labels, reports):
                 isinstance(identity, str) and identity and identity not in sources,
                 f"group {group}: duplicate/empty source",
             )
-            require(source["url"].startswith("https://"), f"source {identity}: HTTPS URL required")
+            url = source["url"]
+            if url.startswith("file:"):
+                path = PurePosixPath(url[5:])
+                require(
+                    url[5:] and not path.is_absolute() and ".." not in path.parts,
+                    f"source {identity}: repository-relative local path required",
+                )
+                require(
+                    re.fullmatch(r"[0-9a-f]{40}", source.get("revision") or ""),
+                    f"source {identity}: local evidence needs an exact Git revision",
+                )
+            else:
+                require(url.startswith("https://"), f"source {identity}: HTTPS URL required")
             require(type(source["retrieved"]) is bool, f"source {identity}: retrieval flag required")
             if source["retrieved"]:
                 require(
