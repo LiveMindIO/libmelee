@@ -1,8 +1,9 @@
 # Additional reviewed sweetspot labels
 
-These annotations extend the original 19 signatures by 598, for 617 labeled
+These annotations extend the original 19 signatures by 601, for 620 labeled
 phases across 144 character/action pairs. Successive batches cover eight, 34,
 31, six, 16, 13, two, one, two, two, one, two, four, two, four and 11 character/action pairs, listed below.
+A further three annotations reuse three of those actions.
 They do not modify the NTSC-U 1.02 numerical catalog, geometry or frame indexing.
 
 ## Evidence
@@ -797,9 +798,10 @@ are unchanged. Explicit DK sweet and IC sour selectors fail instead of guessing.
 ## B/C/E/F adjudication: 40 additional signatures across 11 actions
 
 The [independent B/C/E/F review](sweetspot-roster-audit/candidate-review-bcef.md)
-accepts exactly 40 of 49 proposals. Its S1–S15 source table pins each revision
+accepts exactly 40 of 49 proposals at its 617-label checkpoint. Its S1–S15 source table pins each revision
 and complete raw-byte SHA-256; the source references below use those receipts.
-Nine unresolved complements remain unlabeled, not rejected as impossible.
+Nine proposed complements were then left unlabeled; three signatures receive
+new source-backed roles in the follow-up below, including one reversed proposal.
 The historical group reports retain their original 569-label snapshot. The
 preceding DK/IC integration had 577 labels; neither snapshot is current coverage.
 
@@ -826,16 +828,18 @@ masks, grounded and aerial targets are both enabled.
 ### Partial selections and unresolved complements
 
 - Fox's explicitly named ground-only sweetspot retains base 18/growth 140.
-  ID 1 on the same bone is aerial-only, 9%/84; IDs 2/3, bones 13/12, are
-  both-target 9%/80. Those three roles are unresolved, not automatically sour.
-  An explicit sour selector fails; the sweet selector does not promise aerial hits.
+  ID 1 on the same bone is aerial-only, 9%/84; the separately reviewed character
+  evidence below now labels it sweet too. IDs 2/3, bones 13/12, are both-target
+  9%/80 and remain unresolved, not automatically sour. An explicit sour selector
+  fails. Sweet selection retains both foot phases with their disjoint target masks.
 - Falco's named second-hit sourspot retains base 30/growth 20 and slash element.
   The two normal-element second-hit kicks retain 10%/70, base 22/growth 120,
   unlabeled. All three 8–9 opener phases remain a separate unlabeled strike.
   No sweet selection is inferred from equal damage or reverse-complement logic.
 - Punch selects the close zone in each action independently, based on S5's
-  Melee Kirby comparison, not maximum damage. Middle 25% and far 23% remain
-  unlabeled; explicit sour selectors fail. Ground base 30 and air base 40,
+  Melee Kirby comparison, not maximum damage. Middle 25% remains unlabeled;
+  the newly reviewed character evidence below identifies only far 23% as sour.
+  Ground base 30 and air base 40,
   growth 102 and differing ground/air geometry remain intact. S4's tables say
   Normal while its prose describes flames and the catalog retains fire element 1;
   this source conflict is disclosed, not repaired. No Kirby copy, reverse-punch
@@ -872,3 +876,53 @@ These exact static annotations do not certify runtime callbacks, partner/copy
 transformations, extraction completeness, collision priority, vulnerability,
 contact, or live-emulator behavior. No numerical resource or frame convention
 changes, and no full-roster completion claim follows from this bounded batch.
+
+## Complement follow-up: three additional signatures, no new actions
+
+The latest independent receipt in the consumer workspace's
+`.test-tmp/roster-annotations-review.md` ("Three exact annotation decisions")
+accepts these three new roles after checking the
+[complement follow-up](sweetspot-roster-audit/complement-followup.md):
+
+| Character:action | Exact phase | Frames / damage / angle / element | Annotation | Targets / BKB / KBG |
+| --- | --- | --- | --- | --- |
+| Fox 1:56 | ID 1, bone 15, `1:15:1` | 5–11 / 9 / 84 / 0 | sweet: aerial-target foot | aerial-only / 18 / 140 |
+| Falcon 2:347 | ID 2, bone 47, `2:47:1` | 52–56 / 23 / 361 / 1 | sour: far punch | ground and air / 30 / 102 |
+| Falcon 2:348 | ID 2, bone 47, `2:47:1` | 52–56 / 23 / 361 / 1 | sour: far punch | ground and air / 40 / 102 |
+
+All retain zero set knockback, shield damage and hit group. Existing 617 CSV
+rows are unchanged; only these three signatures are appended. Original group
+reports and candidate-review dispositions remain historical snapshots, not
+rewritten evidence or current annotation totals.
+
+[Fox character revision 2067316](https://www.ssbwiki.com/index.php?title=Fox_(SSBM)&action=raw&oldid=2067316)
+explicitly says the aerial sweetspot retains its damage but changes from 80 to
+84 degrees. The sole 84-degree phase independently matches ID 1/bone 15,
+grounded=false/aerial=true. Its label is **sweet**, contradicting the earlier
+proposed sour role; this is not an acceptance of that old proposal. The existing
+12%/110 ground-only sweet ID 0 remains unchanged. IDs 2/3 remain unlabeled.
+
+[Falcon character revision 2064399](https://www.ssbwiki.com/index.php?title=Captain_Falcon_(SSBM)&action=raw&oldid=2064399)
+explicitly names the 23% sourspot, independently of its stronger close zone.
+[Neutral-special revision 1930502](https://www.ssbwiki.com/index.php?title=Captain_Falcon_(SSBM)/Neutral_special&action=raw&oldid=1930502)
+maps each ground/air 23% row to ID 2/bone 47 at 52–56. Both actions retain
+growth 102, their different base knockback and their own geometry. The 25%
+middle ID 1 remains unlabeled; plural sourspot wording does not establish its
+role. The known Normal-table/fire-prose discrepancy remains disclosed and
+catalog element 1 is preserved. Source priority wording is not certified here.
+
+Complete raw-source SHA-256 receipts, independently matched by the review:
+
+| Revision | SHA-256 |
+| --- | --- |
+| Fox 2067316 | `097773694ef943bdb99cf53420d39a7dc595b8cfb194d2a3e21ab970669ad784` |
+| Falcon 2064399 | `a703faf75c286d8e7b046a41f0548ce5e2871b4e0555db88aba2ef53d44766d2` |
+| Falcon neutral special 1930502 | `2764230fac590075b2069b4dad76846350e10d7a12e40c87cdb455fc1d46d7ed` |
+
+Of the original nine proposals, two Falcon far sour roles are resolved; Fox's
+aerial sour proposal is contradicted and replaced by a separately accepted sweet
+role. Six original roles remain unresolved and unlabeled: two Fox inner-leg sour,
+two Falco second-hit kick sweet, and two Falcon middle-punch sour proposals.
+Falco's opener and Peach's unreviewed ground-only meteor also remain unlabeled.
+No numerical, frame-indexing, Marth/Yoshi timing, runtime or collision-priority
+change follows; no complete-roster or live-connectivity claim is made.

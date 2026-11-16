@@ -616,3 +616,6 @@ schema_version,character,action,hitbox_id,bone_id,start_frame,end_frame,damage,a
 1,9,57,1,74,12,13,12,80,0,sour,aerial non-meteor hand
 1,9,57,2,72,12,13,12,270,0,sweet,forearm meteor
 1,9,57,3,97,12,13,12,270,0,sweet,inner meteor
+1,1,56,1,15,5,11,9,84,0,sweet,aerial-target foot
+1,2,347,2,47,52,56,23,361,1,sour,far punch
+1,2,348,2,47,52,56,23,361,1,sour,far punch

@@ -144,12 +144,12 @@ _ROSTER_SWEET_PHASES = {
 }
 
 
-# B/C/E/F adjudication: phase, frames, damage, angle, element, BKB, KBG,
+# B/C/E/F adjudication and accepted follow-ups: phase, frames, damage, angle, element, BKB, KBG,
 # grounded/aerial target flags, spot and label. Unknown complements stay explicit.
 _BCEF_PHASES = {
     (1, 56): (
         ("0:15:1", 5, 11, 12, 110, 0, 18, 140, True, False, "sweet", "ground-only foot"),
-        ("1:15:1", 5, 11, 9, 84, 0, 18, 140, False, True, None, None),
+        ("1:15:1", 5, 11, 9, 84, 0, 18, 140, False, True, "sweet", "aerial-target foot"),
         ("2:13:1", 5, 11, 9, 80, 0, 18, 140, True, True, None, None),
         ("3:12:1", 5, 11, 9, 80, 0, 18, 140, True, True, None, None),
     ),
@@ -170,12 +170,12 @@ _BCEF_PHASES = {
     (2, 347): (
         ("0:45:1", 52, 56, 27, 361, 1, 30, 102, True, True, "sweet", "close Falcon Punch"),
         ("1:45:1", 52, 56, 25, 361, 1, 30, 102, True, True, None, None),
-        ("2:47:1", 52, 56, 23, 361, 1, 30, 102, True, True, None, None),
+        ("2:47:1", 52, 56, 23, 361, 1, 30, 102, True, True, "sour", "far punch"),
     ),
     (2, 348): (
         ("0:45:1", 52, 56, 27, 361, 1, 40, 102, True, True, "sweet", "close aerial Falcon Punch"),
         ("1:45:1", 52, 56, 25, 361, 1, 40, 102, True, True, None, None),
-        ("2:47:1", 52, 56, 23, 361, 1, 40, 102, True, True, None, None),
+        ("2:47:1", 52, 56, 23, 361, 1, 40, 102, True, True, "sour", "far punch"),
     ),
     (2, 357): (
         ("0:14:1", 14, 16, 15, 361, 1, 50, 70, True, True, "sweet", "clean ground Falcon Kick"),
@@ -254,7 +254,7 @@ class PhaseLabelCsvTests(unittest.TestCase):
                             phase.combat.element,
                         )
                         observed[signature] = (phase.spot, phase.label)
-        self.assertEqual(len(observed), 617)
+        self.assertEqual(len(observed), 620)
         self.assertEqual(len({signature[:2] for signature in observed}), 144)
         self.assertEqual(observed, _phase_labels())
 
@@ -354,7 +354,7 @@ class PhaseLabelCsvTests(unittest.TestCase):
 class HitboxPhaseTests(unittest.TestCase):
     def test_bcef_adjudicated_phases_preserve_full_signatures_and_complements(self):
         self.assertEqual(len(_BCEF_PHASES), 11)
-        self.assertEqual(sum(p[-2] is not None for phases in _BCEF_PHASES.values() for p in phases), 40)
+        self.assertEqual(sum(p[-2] is not None for phases in _BCEF_PHASES.values() for p in phases), 43)
         for (character, action), expected in _BCEF_PHASES.items():
             with self.subTest(character=character, action=action):
                 groups = get_hitbox_phases(character, action)
@@ -414,6 +414,54 @@ class HitboxPhaseTests(unittest.TestCase):
                                 get_hitbox_phases(character, action, phase_id=phase.phase_id, spot=spot)[0].phases,
                                 (phase,),
                             )
+
+    def test_complement_followup_keeps_fox_aerial_sweet_and_falcon_far_sour(self):
+        for character, action, phase_id, spot, expected in (
+            (1, 56, "1:15:1", "sweet", (1, 15, 5, 11, 9, 84, 0, 18, 140, False, True, "aerial-target foot")),
+            (2, 347, "2:47:1", "sour", (2, 47, 52, 56, 23, 361, 1, 30, 102, True, True, "far punch")),
+            (2, 348, "2:47:1", "sour", (2, 47, 52, 56, 23, 361, 1, 40, 102, True, True, "far punch")),
+        ):
+            with self.subTest(character=character, action=action):
+                selected = get_hitbox_phases(character, action, phase_id=phase_id, spot=spot)
+                self.assertEqual(len(selected), 1)
+                group = selected[0]
+                self.assertEqual(len(group.phases), 1)
+                phase = group.phases[0]
+                combat = phase.combat
+                self.assertEqual(
+                    (
+                        group.hitbox_id,
+                        group.bone_id,
+                        phase.start_frame,
+                        phase.end_frame,
+                        combat.damage,
+                        combat.angle,
+                        combat.element,
+                        combat.base_knockback,
+                        combat.knockback_growth,
+                        combat.hits_grounded,
+                        combat.hits_aerial,
+                        phase.label,
+                    ),
+                    expected,
+                )
+                self.assertEqual((combat.weight_set_knockback, combat.shield_damage, combat.hit_group), (0, 0, 0))
+                self.assertEqual(
+                    query.get_framedata(character, action, phase_id=phase_id, spot=spot).phase_hitboxes, selected
+                )
+                with self.assertRaises(HitboxPhaseError):
+                    get_hitbox_phases(character, action, phase_id=phase_id, spot="sour" if spot == "sweet" else "sweet")
+                groups = get_hitbox_phases(character, action)
+                if character == 1:
+                    self.assertEqual([g.hitbox_id for g in get_sweetspots(character, action)], [0, 1])
+                    unresolved = groups[2:]
+                    with self.assertRaises(HitboxPhaseError):
+                        get_sourspots(character, action)
+                else:
+                    self.assertEqual([g.hitbox_id for g in get_sweetspots(character, action)], [0])
+                    self.assertEqual([g.hitbox_id for g in get_sourspots(character, action)], [2])
+                    unresolved = (groups[1],)
+                self.assertTrue(all(p.spot is None and p.label is None for g in unresolved for p in g.phases))
 
     def test_reviewed_roster_spatial_and_temporal_selections(self):
         for (character, action), expected in _ROSTER_SWEET_PHASES.items():
