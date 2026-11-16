@@ -568,3 +568,51 @@ schema_version,character,action,hitbox_id,bone_id,start_frame,end_frame,damage,a
 1,3,64,1,30,10,13,16,115,0,sweet,hand
 1,3,64,2,51,10,13,14,98,0,sour,arm
 1,3,64,3,29,10,13,14,98,0,sour,arm
+1,3,373,0,30,17,17,18,80,0,sour,full-charge rear vertical sourspot
+1,3,373,1,31,17,17,18,80,0,sour,full-charge rear vertical sourspot
+1,3,373,2,4,17,17,18,80,0,sour,full-charge rear vertical sourspot
+1,3,378,0,30,17,17,16,80,0,sour,full-charge rear vertical sourspot
+1,3,378,1,31,17,17,16,80,0,sour,full-charge rear vertical sourspot
+1,3,378,2,4,17,17,16,80,0,sour,full-charge rear vertical sourspot
+1,10,66,0,15,19,22,11,270,0,sweet,aerial-target meteor variant
+1,11,66,0,15,19,22,11,270,0,sweet,aerial-target meteor variant
+1,1,56,0,15,5,11,12,110,0,sweet,ground-only foot
+1,22,68,2,4,11,14,10,90,3,sour,second-hit body
+1,2,46,0,13,5,8,8,361,0,sweet,clean Gentleman
+1,2,46,0,13,9,11,6,361,0,sour,late Gentleman
+1,2,46,1,4,5,8,8,361,0,sweet,clean Gentleman
+1,2,46,1,4,9,11,6,361,0,sour,late Gentleman
+1,2,347,0,45,52,56,27,361,1,sweet,close Falcon Punch
+1,2,348,0,45,52,56,27,361,1,sweet,close aerial Falcon Punch
+1,2,357,0,14,14,16,15,361,1,sweet,clean ground Falcon Kick
+1,2,357,0,14,17,24,12,80,1,sour,mid ground Falcon Kick
+1,2,357,0,14,25,32,9,90,1,sour,late ground Falcon Kick
+1,2,357,1,13,14,16,15,361,1,sweet,clean ground Falcon Kick
+1,2,357,1,13,17,24,12,80,1,sour,mid ground Falcon Kick
+1,2,357,1,13,25,32,9,90,1,sour,late ground Falcon Kick
+1,2,359,1,14,15,17,15,361,1,sweet,clean aerial Falcon Kick
+1,2,359,1,14,18,25,13,361,1,sour,mid aerial Falcon Kick
+1,2,359,1,14,26,29,11,361,1,sour,late aerial Falcon Kick
+1,2,359,2,13,15,17,15,361,1,sweet,clean aerial Falcon Kick
+1,2,359,2,13,18,25,13,361,1,sour,mid aerial Falcon Kick
+1,2,359,2,13,26,29,11,361,1,sour,late aerial Falcon Kick
+1,6,69,0,0,13,15,22,65,3,sweet,clean down stab
+1,6,69,0,0,16,64,19,65,3,sour,late down stab
+1,6,69,1,0,13,15,20,65,3,sweet,clean down stab
+1,6,69,1,0,16,64,19,65,3,sour,late down stab
+1,6,69,2,0,13,15,20,65,3,sweet,clean down stab
+1,6,69,2,0,16,64,19,65,3,sour,late down stab
+1,20,66,0,28,14,16,12,361,3,sweet,clean sword spin
+1,20,66,0,28,17,33,8,76,3,sour,late sword spin
+1,20,66,1,25,14,16,11,361,3,sweet,clean sword spin
+1,20,66,1,25,17,33,7,76,3,sour,late sword spin
+1,20,66,2,19,14,16,9,361,3,sweet,clean sword spin
+1,20,66,2,19,17,33,7,76,3,sour,late sword spin
+1,20,66,3,28,14,16,9,361,3,sweet,clean sword spin
+1,20,66,3,28,17,33,5,76,3,sour,late sword spin
+1,24,69,0,0,12,12,14,270,0,sweet,early key meteor
+1,24,69,0,0,13,38,13,60,0,sour,late key launcher
+1,24,69,1,0,12,38,13,60,0,sour,non-meteor key launcher
+1,9,57,1,74,12,13,12,80,0,sour,aerial non-meteor hand
+1,9,57,2,72,12,13,12,270,0,sweet,forearm meteor
+1,9,57,3,97,12,13,12,270,0,sweet,inner meteor

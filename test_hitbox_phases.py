@@ -144,6 +144,87 @@ _ROSTER_SWEET_PHASES = {
 }
 
 
+# B/C/E/F adjudication: phase, frames, damage, angle, element, BKB, KBG,
+# grounded/aerial target flags, spot and label. Unknown complements stay explicit.
+_BCEF_PHASES = {
+    (1, 56): (
+        ("0:15:1", 5, 11, 12, 110, 0, 18, 140, True, False, "sweet", "ground-only foot"),
+        ("1:15:1", 5, 11, 9, 84, 0, 18, 140, False, True, None, None),
+        ("2:13:1", 5, 11, 9, 80, 0, 18, 140, True, True, None, None),
+        ("3:12:1", 5, 11, 9, 80, 0, 18, 140, True, True, None, None),
+    ),
+    (22, 68): (
+        ("0:17:1", 8, 9, 6, 90, 3, 40, 20, True, True, None, None),
+        ("1:17:1", 8, 9, 6, 90, 3, 30, 20, True, True, None, None),
+        ("2:4:1", 8, 9, 6, 90, 3, 30, 20, True, True, None, None),
+        ("2:4:2", 11, 14, 10, 90, 3, 30, 20, True, True, "sour", "second-hit body"),
+        ("0:13:1", 11, 14, 10, 70, 0, 22, 120, True, True, None, None),
+        ("1:15:1", 11, 14, 10, 70, 0, 22, 120, True, True, None, None),
+    ),
+    (2, 46): (
+        ("0:13:1", 5, 8, 8, 361, 0, 20, 100, True, True, "sweet", "clean Gentleman"),
+        ("0:13:2", 9, 11, 6, 361, 0, 0, 100, True, True, "sour", "late Gentleman"),
+        ("1:4:1", 5, 8, 8, 361, 0, 20, 100, True, True, "sweet", "clean Gentleman"),
+        ("1:4:2", 9, 11, 6, 361, 0, 0, 100, True, True, "sour", "late Gentleman"),
+    ),
+    (2, 347): (
+        ("0:45:1", 52, 56, 27, 361, 1, 30, 102, True, True, "sweet", "close Falcon Punch"),
+        ("1:45:1", 52, 56, 25, 361, 1, 30, 102, True, True, None, None),
+        ("2:47:1", 52, 56, 23, 361, 1, 30, 102, True, True, None, None),
+    ),
+    (2, 348): (
+        ("0:45:1", 52, 56, 27, 361, 1, 40, 102, True, True, "sweet", "close aerial Falcon Punch"),
+        ("1:45:1", 52, 56, 25, 361, 1, 40, 102, True, True, None, None),
+        ("2:47:1", 52, 56, 23, 361, 1, 40, 102, True, True, None, None),
+    ),
+    (2, 357): (
+        ("0:14:1", 14, 16, 15, 361, 1, 50, 70, True, True, "sweet", "clean ground Falcon Kick"),
+        ("0:14:2", 17, 24, 12, 80, 1, 50, 60, True, True, "sour", "mid ground Falcon Kick"),
+        ("0:14:3", 25, 32, 9, 90, 1, 50, 50, True, True, "sour", "late ground Falcon Kick"),
+        ("1:13:1", 14, 16, 15, 361, 1, 50, 70, True, True, "sweet", "clean ground Falcon Kick"),
+        ("1:13:2", 17, 24, 12, 80, 1, 50, 60, True, True, "sour", "mid ground Falcon Kick"),
+        ("1:13:3", 25, 32, 9, 90, 1, 50, 50, True, True, "sour", "late ground Falcon Kick"),
+    ),
+    (2, 359): (
+        ("1:14:1", 15, 17, 15, 361, 1, 40, 70, True, True, "sweet", "clean aerial Falcon Kick"),
+        ("1:14:2", 18, 25, 13, 361, 1, 40, 65, True, True, "sour", "mid aerial Falcon Kick"),
+        ("1:14:3", 26, 29, 11, 361, 1, 40, 60, True, True, "sour", "late aerial Falcon Kick"),
+        ("2:13:1", 15, 17, 15, 361, 1, 40, 70, True, True, "sweet", "clean aerial Falcon Kick"),
+        ("2:13:2", 18, 25, 13, 361, 1, 40, 65, True, True, "sour", "mid aerial Falcon Kick"),
+        ("2:13:3", 26, 29, 11, 361, 1, 40, 60, True, True, "sour", "late aerial Falcon Kick"),
+    ),
+    (6, 69): (
+        ("0:0:1", 13, 15, 22, 65, 3, 50, 80, True, True, "sweet", "clean down stab"),
+        ("0:0:2", 16, 64, 19, 65, 3, 50, 80, True, True, "sour", "late down stab"),
+        ("1:0:1", 13, 15, 20, 65, 3, 40, 80, True, True, "sweet", "clean down stab"),
+        ("1:0:2", 16, 64, 19, 65, 3, 40, 80, True, True, "sour", "late down stab"),
+        ("2:0:1", 13, 15, 20, 65, 3, 40, 80, True, True, "sweet", "clean down stab"),
+        ("2:0:2", 16, 64, 19, 65, 3, 40, 80, True, True, "sour", "late down stab"),
+    ),
+    (20, 66): (
+        ("0:28:1", 14, 16, 12, 361, 3, 5, 100, True, True, "sweet", "clean sword spin"),
+        ("0:28:2", 17, 33, 8, 76, 3, 0, 90, True, True, "sour", "late sword spin"),
+        ("1:25:1", 14, 16, 11, 361, 3, 5, 100, True, True, "sweet", "clean sword spin"),
+        ("1:25:2", 17, 33, 7, 76, 3, 0, 90, True, True, "sour", "late sword spin"),
+        ("2:19:1", 14, 16, 9, 361, 3, 5, 100, True, True, "sweet", "clean sword spin"),
+        ("2:19:2", 17, 33, 7, 76, 3, 0, 90, True, True, "sour", "late sword spin"),
+        ("3:28:1", 14, 16, 9, 361, 3, 5, 100, True, True, "sweet", "clean sword spin"),
+        ("3:28:2", 17, 33, 5, 76, 3, 0, 90, True, True, "sour", "late sword spin"),
+    ),
+    (24, 69): (
+        ("0:0:1", 12, 12, 14, 270, 0, 20, 100, True, True, "sweet", "early key meteor"),
+        ("0:0:2", 13, 38, 13, 60, 0, 20, 100, True, True, "sour", "late key launcher"),
+        ("1:0:1", 12, 38, 13, 60, 0, 20, 100, True, True, "sour", "non-meteor key launcher"),
+    ),
+    (9, 57): (
+        ("0:74:1", 12, 13, 12, 270, 0, 60, 100, True, False, None, None),
+        ("1:74:1", 12, 13, 12, 80, 0, 15, 100, False, True, "sour", "aerial non-meteor hand"),
+        ("2:72:1", 12, 13, 12, 270, 0, 60, 100, True, True, "sweet", "forearm meteor"),
+        ("3:97:1", 12, 13, 12, 270, 0, 60, 100, True, True, "sweet", "inner meteor"),
+    ),
+}
+
+
 class PhaseLabelCsvTests(unittest.TestCase):
     def setUp(self):
         self.rows = list(csv.reader(files("melee").joinpath("hitbox_phase_labels.csv").read_text().splitlines()))
@@ -173,13 +254,21 @@ class PhaseLabelCsvTests(unittest.TestCase):
                             phase.combat.element,
                         )
                         observed[signature] = (phase.spot, phase.label)
-        self.assertEqual(len(observed), 569)
+        self.assertEqual(len(observed), 617)
+        self.assertEqual(len({signature[:2] for signature in observed}), 144)
         self.assertEqual(observed, _phase_labels())
 
     def test_all_phase_results_preserve_numbers_and_original_labels(self):
         # Captured from master 4743b7e before moving the 19 signatures to CSV.
         added_actions = {"0:58", "0:60", "0:62", "2:69", "13:67", "17:69", "19:67", "20:69"}
         added_actions.update(f"{character}:{action}" for character, action in _ROSTER_SWEET_PHASES)
+        added_actions.update({"3:373", "3:378", "10:66", "11:66"})
+        added_phases = {
+            (f"{character}:{action}", phase[0])
+            for (character, action), phases in _BCEF_PHASES.items()
+            for phase in phases
+            if phase[-2] is not None
+        }
         results = {}
         for key in sorted(_catalog()["actions"]):
             character, action = (int(value) for value in key.split(":"))
@@ -188,9 +277,9 @@ class PhaseLabelCsvTests(unittest.TestCase):
                 for group in _action_hitboxes(melee.Character(character), melee.Action(action))
             ]
             # Only these newly reviewed annotations may differ from that baseline.
-            if key in added_actions:
-                for group in results[key]:
-                    for phase in group["phases"]:
+            for group in results[key]:
+                for phase in group["phases"]:
+                    if key in added_actions or (key, phase["phase_id"]) in added_phases:
                         phase["spot"] = None
                         phase["label"] = None
         encoded = json.dumps(results, sort_keys=True, separators=(",", ":")).encode()
@@ -263,6 +352,69 @@ class PhaseLabelCsvTests(unittest.TestCase):
 
 
 class HitboxPhaseTests(unittest.TestCase):
+    def test_bcef_adjudicated_phases_preserve_full_signatures_and_complements(self):
+        self.assertEqual(len(_BCEF_PHASES), 11)
+        self.assertEqual(sum(p[-2] is not None for phases in _BCEF_PHASES.values() for p in phases), 40)
+        for (character, action), expected in _BCEF_PHASES.items():
+            with self.subTest(character=character, action=action):
+                groups = get_hitbox_phases(character, action)
+                observed = []
+                for group in groups:
+                    for phase in group.phases:
+                        combat = phase.combat
+                        self.assertEqual(
+                            (group.hitbox_id, group.bone_id),
+                            tuple(int(v) for v in phase.phase_id.split(":")[:2]),
+                        )
+                        self.assertEqual(
+                            (combat.weight_set_knockback, combat.shield_damage, combat.hit_group), (0, 0, 0)
+                        )
+                        observed.append(
+                            (
+                                phase.phase_id,
+                                phase.start_frame,
+                                phase.end_frame,
+                                combat.damage,
+                                combat.angle,
+                                combat.element,
+                                combat.base_knockback,
+                                combat.knockback_growth,
+                                combat.hits_grounded,
+                                combat.hits_aerial,
+                                phase.spot,
+                                phase.label,
+                            )
+                        )
+                self.assertEqual(tuple(observed), expected)
+
+    def test_bcef_partial_and_temporal_selectors_use_only_accepted_phases(self):
+        for (character, action), phases in _BCEF_PHASES.items():
+            normal = query.get_framedata(character, action)
+            for spot, public in (("sweet", get_sweetspots), ("sour", get_sourspots)):
+                with self.subTest(character=character, action=action, spot=spot):
+                    expected = [phase[0] for phase in phases if phase[-2] == spot]
+                    if not expected:
+                        for select in (
+                            public,
+                            lambda c, a, selected_spot=spot: get_hitbox_phases(c, a, spot=selected_spot),
+                            lambda c, a, selected_spot=spot: query.get_framedata(c, a, spot=selected_spot),
+                        ):
+                            with self.assertRaises(HitboxPhaseError):
+                                select(character, action)
+                        continue
+                    selected = public(character, action)
+                    self.assertEqual([p.phase_id for g in selected for p in g.phases], expected)
+                    self.assertEqual(get_hitbox_phases(character, action, spot=spot), selected)
+                    filtered = query.get_framedata(character, action, spot=spot)
+                    self.assertEqual(filtered.phase_hitboxes, selected)
+                    self.assertEqual(filtered.segments, normal.segments)
+                    for group in selected:
+                        for phase in group.phases:
+                            self.assertEqual(
+                                get_hitbox_phases(character, action, phase_id=phase.phase_id, spot=spot)[0].phases,
+                                (phase,),
+                            )
+
     def test_reviewed_roster_spatial_and_temporal_selections(self):
         for (character, action), expected in _ROSTER_SWEET_PHASES.items():
             with self.subTest(character=character, action=action):
@@ -296,8 +448,8 @@ class HitboxPhaseTests(unittest.TestCase):
             (14, 67),
             (19, 69),
             (16, 69),
-            (10, 66),
-            (11, 66),
+            (3, 372),
+            (3, 377),
             (7, 64),
             (6, 356),
             (6, 357),
@@ -769,7 +921,7 @@ class HitboxPhaseTests(unittest.TestCase):
                 with self.assertRaises(HitboxPhaseError):
                     get_sweetspots(character, 64)
 
-    def test_unresolved_multihit_and_partner_zones_keep_exact_script_values(self):
+    def test_multihit_and_partner_zones_keep_exact_script_values(self):
         for character, action, expected in (
             (
                 "roy",
@@ -813,9 +965,129 @@ class HitboxPhaseTests(unittest.TestCase):
                     ],
                     expected,
                 )
-                self.assertTrue(all(p.spot is None for g in groups for p in g.phases))
-                with self.assertRaises(HitboxPhaseError):
-                    get_sweetspots(character, action)
+                if character == "roy":
+                    self.assertTrue(all(p.spot is None for g in groups for p in g.phases))
+                    with self.assertRaises(HitboxPhaseError):
+                        get_sweetspots(character, action)
+                else:
+                    self.assertEqual([g.hitbox_id for g in get_sweetspots(character, action)], [0])
+                    self.assertTrue(all(p.spot is None and p.label is None for g in groups[1:] for p in g.phases))
+
+    def test_full_charge_giant_punch_labels_only_named_rear_sourspot(self):
+        for action, rear_damage, later_damage in ((373, 18, 30), (378, 16, 27)):
+            with self.subTest(action=action):
+                groups = get_hitbox_phases("dk", action)
+                self.assertEqual([(g.hitbox_id, g.bone_id) for g in groups], [(0, 30), (1, 31), (2, 4)])
+                for group in groups:
+                    self.assertEqual(
+                        [
+                            (p.phase_id, p.start_frame, p.end_frame, dataclasses.asdict(p.combat), p.spot, p.label)
+                            for p in group.phases
+                        ],
+                        [
+                            (
+                                f"{group.hitbox_id}:{group.bone_id}:{index}",
+                                start,
+                                end,
+                                dict(
+                                    damage=damage,
+                                    angle=angle,
+                                    knockback_growth=90,
+                                    weight_set_knockback=0,
+                                    base_knockback=base,
+                                    element=0,
+                                    shield_damage=0,
+                                    hits_grounded=True,
+                                    hits_aerial=True,
+                                    hit_group=0,
+                                ),
+                                spot,
+                                label,
+                            )
+                            for index, start, end, damage, angle, base, spot, label in (
+                                (1, 17, 17, rear_damage, 80, 40, "sour", "full-charge rear vertical sourspot"),
+                                (2, 18, 21, later_damage, 361, 10, None, None),
+                            )
+                        ],
+                    )
+                selected = get_sourspots("dk", action)
+                self.assertEqual(selected, get_hitbox_phases("dk", action, spot="sour"))
+                self.assertEqual([g.phases for g in selected], [(g.phases[0],) for g in groups])
+                self.assertEqual(query.get_framedata("dk", action, spot="sour").phase_hitboxes, selected)
+                for select in (
+                    get_sweetspots,
+                    lambda c, a: get_hitbox_phases(c, a, spot="sweet"),
+                    lambda c, a: query.get_framedata(c, a, spot="sweet"),
+                ):
+                    with self.assertRaises(HitboxPhaseError):
+                        select("dk", action)
+        for action in (372, 377):
+            with self.subTest(partial_charge=action):
+                groups = get_hitbox_phases("dk", action)
+                self.assertTrue(all(p.spot is None and p.label is None for g in groups for p in g.phases))
+                for select in (get_sweetspots, get_sourspots):
+                    with self.assertRaises(HitboxPhaseError):
+                        select("dk", action)
+
+    def test_climbers_forward_air_selects_only_aerial_target_meteor_signature(self):
+        for character in (10, 11):
+            with self.subTest(character=character):
+                groups = get_hitbox_phases(character, 66)
+                self.assertEqual(
+                    [
+                        (
+                            g.hitbox_id,
+                            g.bone_id,
+                            p.phase_id,
+                            p.start_frame,
+                            p.end_frame,
+                            dataclasses.asdict(p.combat),
+                            p.spot,
+                            p.label,
+                        )
+                        for g in groups
+                        for p in g.phases
+                    ],
+                    [
+                        (
+                            hitbox,
+                            bone,
+                            f"{hitbox}:{bone}:1",
+                            19,
+                            22,
+                            dict(
+                                damage=damage,
+                                angle=angle,
+                                knockback_growth=100,
+                                weight_set_knockback=0,
+                                base_knockback=40,
+                                element=0,
+                                shield_damage=0,
+                                hits_grounded=grounded,
+                                hits_aerial=True,
+                                hit_group=0,
+                            ),
+                            spot,
+                            label,
+                        )
+                        for hitbox, bone, damage, angle, grounded, spot, label in (
+                            (0, 15, 11, 270, False, "sweet", "aerial-target meteor variant"),
+                            (1, 15, 10, 70, True, None, None),
+                            (2, 11, 9, 70, True, None, None),
+                        )
+                    ],
+                )
+                selected = get_sweetspots(character, 66)
+                self.assertEqual(selected, (groups[0],))
+                self.assertEqual(get_hitbox_phases(character, 66, spot="sweet"), selected)
+                self.assertEqual(query.get_framedata(character, 66, spot="sweet").phase_hitboxes, selected)
+                for select in (
+                    get_sourspots,
+                    lambda c, a: get_hitbox_phases(c, a, spot="sour"),
+                    lambda c, a: query.get_framedata(c, a, spot="sour"),
+                ):
+                    with self.assertRaises(HitboxPhaseError):
+                        select(character, 66)
 
     def test_pikachu_mid_tail_selection_is_not_damage_or_earliest_ranking(self):
         for group in get_hitbox_phases("pikachu", "UAIR"):

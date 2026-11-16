@@ -1,15 +1,16 @@
 # Additional reviewed sweetspot labels
 
-These annotations extend the original 19 signatures by 550, for 569 labeled
-phases across 129 character/action pairs. Successive batches cover eight, 34,
-31, six, 16, 13, two, one, two, two, one, two, four and two character/action pairs, listed below.
+These annotations extend the original 19 signatures by 598, for 617 labeled
+phases across 144 character/action pairs. Successive batches cover eight, 34,
+31, six, 16, 13, two, one, two, two, one, two, four, two, four and 11 character/action pairs, listed below.
 They do not modify the NTSC-U 1.02 numerical catalog, geometry or frame indexing.
 
 ## Evidence
 
 Each row below was checked against `melee/hitbox_catalog.json` and the listed
 public sources. IDs are engine hitbox IDs, not historical CSV geometry slots.
-Frame intervals are inclusive. Damage is uncharged, before gameplay modifiers.
+Frame intervals are inclusive. Damage is before gameplay modifiers, uncharged
+unless an explicitly full-charge action is identified below.
 
 | Character/action | Frames | Sweet variant | Other labeled variant |
 | --- | --- | --- | --- |
@@ -258,11 +259,11 @@ Independent bone/offset tables agree for
 [forward smash, revision 1394122](https://www.ssbwiki.com/index.php?title=Ice_Climbers_(SSBM)/Forward_smash&oldid=1394122)
 and [back air, revision 1392758](https://www.ssbwiki.com/index.php?title=Ice_Climbers_(SSBM)/Back_aerial&oldid=1392758).
 
-Forward air remains unlabeled for both characters. The static catalog's ID 0
-reports angle 270, while leader/partner rules affect its actual meteor behavior.
-A shared character article and equal script records do not prove equal runtime
-behavior. Partner damage scaling and forward-air angle adjustment require a
-separate runtime audit; no catalog values are rewritten to simulate them here.
+The later bounded forward-air adjudication below labels only each character's
+exact aerial-target meteor signature. A shared character article and equal
+script records do not prove equal runtime behavior. Partner damage scaling and
+forward-air angle adjustment still require a separate runtime audit; no catalog
+values are rewritten to simulate them here.
 
 ## Fox, Falco, Kirby and Dolphin Slash: 82 additional signatures
 
@@ -504,7 +505,7 @@ their numerical tail/limb zones without identifying a named sweet/sour variant.
 That move-table-only review left both unlabeled. Mewtwo remains unresolved;
 the additional named DK character evidence below supersedes its exclusion.
 
-## Rechecked multihit and partner exclusions
+## Rechecked multihit exclusion and partner limits
 
 [Roy neutral-air revision 1388991](https://www.ssbwiki.com/index.php?title=Roy_(SSBM)/Neutral_aerial&oldid=1388991)
 independently agrees with the catalog's first strike at 7–8 and second strike
@@ -519,9 +520,10 @@ agrees with the 19–22 window, IDs 0/1/2, bones 15/15/11 and 11%/10%/9% base
 damage. The static catalog independently records identical Popo/Nana signatures:
 ID 0 angle 270 and IDs 1/2 angle 70. This shared script evidence does not resolve
 leader/partner runtime adjustments or demonstrate which overlapping zone wins.
-Both characters remain unlabeled, without replacing static values with inferred
-live angles or partner-scaled damage. Exact-signature regressions protect these
-three actions and require sweetspot selection to fail rather than guess.
+The earlier blanket forward-air exclusion is superseded only for the two exact
+ID-0 signatures adjudicated below. Roy remains unlabeled; the four nonmeteor
+IC signatures remain unlabeled. Static values are not replaced with inferred
+live angles or partner-scaled damage.
 
 ## Warlock Punch shoulder: six additional signatures
 
@@ -740,3 +742,133 @@ These checks do not prove absence of useful spacing, true combos, or live
 collision priority. Article/projectile, partner and runtime modifications
 remain separate research boundaries; no labels or timing corrections follow
 from these exclusions.
+
+## Independently adjudicated DK/IC variants: eight additional signatures
+
+The [independent candidate review](sweetspot-roster-audit/candidate-review.md)
+accepts six DK sour-only and two IC sweet-only signatures. This adds four
+character/action pairs without inferring complementary labels. Earlier
+full-roster audit reports describe the historical 569-label snapshot; their
+prior-label counts and findings are not rewritten as current annotation counts.
+
+| Character:action | IDs / bones | Frames | Base signature | Annotation |
+| --- | --- | --- | --- | --- |
+| DK 3:373, full-charge ground punch | 0/1/2, bones 30/31/4 | 17 | 18%, angle 80, base 40/growth 90 | sour: full-charge rear vertical sourspot |
+| DK 3:378, full-charge air punch | 0/1/2, bones 30/31/4 | 17 | 16%, angle 80, base 40/growth 90 | sour: full-charge rear vertical sourspot |
+| Popo 10:66, forward air | 0, bone 15 | 19–22 | 11%, angle 270, base 40/growth 100, aerial targets only | sweet: aerial-target meteor variant |
+| Nana 11:66, forward air | 0, bone 15 | 19–22 | 11%, angle 270, base 40/growth 100, aerial targets only | sweet: aerial-target meteor variant |
+
+All eight use normal element, zero set knockback and zero shield damage. DK's
+six signatures hit grounded and aerial targets. The explicitly named Melee
+rear vertical sourspot is established by
+[DK revision 2062459](https://www.ssbwiki.com/index.php?title=Donkey_Kong_(SSBM)&oldid=2062459),
+with IDs, bones, damage, knockback and timing independently supplied by
+[neutral-special revision 2058001](https://www.ssbwiki.com/index.php?title=Donkey_Kong_(SSBM)/Neutral_special&oldid=2058001).
+The existing action-state table independently identifies 373/378 as full-charge
+punches. Their later 18–21 phases remain unlabeled at 30% ground/27% air,
+angle 361 and base 10/growth 90. No front sweetspot or partial-charge 372/377
+label follows. The elbow-sweetspot sentence in general Giant Punch revision
+2064114 accompanies Brawl material, not Melee evidence.
+
+[IC revision 2062476](https://www.ssbwiki.com/index.php?title=Ice_Climbers_(SSBM)&oldid=2062476)
+explicitly names the forward-air meteor sweetspot;
+[forward-air revision 1392757](https://www.ssbwiki.com/index.php?title=Ice_Climbers_(SSBM)/Forward_aerial&oldid=1392757)
+uniquely maps its 270-degree aerial-only variant to ID 0/bone 15. Each context's
+own catalog record matches independently. The label describes trajectory, not
+hammer anatomy or current leader/follower role. IDs 1/2, bones 15/11, remain
+unlabeled at 10%/9%, angle 70, both target types, base 40/growth 100. Neither
+11% effective partner damage nor a grounded meteor is inferred.
+
+The candidate review's complete-byte raw retrieval SHA-256 receipts are:
+
+| Source revision | Raw SHA-256 |
+| --- | --- |
+| DK 2062459 | `057e70ea1a92335daf43c8743b2fc33bdd5dc3a9ae4777f1164b3e4f31abb3fe` |
+| DK neutral special 2058001 | `13c4fa0c2871675b8803bf89db49d6ba7b4b0006f02c7c1a04d7ace27e6a6236` |
+| IC 2062476 | `a3cd01b9027de5921bec60dccef8437360c304d06ef7a1505a2080d37d657dfb` |
+| IC forward air 1392757 | `e5fbc3a6c9274ec78713ff52a159eb5e7a93e4187bc7094ca123d4626b97d8d0` |
+
+The review also records separate canonical HTML hashes and the Brawl exclusion
+witness. These are static annotations, not ISO re-extraction, charge/callback
+proof, runtime partner transformation, live collision/priority certification or
+full-roster signoff. Numerical resources, frame indexing and original labels
+are unchanged. Explicit DK sweet and IC sour selectors fail instead of guessing.
+
+## B/C/E/F adjudication: 40 additional signatures across 11 actions
+
+The [independent B/C/E/F review](sweetspot-roster-audit/candidate-review-bcef.md)
+accepts exactly 40 of 49 proposals. Its S1–S15 source table pins each revision
+and complete raw-byte SHA-256; the source references below use those receipts.
+Nine unresolved complements remain unlabeled, not rejected as impossible.
+The historical group reports retain their original 569-label snapshot. The
+preceding DK/IC integration had 577 labels; neither snapshot is current coverage.
+
+| Character:action | Accepted sweet phases | Accepted sour phases | Source receipts |
+| --- | --- | --- | --- |
+| Fox 1:56 up tilt | ID 0/bone 15, 5–11: 12%, 110, ground-only | None | S1, up tilt 1655106 |
+| Falco 22:68 up air | None | ID 2/bone 4, 11–14: 10%, 90, slash, second-hit body | S2, up air 2031216 |
+| Falcon 2:46 Gentleman | IDs 0/1, bones 13/4, 5–8: 8%, 361 | Same IDs/bones, 9–11: 6%, 361 | S3, Hit 3 1915179 |
+| Falcon 2:347 ground Punch | ID 0/bone 45, 52–56: 27%, 361, fire | None | S4, neutral special 1930502; S5, Falcon Punch 2067832 |
+| Falcon 2:348 air Punch | ID 0/bone 45, 52–56: 27%, 361, fire | None | S4/S5, independently matched air action |
+| Falcon 2:357 ground Kick | IDs 0/1, bones 14/13, 14–16: 15%, 361 | Same IDs/bones, 17–24: 12%, 80; 25–32: 9%, 90 | S6, down special 2056712; S7, Falcon Kick 2012692 |
+| Falcon 2:359 air Kick | IDs 1/2, bones 14/13, 15–17: 15%, 361 | Same IDs/bones, 18–25: 13%; 26–29: 11%, both 361 | S6/S7, independently matched air action |
+| Link 6:69 down air | IDs 0/1/2, bone 0, 13–15: 22%/20%/20%, 65 | Same IDs/bone, 16–64: 19%, 65 | S8, Link 2062902; S9, down air 2002902 |
+| Young Link 20:66 forward air | IDs 0/1/2/3, bones 28/25/19/28, 14–16: 12%/11%/9%/9%, 361 | Same IDs/bones, 17–33: 8%/7%/7%/5%, 76 | S10, Young Link 2062463; S11, forward air 1389928 |
+| Game & Watch 24:69 down air | ID 0/bone 0, frame 12: 14%, 270 | ID 0, 13–38 and ID 1, 12–38, bone 0: 13%, 60 | S12, character 2062479; S13, down air 1938699 |
+| Peach 9:57 down tilt | IDs 2/3, bones 72/97, 12–13: 12%, 270, both target types | ID 1/bone 74, 12–13: 12%, 80, aerial-only | S14, Peach 2062455; S15, down tilt 1939197 |
+
+All windows are inclusive, action-local catalog frames. `361` is the Sakurai
+angle sentinel. Gentleman, Fox and Peach use normal element; Kick/Punch use
+fire; Link/Young Link use slash; the key uses normal. Every listed phase keeps
+zero set knockback, shield damage and hit group. Except the explicit target
+masks, grounded and aerial targets are both enabled.
+
+### Partial selections and unresolved complements
+
+- Fox's explicitly named ground-only sweetspot retains base 18/growth 140.
+  ID 1 on the same bone is aerial-only, 9%/84; IDs 2/3, bones 13/12, are
+  both-target 9%/80. Those three roles are unresolved, not automatically sour.
+  An explicit sour selector fails; the sweet selector does not promise aerial hits.
+- Falco's named second-hit sourspot retains base 30/growth 20 and slash element.
+  The two normal-element second-hit kicks retain 10%/70, base 22/growth 120,
+  unlabeled. All three 8–9 opener phases remain a separate unlabeled strike.
+  No sweet selection is inferred from equal damage or reverse-complement logic.
+- Punch selects the close zone in each action independently, based on S5's
+  Melee Kirby comparison, not maximum damage. Middle 25% and far 23% remain
+  unlabeled; explicit sour selectors fail. Ground base 30 and air base 40,
+  growth 102 and differing ground/air geometry remain intact. S4's tables say
+  Normal while its prose describes flames and the catalog retains fire element 1;
+  this source conflict is disclosed, not repaired. No Kirby copy, reverse-punch
+  or other-game charge behavior follows.
+- Peach's equal-damage target variants are not ranked numerically. The named
+  forearm/inner meteor zones retain base 60/growth 100; the aerial launcher
+  retains base 15/growth 100. Ground-only meteor ID 0/bone 74 stays unlabeled,
+  despite sharing the launcher's bone/geometry. Bone 97 is called `inner meteor`,
+  not assigned unproven anatomy. Not every grounded meteor is a selected sweetspot.
+
+### Temporal roles and runtime limits
+
+- Gentleman clean/late is decay within Hit 3, not a ranking against jabs 1/2.
+  Base knockback changes 20→0 with growth 100 throughout.
+- Ground Kick retains base 50 and growth 70→60→50; air Kick retains base 40
+  and growth 70→65→60. S6's ground mid 12% conflicts with the character summary's
+  13%; the move table and catalog agree. S6 explains air activity ending at 29
+  despite the script's 26–33 interval; preserve 29 without claiming independent
+  engine-execution or animation-length proof. Noninteractive ground ID 2 and
+  separate landing hits are not added. Travel, walls and jump refresh remain runtime concerns.
+- Link's named clean/late phases include the two 20% clean zones, not just 22%.
+  ID 0 retains base 50, IDs 1/2 base 40, growth 80 throughout. Bone 0 is a shared
+  root, not anatomy. These are pre-bounce values, not the documented 6%/8% bounce
+  behavior or a guarantee of a 64-frame live hit; landing/re-hit remain unmodeled.
+- Young Link's S10 explicitly describes one continuous hit despite two visual
+  slashes; S11 names clean/late. Clean base 5/growth 100 becomes late base 0/growth
+  90. The useful late upward trajectory remains, without importing Link's two-hit
+  forward-air semantics or ranking spatial zones by their damage.
+- The key's named early meteor and later launcher retain base 20/growth 100.
+  ID 1 already launches at frame 12 and keeps one unbroken 12–38 phase; do not
+  split it to imitate source headings. The separate 6% landing hit is not added.
+
+These exact static annotations do not certify runtime callbacks, partner/copy
+transformations, extraction completeness, collision priority, vulnerability,
+contact, or live-emulator behavior. No numerical resource or frame convention
+changes, and no full-roster completion claim follows from this bounded batch.
