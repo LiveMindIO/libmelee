@@ -1,5 +1,34 @@
 # Full-roster sweetspot audit
 
+## Independent accounting review: November 16
+
+The inventory/checker review at `fedfa6d7` found no actionable correctness,
+reuse or complexity defects. It independently reconciled all counts below,
+35 local Git-byte citations and the boundary partitions; six built-in and
+24 additional malformed-inventory controls were rejected. All 47 phase tests
+passed. Reviewed-scope manifest SHA-256:
+`3e7569a58f56c6d1f79e6deb4a1522c4dd423b2ef020dcf2471565aa56a861e8`.
+The manifest orders the checker, this README's reviewed version, paired group
+A–G JSON/Markdown files, then boundaries JSON/Markdown, hashing concatenated
+`path + NUL + file-sha256 + newline` records.
+
+The 569 baseline rows remain an identical prefix of the later 620-label CSV.
+All 51 additions match exact catalog signatures; current annotations cover
+144 actions. Historical dispositions/proposals remain unchanged snapshots,
+not authority for later annotations. Source records total 491 across 469 URL
+strings; those counts are not interchangeable.
+
+**Inventory accounting is complete; semantic coverage is not.** This review
+did not refetch every external source, independently decode every DOL context,
+certify every source interpretation or validate live collisions. Checker hashes
+validate receipt syntax, not remote content. Unresolved and runtime-limited
+actions remain open, as do missing extraction and out-of-input states.
+
+Later bounded findings are recorded separately in `timing-conflicts.md`,
+`zelda-teleport-followup.md` and `existing-role-conflicts.md`. They preserve
+numerical resources and historical labels; Puff's clean-body sour role remains
+unresolved despite numerical agreement.
+
 ## November 16 inventory checkpoint
 
 The seven reports account for all 790 catalog actions and nine explicit
